@@ -11,8 +11,9 @@
  *  2. Generate blog content with GPT-4o
  *  3. Generate 4 images with DALL·E 3 (in parallel)
  *  4. Upload images to WordPress media library
- *  5. Create WordPress post with all ACF fields
- *  6. Return the draft post URL
+ *  5. Replace IMGSLOT placeholders with inline image tags
+ *  6. Create WordPress post with all ACF fields
+ *  7. Return the draft post URL
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -23,6 +24,11 @@ import { uploadImageToWordPress, createWordPressPost } from "@/lib/wordpress";
 // Set to 60s — requires Pro plan or self-hosted.
 // On hobby plan, image generation may timeout; upgrade if needed.
 export const maxDuration = 60;
+
+/** Build a WordPress-compatible inline image tag for ACF HTML fields. */
+function wpImg(url: string, alt: string, id: number): string {
+  return `<figure class="wp-block-image aligncenter"><img src="${url}" alt="${alt}" class="wp-image-${id}" /></figure>`;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -45,12 +51,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const title = topic.trim();
+
     // ── 2. Generate blog content ─────────────────────────
-    console.log(`[generate] Starting for topic: "${topic}"`);
-    const content = await generateBlogContent(topic.trim());
-    console.log(`[generate] Content ready: "${content.post_title}"`);
+    console.log(`[generate] Starting for title: "${title}"`);
+    const content = await generateBlogContent(title);
+    console.log(`[generate] Content ready. Focus keyword: "${content.focus_keyword}"`);
 
     // ── 3. Generate all 4 images in parallel ─────────────
+    // Image prompts are returned directly from GPT inside the JSON
     console.log("[generate] Generating images...");
     const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
       generateImage(content.keypoint_one_img_prompt),
@@ -61,36 +70,45 @@ export async function POST(req: NextRequest) {
     console.log("[generate] Images generated.");
 
     // Build a URL-safe slug for filenames
-    const slug = content.post_title
+    const slug = title
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .slice(0, 50);
 
     // ── 4. Upload images to WordPress ────────────────────
     console.log("[generate] Uploading images to WordPress...");
-    const [kp1MediaId, kp2MediaId, splitMediaId, featuredMediaId] = await Promise.all([
-      uploadImageToWordPress(kp1Buffer, `${slug}-kp1.png`, content.keypoint_one),
-      uploadImageToWordPress(kp2Buffer, `${slug}-kp2.png`, content.keypoint_two),
-      uploadImageToWordPress(splitBuffer, `${slug}-split.png`, content.post_title),
-      uploadImageToWordPress(featuredBuffer, `${slug}-featured.png`, content.post_title),
+    const [kp1Media, kp2Media, splitMedia, featuredMedia] = await Promise.all([
+      uploadImageToWordPress(kp1Buffer, `${slug}-kp1.png`, content.keypoint_one_img_alt),
+      uploadImageToWordPress(kp2Buffer, `${slug}-kp2.png`, content.keypoint_two_img_alt),
+      uploadImageToWordPress(splitBuffer, `${slug}-split.png`, content.post_split_img_alt),
+      uploadImageToWordPress(featuredBuffer, `${slug}-featured.png`, content.featured_img_alt),
     ]);
-    console.log(`[generate] Images uploaded: ${kp1MediaId}, ${kp2MediaId}, ${splitMediaId}, ${featuredMediaId}`);
+    console.log(`[generate] Images uploaded: ${kp1Media.id}, ${kp2Media.id}, ${splitMedia.id}, ${featuredMedia.id}`);
 
-    // ── 5. Create the WordPress post ─────────────────────
+    // ── 5. Replace IMGSLOT placeholders with image tags ──
+    const assembled = {
+      main_content:   content.main_content.replace("IMGSLOT_MAIN",  wpImg(featuredMedia.url, content.featured_img_alt, featuredMedia.id)),
+      more_content_1: content.more_content_1.replace("IMGSLOT_ONE",  wpImg(kp1Media.url, content.keypoint_one_img_alt, kp1Media.id)),
+      more_content_3: content.more_content_3.replace("IMGSLOT_TWO",  wpImg(kp2Media.url, content.keypoint_two_img_alt, kp2Media.id)),
+      more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", wpImg(splitMedia.url, content.post_split_img_alt, splitMedia.id)),
+    };
+
+    // ── 6. Create the WordPress post ─────────────────────
     console.log("[generate] Creating WordPress post...");
-    const post = await createWordPressPost(content, {
-      keypointOneImg: kp1MediaId,
-      keypointTwoImg: kp2MediaId,
-      postSplitImg: splitMediaId,
-      featuredImg: featuredMediaId,
+    const post = await createWordPressPost(title, content, assembled, {
+      keypointOneImg: kp1Media.id,
+      keypointTwoImg: kp2Media.id,
+      postSplitImg:   splitMedia.id,
+      featuredImg:    featuredMedia.id,
     });
     console.log(`[generate] Post created! ID: ${post.id}`);
 
-    // ── 6. Return success ─────────────────────────────────
+    // ── 7. Return success ─────────────────────────────────
     return NextResponse.json({
       success: true,
       postId: post.id,
-      title: content.post_title,
+      title,
+      focusKeyword: content.focus_keyword,
       readMins: content.read_mins,
       editUrl: `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
       previewUrl: post.link,

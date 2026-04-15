@@ -25,13 +25,13 @@ const BASE_HEADERS = {
 
 /**
  * Upload an image buffer to the WordPress media library.
- * Returns the WordPress media ID (integer) for use in ACF image fields.
+ * Returns the media ID and public URL — ID for ACF fields, URL for inline img tags.
  */
 export async function uploadImageToWordPress(
   imageBuffer: Buffer,
   filename: string,
   altText: string
-): Promise<number> {
+): Promise<{ id: number; url: string }> {
   const form = new FormData();
   form.append("file", imageBuffer, {
     filename,
@@ -56,6 +56,7 @@ export async function uploadImageToWordPress(
   }
 
   const mediaId = response.data?.id;
+  const mediaUrl = response.data?.source_url ?? "";
   if (!mediaId) {
     throw new Error(`WP media upload: no ID returned. Response: ${JSON.stringify(response.data)}`);
   }
@@ -67,56 +68,64 @@ export async function uploadImageToWordPress(
     { headers: BASE_HEADERS }
   );
 
-  return mediaId;
+  return { id: mediaId, url: mediaUrl };
 }
 
 /**
  * Create a WordPress post with all ACF fields pre-filled.
  * Posts as "draft" so you can review before publishing.
+ * assembled contains the content sections with IMGSLOT placeholders replaced.
  */
 export async function createWordPressPost(
+  title: string,
   content: BlogContent,
+  assembled: {
+    main_content: string;
+    more_content_1: string;
+    more_content_3: string;
+    more_content_4: string;
+  },
   imageIds: { keypointOneImg: number; keypointTwoImg: number; postSplitImg: number; featuredImg: number }
 ) {
   let response;
   try {
     response = await axios.post(
-    `${WP_URL}/wp-json/wp/v2/posts`,
-    {
-      // ── Standard WordPress fields ──────────────────────
-      title: content.post_title,
-      content: content.main_content,
-      status: "draft",
-      excerpt: content.seo_excerpt,
-      featured_media: imageIds.featuredImg,
+      `${WP_URL}/wp-json/wp/v2/posts`,
+      {
+        // ── Standard WordPress fields ──────────────────────
+        title,
+        content: assembled.main_content,
+        status: "draft",
+        featured_media: imageIds.featuredImg,
 
-      // ── ACF custom fields ──────────────────────────────
-      // Field formats matched exactly to how existing posts store them:
-      // - Key_takeaways: HTML <ul><li> list (not plain bullet text)
-      // - read_mins: integer only (not "7 min read" string)
-      // - keypoint_one_img / Keypoint_Two_Img: media ID integer
-      // - post_split_img / Final_Points: stored as empty string when unused
-      acf: {
-        Key_takeaways:    content.key_takeaways,   // HTML formatted by GPT
-        Keypoint_One:     content.keypoint_one,
-        keypoint_one_img: imageIds.keypointOneImg,  // integer media ID
-        more_content_1:   content.more_content_1,
-        more_content_2:   content.more_content_2,
-        quote_1:          content.quote_1,
-        more_content_3:   content.more_content_3,
-        more_content_4:   content.more_content_4,
-        quote_2:          content.quote_2,
-        more_content_5:   content.more_content_5,
-        Keypoint_Two:     content.keypoint_two,
-        Keypoint_Two_Img: imageIds.keypointTwoImg, // integer media ID
-        more_content_6:   content.more_content_6,
-        read_mins:        parseInt(content.read_mins, 10) || 7, // integer only
-        post_split_img:   imageIds.postSplitImg,   // integer media ID
-        Final_Points:     content.final_points,
+        // ── Yoast SEO ──────────────────────────────────────
+        meta: {
+          yoast_wpseo_focuskw: content.focus_keyword,
+        },
+
+        // ── ACF custom fields ──────────────────────────────
+        acf: {
+          Key_takeaways:    content.key_takeaways,
+          keypoint_one_img: imageIds.keypointOneImg,  // integer media ID
+          more_content_1:   assembled.more_content_1,
+          more_content_2:   content.more_content_2,
+          more_content_3:   assembled.more_content_3,
+          more_content_4:   assembled.more_content_4,
+          Keypoint_Two_Img: imageIds.keypointTwoImg,  // integer media ID
+          read_mins:        parseInt(content.read_mins, 10) || 7,
+          post_split_img:   imageIds.postSplitImg,    // integer media ID
+          Final_Points:     content.final_points,
+          // Fields removed from new schema — cleared to avoid stale data
+          Keypoint_One:     "",
+          Keypoint_Two:     "",
+          quote_1:          "",
+          quote_2:          "",
+          more_content_5:   "",
+          more_content_6:   "",
+        },
       },
-    },
-    { headers: BASE_HEADERS }
-  );
+      { headers: BASE_HEADERS }
+    );
   } catch (err: unknown) {
     if (axios.isAxiosError(err)) {
       const detail = JSON.stringify(err.response?.data ?? err.message);
@@ -130,24 +139,22 @@ export async function createWordPressPost(
 
 // ── Shared type used across the app ───────────────────────────
 export interface BlogContent {
-  post_title: string;
-  read_mins: string;
-  seo_excerpt: string;
-  key_takeaways: string;
+  focus_keyword: string;
+  secondary_keywords: string[];
   main_content: string;
-  keypoint_one: string;
-  keypoint_one_img_prompt: string;
   more_content_1: string;
   more_content_2: string;
-  quote_1: string;
   more_content_3: string;
   more_content_4: string;
-  quote_2: string;
-  more_content_5: string;
-  keypoint_two: string;
-  keypoint_two_img_prompt: string;
-  more_content_6: string;
-  post_split_img_prompt: string;
-  featured_img_prompt: string;
+  key_takeaways: string;
   final_points: string;
+  read_mins: string;
+  keypoint_one_img_prompt: string;
+  keypoint_one_img_alt: string;
+  keypoint_two_img_prompt: string;
+  keypoint_two_img_alt: string;
+  post_split_img_prompt: string;
+  post_split_img_alt: string;
+  featured_img_prompt: string;
+  featured_img_alt: string;
 }
