@@ -99,6 +99,9 @@ export async function POST(req: NextRequest) {
     const message =
       error instanceof Error ? error.message : "An unexpected error occurred.";
 
+    // Log full error on server for Vercel dashboard debugging
+    console.error("[generate] Full error:", JSON.stringify(error, Object.getOwnPropertyNames(error)));
+
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

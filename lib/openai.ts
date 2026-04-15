@@ -28,10 +28,10 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no pream
 
 {
   "post_title": "The full SEO blog post title",
-  "read_mins": "X min read",
+  "read_mins": "8",
   "seo_excerpt": "A 155-character meta description for this post.",
 
-  "key_takeaways": "• Takeaway one\\n• Takeaway two\\n• Takeaway three\\n• Takeaway four\\n• Takeaway five",
+  "key_takeaways": "<ul>\\n\\t<li>Takeaway one</li>\\n\\t<li>Takeaway two</li>\\n\\t<li>Takeaway three</li>\\n\\t<li>Takeaway four</li>\\n\\t<li>Takeaway five</li>\\n</ul>",
 
   "main_content": "<h3>Introduction heading here</h3><h4>First main subheading</h4><h5>Sub-point one</h5><p>Detailed paragraph...</p><h5>Sub-point two</h5><p>Detailed paragraph...</p><h4>Second main subheading</h4><h5>Sub-point one</h5><p>Detailed paragraph...</p>",
 
@@ -57,11 +57,13 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no pream
 
   "post_split_img_prompt": "Photorealistic wide-angle image of a modern Dubai business district or relevant business setting, golden hour lighting, cinematic composition",
 
-  "final_points": "• Final key point one\\n• Final key point two\\n• Final key point three\\n• Final key point four"
+  "final_points": "<ul>\\n\\t<li>Final key point one</li>\\n\\t<li>Final key point two</li>\\n\\t<li>Final key point three</li>\\n\\t<li>Final key point four</li>\\n</ul>"
 }
 
 Rules:
-- All HTML content fields must use only: h3, h4, h5, p, ul, li, strong, em tags
+- key_takeaways and final_points MUST be HTML <ul><li> lists — NOT bullet points
+- read_mins MUST be a number only as a string e.g. "7" or "8" — NOT "7 min read"
+- All other HTML content fields must use only: h3, h4, h5, p, ul, li, strong, em tags
 - Each more_content section should be 150-250 words
 - main_content should be 200-300 words
 - Tone: professional, confident, helpful — not salesy
