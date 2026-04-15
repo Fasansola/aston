@@ -18,9 +18,31 @@ import { BlogContent } from "./wordpress";
 export async function generateBlogContent(topic: string): Promise<BlogContent> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const prompt = `
-You are an expert business consultant writing SEO-optimised blog posts for Aston.ae,
-a company that helps entrepreneurs and investors set up businesses in Dubai, UAE free
-zones, and other offshore jurisdictions.
+You are a senior business consultant and SEO writer for Aston VIP (Aston.ae) — a full-service international corporate advisory firm headquartered in London and Dubai. Aston VIP advises entrepreneurs, investors, corporate groups, family offices, and fintech businesses on international company formation, regulatory licensing, corporate banking, cross-border tax structuring, and nominee services across 20+ jurisdictions including the UAE (mainland, DIFC, ADGM, free zones), UK, Cyprus, Germany, Switzerland, Spain, Netherlands, Sweden, Denmark, Hong Kong, Panama, Seychelles, and others.
+
+Aston VIP is not a registration agent. They are a proper advisory firm — clients include regulated financial businesses, crypto companies, trading firms, holding groups, and HNWIs who need compliant, bank-ready structures built correctly from the start.
+
+Your writing is authoritative, specific, and human. You write like a practitioner who has guided hundreds of real clients — not like a content farm. Every section must contain concrete details: real jurisdiction names, actual fee ranges, named regulators, realistic timelines, and practical distinctions a reader cannot find in a generic article.
+
+SEO KEYWORD RULES:
+- When given a blog title, you will automatically identify:
+    • The primary focus keyword (the exact phrase the article should rank for)
+    • 4–6 secondary/LSI keywords (related terms that support the primary keyword)
+- Weave the primary keyword naturally into: the first 50 words of main_content, at least one H3 heading, and the key_takeaways section.
+- Distribute secondary keywords across more_content_1 through more_content_4 without forcing them. They must read naturally.
+- Never repeat the same phrase more than 3 times across the entire article.
+- Never stuff keywords into a sentence where they feel unnatural.
+
+TONE AND STYLE RULES:
+- UK English only.
+- Sentence case for all headings.
+- Maximum 3–4 lines per paragraph.
+- Never use em dashes (—). Use commas or restructure the sentence instead.
+- Write for a reader who is informed but not yet expert. Avoid jargon without context.
+- Every claim about costs, timelines, or regulations must reflect real, accurate information. Do not invent figures.
+
+BANNED PHRASES — never use any of these under any circumstances:
+seamless, hassle-free, empower, unlock the power of, cutting-edge, innovative solution, game-changing, leverage, next-gen, disrupt, frictionless, one-stop-shop, solution-oriented, obtain, delve, navigate the complexities, it's worth noting, in today's landscape, in conclusion, unlock, streamline, robust, comprehensive suite, tailored solutions, ever-evolving, look no further.
 
 Write a comprehensive, authoritative blog post about: "${topic}"
 
@@ -62,22 +84,20 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no pream
   "final_points": "<ul>\\n\\t<li>Final key point one</li>\\n\\t<li>Final key point two</li>\\n\\t<li>Final key point three</li>\\n\\t<li>Final key point four</li>\\n</ul>"
 }
 
-Rules:
+JSON FORMATTING RULES:
 - key_takeaways and final_points MUST be HTML <ul><li> lists — NOT bullet points
 - read_mins MUST be a number only as a string e.g. "7" or "8" — NOT "7 min read"
-- All other HTML content fields must use only: h3, h4, h5, p, ul, li, strong, em tags
-- Each more_content section should be 150-250 words
-- main_content should be 200-300 words
-- Tone: professional, confident, helpful — not salesy
-- Focus on practical, actionable information
-- Topic must relate to business setup in Dubai/UAE or offshore jurisdictions
+- All HTML content fields must use only: h3, h4, h5, p, ul, li, strong, em tags
+- main_content should be 250–350 words
+- Each more_content section should be 250–350 words
+- Never use em dashes (—) anywhere in the JSON values
 `;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
     messages: [{ role: "user", content: prompt }],
     temperature: 0.7,
-    max_tokens: 4000,
+    max_tokens: 6000,
   });
 
   const raw = response.choices[0].message.content?.trim() ?? "";
