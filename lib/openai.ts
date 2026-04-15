@@ -57,6 +57,8 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no pream
 
   "post_split_img_prompt": "Photorealistic wide-angle image of a modern Dubai business district or relevant business setting, golden hour lighting, cinematic composition",
 
+  "featured_img_prompt": "Photorealistic wide-angle hero image representing [the blog topic], dramatic lighting, high production value, suitable as a full-width page header — no text overlays",
+
   "final_points": "<ul>\\n\\t<li>Final key point one</li>\\n\\t<li>Final key point two</li>\\n\\t<li>Final key point three</li>\\n\\t<li>Final key point four</li>\\n</ul>"
 }
 

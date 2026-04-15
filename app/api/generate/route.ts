@@ -9,7 +9,7 @@
  * Flow:
  *  1. Validate request + API secret
  *  2. Generate blog content with GPT-4o
- *  3. Generate 3 images with DALL·E 3 (in parallel)
+ *  3. Generate 4 images with DALL·E 3 (in parallel)
  *  4. Upload images to WordPress media library
  *  5. Create WordPress post with all ACF fields
  *  6. Return the draft post URL
@@ -50,12 +50,13 @@ export async function POST(req: NextRequest) {
     const content = await generateBlogContent(topic.trim());
     console.log(`[generate] Content ready: "${content.post_title}"`);
 
-    // ── 3. Generate all 3 images in parallel ─────────────
+    // ── 3. Generate all 4 images in parallel ─────────────
     console.log("[generate] Generating images...");
-    const [kp1Buffer, kp2Buffer, splitBuffer] = await Promise.all([
+    const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
       generateImage(content.keypoint_one_img_prompt),
       generateImage(content.keypoint_two_img_prompt),
       generateImage(content.post_split_img_prompt),
+      generateImage(content.featured_img_prompt),
     ]);
     console.log("[generate] Images generated.");
 
@@ -67,12 +68,13 @@ export async function POST(req: NextRequest) {
 
     // ── 4. Upload images to WordPress ────────────────────
     console.log("[generate] Uploading images to WordPress...");
-    const [kp1MediaId, kp2MediaId, splitMediaId] = await Promise.all([
+    const [kp1MediaId, kp2MediaId, splitMediaId, featuredMediaId] = await Promise.all([
       uploadImageToWordPress(kp1Buffer, `${slug}-kp1.png`, content.keypoint_one),
       uploadImageToWordPress(kp2Buffer, `${slug}-kp2.png`, content.keypoint_two),
       uploadImageToWordPress(splitBuffer, `${slug}-split.png`, content.post_title),
+      uploadImageToWordPress(featuredBuffer, `${slug}-featured.png`, content.post_title),
     ]);
-    console.log(`[generate] Images uploaded: ${kp1MediaId}, ${kp2MediaId}, ${splitMediaId}`);
+    console.log(`[generate] Images uploaded: ${kp1MediaId}, ${kp2MediaId}, ${splitMediaId}, ${featuredMediaId}`);
 
     // ── 5. Create the WordPress post ─────────────────────
     console.log("[generate] Creating WordPress post...");
@@ -80,6 +82,7 @@ export async function POST(req: NextRequest) {
       keypointOneImg: kp1MediaId,
       keypointTwoImg: kp2MediaId,
       postSplitImg: splitMediaId,
+      featuredImg: featuredMediaId,
     });
     console.log(`[generate] Post created! ID: ${post.id}`);
 

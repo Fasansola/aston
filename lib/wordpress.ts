@@ -76,7 +76,7 @@ export async function uploadImageToWordPress(
  */
 export async function createWordPressPost(
   content: BlogContent,
-  imageIds: { keypointOneImg: number; keypointTwoImg: number; postSplitImg: number }
+  imageIds: { keypointOneImg: number; keypointTwoImg: number; postSplitImg: number; featuredImg: number }
 ) {
   let response;
   try {
@@ -88,6 +88,7 @@ export async function createWordPressPost(
       content: content.main_content,
       status: "draft",
       excerpt: content.seo_excerpt,
+      featured_media: imageIds.featuredImg,
 
       // ── ACF custom fields ──────────────────────────────
       // Field formats matched exactly to how existing posts store them:
@@ -147,5 +148,6 @@ export interface BlogContent {
   keypoint_two_img_prompt: string;
   more_content_6: string;
   post_split_img_prompt: string;
+  featured_img_prompt: string;
   final_points: string;
 }
