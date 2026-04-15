@@ -65,10 +65,14 @@ Then write the full blog post and return it as a single valid JSON object with e
   "focus_keyword": "string",
   "secondary_keywords": ["string", "string", "string", "string"],
   "main_content": "string",
+  "keypoint_one": "string",
   "more_content_1": "string",
   "more_content_2": "string",
+  "quote_1": "string",
   "more_content_3": "string",
+  "keypoint_two": "string",
   "more_content_4": "string",
+  "quote_2": "string",
   "key_takeaways": "string",
   "final_points": "string",
   "read_mins": "string",
@@ -97,42 +101,59 @@ main_content (350-450 words):
 - For UAE topics reference the specific jurisdiction (DIFC, ADGM, mainland, or relevant free zone) not "Dubai" generically
 - For non-UAE topics reference Aston's international coverage and London/Dubai offices naturally
 - End with a sentence that pulls the reader into what follows
-- Do NOT open with an H3. Start with a P tag
-- Place this placeholder exactly where the image should appear: IMGSLOT_MAIN
-- Allowed HTML: <p>, <strong>, <em>
+- Do NOT open with an H3. Start with a P tag. After the opening paragraph, use H3 for major sub-sections, H4 for subsections within each H3, and H5 for individual sub-points
+- Heading hierarchy rule: every H4 must sit under an H3, every H5 must sit under an H4. Never skip levels
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <strong>, <em>
+
+keypoint_one:
+A single compelling sentence (maximum 25 words) pulled from the key insight of main_content. Written as a bold editorial statement. No em dashes. No question marks. This is used as a callout quote in the page layout.
 
 more_content_1 (350-450 words):
 - Deep-dive into the first major angle of the topic
-- Use an H3 heading containing the focus keyword or a close variant
+- Open with an H3 heading containing the focus keyword or a close variant
+- Under each H3 use at least two H4 subsections. Under each H4 use H5 sub-points where appropriate
+- Heading hierarchy rule: every H4 must sit under an H3, every H5 must sit under an H4. Never skip levels
 - Must include at least one of: a specific cost or fee range in AED or USD, a named regulatory body, a realistic processing timeline, or a direct comparison between two jurisdictions or licence types
 - Use 1-2 secondary keywords naturally
-- Place this placeholder exactly where the image should appear: IMGSLOT_ONE
-- Allowed HTML: <h3>, <h4>, <p>, <ul>, <li>, <strong>, <em>
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>
 
 more_content_2 (350-450 words):
 - Cover requirements, eligibility, process steps, or common mistakes
-- Use an H3 heading
+- Open with an H3 heading
+- Under each H3 use at least two H4 subsections. Under each H4 use H5 sub-points where appropriate
+- Heading hierarchy rule: every H4 must sit under an H3, every H5 must sit under an H4. Never skip levels
 - Must include a bulleted or numbered list of at least 4 concrete items — actual documents, named steps, real costs, or specific eligibility conditions. No vague items. Each must contain a fact, figure, or named detail
 - Use 1-2 secondary keywords naturally
-- Allowed HTML: <h3>, <h4>, <p>, <ul>, <li>, <strong>, <em>
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>
+
+quote_1:
+A short, punchy, practical piece of advice directly relevant to the content in more_content_1 or more_content_2. Maximum 2 sentences. No em dashes. Written as actionable guidance the reader can apply immediately.
 
 more_content_3 (350-450 words):
 - Address who this topic is most relevant for
-- Use an H3 heading
+- Open with an H3 heading
+- Under each H3 use at least two H4 subsections. Under each H4 use H5 sub-points where appropriate
+- Heading hierarchy rule: every H4 must sit under an H3, every H5 must sit under an H4. Never skip levels
 - Cover ideal client profiles, business types, investor categories, or industry sectors
 - Include at least one real-world scenario written as a short narrative. Example: "A fintech founder relocating from London..." or "A family office looking to hold real estate across three markets..."
 - Reference Aston's client base where appropriate: regulated financial businesses, crypto companies, trading firms, HNWIs, family offices, corporate groups
 - Use 1-2 secondary keywords naturally
-- Place this placeholder exactly where the image should appear: IMGSLOT_TWO
-- Allowed HTML: <h3>, <h4>, <p>, <ul>, <li>, <strong>, <em>
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>
+
+keypoint_two:
+A single compelling sentence (maximum 25 words) pulled from the key insight of more_content_3. Written as a bold editorial statement. No em dashes. No question marks. Different point from keypoint_one.
 
 more_content_4 (350-450 words):
 - Open with: <h3>Aston VIP's role in your [topic-relevant process]</h3> — adapt the ending to the specific topic
+- Under the H3 use H4 subsections for each distinct service area (e.g. regulatory liaison, banking introductions, document preparation). Use H5 for specific detail points under each H4
+- Heading hierarchy rule: every H4 must sit under an H3, every H5 must sit under an H4. Never skip levels
 - Describe Aston's end-to-end involvement specific to this topic and jurisdiction. Do not describe Aston generically
 - Where relevant mention: regulatory correspondence and authority liaison, document preparation and compliance review, corporate banking introductions, nominee director or shareholder services, cross-border tax structuring, Aston's London and Dubai offices as a differentiator
-- Place this placeholder exactly where the image should appear: IMGSLOT_SPLIT
 - Close with: <p>To discuss your situation, <a href="https://aston.ae/contact-us/">speak with our team</a>.</p>
-- Allowed HTML: <h3>, <p>, <strong>, <a>
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <strong>, <a>
+
+quote_2:
+A second short, punchy piece of advice directly relevant to Aston VIP's advisory process or the client outcome described in more_content_4. Maximum 2 sentences. No em dashes. Different from quote_1.
 
 key_takeaways:
 - HTML ul/li list of exactly 5 items

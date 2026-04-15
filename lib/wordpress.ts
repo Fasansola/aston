@@ -106,20 +106,19 @@ export async function createWordPressPost(
         // ── ACF custom fields ──────────────────────────────
         acf: {
           Key_takeaways:    content.key_takeaways,
-          keypoint_one_img: imageIds.keypointOneImg,  // integer media ID
+          Keypoint_One:     content.keypoint_one,
+          keypoint_one_img: imageIds.keypointOneImg,
           more_content_1:   assembled.more_content_1,
           more_content_2:   content.more_content_2,
+          quote_1:          content.quote_1,
           more_content_3:   assembled.more_content_3,
+          Keypoint_Two:     content.keypoint_two,
+          Keypoint_Two_Img: imageIds.keypointTwoImg,
           more_content_4:   assembled.more_content_4,
-          Keypoint_Two_Img: imageIds.keypointTwoImg,  // integer media ID
+          quote_2:          content.quote_2,
           read_mins:        parseInt(content.read_mins, 10) || 7,
-          post_split_img:   imageIds.postSplitImg,    // integer media ID
+          post_split_img:   imageIds.postSplitImg,
           Final_Points:     content.final_points,
-          // Fields removed from new schema — cleared to avoid stale data
-          Keypoint_One:     "",
-          Keypoint_Two:     "",
-          quote_1:          "",
-          quote_2:          "",
           more_content_5:   "",
           more_content_6:   "",
         },
@@ -142,10 +141,14 @@ export interface BlogContent {
   focus_keyword: string;
   secondary_keywords: string[];
   main_content: string;
+  keypoint_one: string;
   more_content_1: string;
   more_content_2: string;
+  quote_1: string;
   more_content_3: string;
+  keypoint_two: string;
   more_content_4: string;
+  quote_2: string;
   key_takeaways: string;
   final_points: string;
   read_mins: string;

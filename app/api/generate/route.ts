@@ -25,10 +25,6 @@ import { uploadImageToWordPress, createWordPressPost } from "@/lib/wordpress";
 // On hobby plan, image generation may timeout; upgrade if needed.
 export const maxDuration = 60;
 
-/** Build a WordPress-compatible inline image tag for ACF HTML fields. */
-function wpImg(url: string, alt: string, id: number): string {
-  return `<figure class="wp-block-image aligncenter"><img src="${url}" alt="${alt}" class="wp-image-${id}" /></figure>`;
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -85,12 +81,13 @@ export async function POST(req: NextRequest) {
     ]);
     console.log(`[generate] Images uploaded: ${kp1Media.id}, ${kp2Media.id}, ${splitMedia.id}, ${featuredMedia.id}`);
 
-    // ── 5. Replace IMGSLOT placeholders with image tags ──
+    // ── 5. Strip any IMGSLOT placeholders GPT may have included ──
+    // Images are rendered by ACF image fields — no inline embedding needed
     const assembled = {
-      main_content:   content.main_content.replace("IMGSLOT_MAIN",  wpImg(featuredMedia.url, content.featured_img_alt, featuredMedia.id)),
-      more_content_1: content.more_content_1.replace("IMGSLOT_ONE",  wpImg(kp1Media.url, content.keypoint_one_img_alt, kp1Media.id)),
-      more_content_3: content.more_content_3.replace("IMGSLOT_TWO",  wpImg(kp2Media.url, content.keypoint_two_img_alt, kp2Media.id)),
-      more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", wpImg(splitMedia.url, content.post_split_img_alt, splitMedia.id)),
+      main_content:   content.main_content.replace("IMGSLOT_MAIN", ""),
+      more_content_1: content.more_content_1.replace("IMGSLOT_ONE", ""),
+      more_content_3: content.more_content_3.replace("IMGSLOT_TWO", ""),
+      more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
     };
 
     // ── 6. Create the WordPress post ─────────────────────
