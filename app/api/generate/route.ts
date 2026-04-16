@@ -13,14 +13,16 @@
  *  5. Generate 4 content-aware image prompts with GPT-4o
  *  6. Generate 4 images with DALL·E 3 (in parallel)
  *  7. Upload images to WordPress media library (in parallel)
- *  8. Create WordPress draft post with all ACF + Yoast fields
- *  9. Return the draft post URL
+ *  8. Run QA engine — fail hard on blocking issues, flag warnings
+ *  9. Create WordPress draft post with all ACF + Yoast fields
+ * 10. Return the draft post URL with QA report
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { generateBlueprint, generateBlogContent, generateImagePrompts, generateImage } from "@/lib/openai";
 import { uploadImageToWordPress, createWordPressPost } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
+import { runQA } from "@/lib/qa";
 
 // Vercel default timeout is 300s on all plans.
 // We set 180s as a safe ceiling — the full pipeline takes ~90-120s.
@@ -102,7 +104,37 @@ export async function POST(req: NextRequest) {
       `[generate] Images uploaded: ${kp1Media.id}, ${kp2Media.id}, ${splitMedia.id}, ${featuredMedia.id}`
     );
 
-    // ── 8. Strip IMGSLOT placeholders (images handled by ACF) ──
+    const imageIds = {
+      keypointOneImg: kp1Media.id,
+      keypointTwoImg: kp2Media.id,
+      postSplitImg:   splitMedia.id,
+      featuredImg:    featuredMedia.id,
+    };
+
+    // ── 8. Run QA ─────────────────────────────────────────
+    console.log("[generate] Running QA checks...");
+    const qa = runQA(content, imagePrompts, imageIds);
+    console.log(
+      `[generate] QA: ${qa.status.toUpperCase()} (score ${qa.score}/100, ${qa.wordCount} words)`
+    );
+
+    if (qa.status === "fail") {
+      const issues = qa.blocking_issues.join("; ");
+      console.error(`[generate] QA FAIL — blocking issues: ${issues}`);
+      return NextResponse.json(
+        {
+          error: `Post failed QA checks. Blocking issues: ${issues}`,
+          qa,
+        },
+        { status: 422 }
+      );
+    }
+
+    if (qa.warnings.length > 0) {
+      console.warn(`[generate] QA warnings: ${qa.warnings.join(" | ")}`);
+    }
+
+    // ── 9. Strip IMGSLOT placeholders (images handled by ACF) ──
     const assembled = {
       main_content:   content.main_content.replace("IMGSLOT_MAIN", ""),
       more_content_1: content.more_content_1.replace("IMGSLOT_ONE", ""),
@@ -110,17 +142,12 @@ export async function POST(req: NextRequest) {
       more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
     };
 
-    // ── 9. Create the WordPress post ─────────────────────
+    // ── 10. Create the WordPress post ────────────────────
     console.log("[generate] Creating WordPress post...");
-    const post = await createWordPressPost(title, content, imagePrompts, assembled, {
-      keypointOneImg: kp1Media.id,
-      keypointTwoImg: kp2Media.id,
-      postSplitImg:   splitMedia.id,
-      featuredImg:    featuredMedia.id,
-    });
+    const post = await createWordPressPost(title, content, imagePrompts, assembled, imageIds);
     console.log(`[generate] Post created! ID: ${post.id}, slug: "${content.slug}"`);
 
-    // ── 10. Return success ────────────────────────────────
+    // ── 11. Return success ────────────────────────────────
     return NextResponse.json({
       success: true,
       postId: post.id,
@@ -129,6 +156,12 @@ export async function POST(req: NextRequest) {
       focusKeyword: content.focus_keyword,
       seoTitle: content.seo_title,
       readMins: content.read_mins,
+      wordCount: qa.wordCount,
+      qa: {
+        status: qa.status,
+        score: qa.score,
+        warnings: qa.warnings,
+      },
       linksUsed: {
         internal: content.internal_links_used,
         external: content.external_links_used,

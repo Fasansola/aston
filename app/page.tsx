@@ -10,6 +10,12 @@ interface GenerateResult {
   focusKeyword: string;
   seoTitle: string;
   readMins: string;
+  wordCount: number;
+  qa: {
+    status: "pass" | "warn" | "fail";
+    score: number;
+    warnings: string[];
+  };
   linksUsed: {
     internal: Array<{ anchor: string; url: string }>;
     external: Array<{ anchor: string; url: string }>;
@@ -225,7 +231,7 @@ export default function HomePage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">Read time</p>
-                    <p className="text-white/60 text-sm">{result.readMins} min</p>
+                    <p className="text-white/60 text-sm">{result.readMins} min · {result.wordCount?.toLocaleString()} words</p>
                   </div>
                   <div>
                     <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">Links placed</p>
@@ -235,6 +241,22 @@ export default function HomePage() {
                     </p>
                   </div>
                 </div>
+                {result.qa && (
+                  <div className={`rounded-lg px-4 py-3 border ${result.qa.status === "pass" ? "bg-emerald-500/10 border-emerald-500/20" : "bg-amber-500/10 border-amber-500/20"}`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className={`text-xs font-medium tracking-wide uppercase ${result.qa.status === "pass" ? "text-emerald-400" : "text-amber-400"}`}>
+                        QA {result.qa.status === "pass" ? "Passed" : "Passed with warnings"} · {result.qa.score}/100
+                      </p>
+                    </div>
+                    {result.qa.warnings.length > 0 && (
+                      <ul className="mt-1 space-y-0.5">
+                        {result.qa.warnings.map((w, i) => (
+                          <li key={i} className="text-xs text-amber-300/70">{w}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
