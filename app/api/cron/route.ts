@@ -106,7 +106,7 @@ export async function GET(req: NextRequest) {
       }
 
       // Links → Blueprint → Content → Image prompts → Images → Upload → QA → Post
-      const selectedLinks = selectLinks(item.topic);
+      const selectedLinks = await selectLinks(item.topic);
       const blueprint = await generateBlueprint(item.topic, selectedLinks, sourceBrief);
       const content = await generateBlogContent(item.topic, blueprint, selectedLinks, sourceBrief);
       const imagePrompts = await generateImagePrompts(item.topic, content);

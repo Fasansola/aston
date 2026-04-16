@@ -1,16 +1,14 @@
 /**
  * lib/storage.ts
  * ─────────────────────────────────────────────────────────────
- * Persistent storage for queue items, scheduler settings, and
- * run logs.
+ * Persistent storage for queue items, scheduler settings,
+ * run logs, link manager, and topic planner.
  *
  * Primary:  Upstash Redis (production on Vercel)
  *           Set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN
- *           Install: vercel integration add upstash
  *
  * Fallback: File-based JSON (local dev without Redis configured)
- *           Data lives in data/queue.json, data/scheduler.json,
- *           data/runs.json — not suitable for Vercel serverless.
+ *           Data lives in data/*.json — not for Vercel serverless.
  */
 
 import { GenerationMode } from "./source";
@@ -46,6 +44,8 @@ export interface SchedulerSettings {
   blogsPerDay: number;
   publishMode: "draft_only";
   maxRetries: number;
+  blockOnQaWarning: boolean;
+  maxPerRun: number;
 }
 
 export interface RunLog {
@@ -58,12 +58,49 @@ export interface RunLog {
   status: "running" | "completed" | "completed_with_errors" | "failed";
 }
 
+// ── Link Manager types ────────────────────────────────────────
+
+export interface LinkEntry {
+  id: string;
+  url: string;
+  title: string;
+  type: "internal" | "external";
+  category: string;
+  keywords: string[];
+  anchors: string[];
+  status: "active" | "inactive";
+}
+
+// ── Topic Planner types ───────────────────────────────────────
+
+export type TopicPlanStatus =
+  | "idea"
+  | "planned"
+  | "approved"
+  | "queued"
+  | "archived";
+
+export interface TopicPlan {
+  id: string;
+  topic: string;
+  focusKeyword: string;
+  cluster: string;
+  intent: string;
+  priority: number; // 1–5
+  status: TopicPlanStatus;
+  notes: string;
+  createdAt: string;
+  queuedAt: string | null;
+}
+
 // ── Redis keys ────────────────────────────────────────────────
 
 const KEYS = {
-  queue: "aston:queue",
+  queue:    "aston:queue",
   settings: "aston:scheduler:settings",
-  runs: "aston:runs",
+  runs:     "aston:runs",
+  links:    "aston:links",
+  topics:   "aston:topics",
 } as const;
 
 const DEFAULT_SETTINGS: SchedulerSettings = {
@@ -71,6 +108,8 @@ const DEFAULT_SETTINGS: SchedulerSettings = {
   blogsPerDay: 3,
   publishMode: "draft_only",
   maxRetries: 2,
+  blockOnQaWarning: false,
+  maxPerRun: 1,
 };
 
 // ── Storage adapter ───────────────────────────────────────────
@@ -248,4 +287,101 @@ export async function completedTodayCount(): Promise<number> {
   return queue.filter(
     (i) => i.status === "completed" && i.completedAt?.startsWith(today)
   ).length;
+}
+
+// ── Link Manager ──────────────────────────────────────────────
+
+/** Returns all links. Seeds from data/links.json on first call. */
+export async function getLinks(): Promise<LinkEntry[]> {
+  const stored = await kget<LinkEntry[] | null>(KEYS.links, null);
+  if (stored !== null) return stored;
+
+  // First-time seed from the static JSON file
+  try {
+    const { default: data } = await import("@/data/links.json");
+    const seeded: LinkEntry[] = [
+      ...(data.internal as Omit<LinkEntry, "type">[]).map((l) => ({ ...l, type: "internal" as const })),
+      ...(data.external as Omit<LinkEntry, "type">[]).map((l) => ({ ...l, type: "external" as const })),
+    ];
+    await kset(KEYS.links, seeded);
+    return seeded;
+  } catch {
+    return [];
+  }
+}
+
+export async function saveLinks(links: LinkEntry[]): Promise<void> {
+  return kset(KEYS.links, links);
+}
+
+export async function addLink(link: Omit<LinkEntry, "id">): Promise<LinkEntry> {
+  const links = await getLinks();
+  const newLink: LinkEntry = {
+    ...link,
+    id: `link_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+  };
+  links.push(newLink);
+  await saveLinks(links);
+  return newLink;
+}
+
+export async function updateLink(
+  id: string,
+  updates: Partial<LinkEntry>
+): Promise<LinkEntry | null> {
+  const links = await getLinks();
+  const idx = links.findIndex((l) => l.id === id);
+  if (idx === -1) return null;
+  links[idx] = { ...links[idx], ...updates };
+  await saveLinks(links);
+  return links[idx];
+}
+
+export async function deleteLink(id: string): Promise<boolean> {
+  const links = await getLinks();
+  const next = links.filter((l) => l.id !== id);
+  if (next.length === links.length) return false;
+  await saveLinks(next);
+  return true;
+}
+
+// ── Topic Planner ─────────────────────────────────────────────
+
+export async function getTopics(): Promise<TopicPlan[]> {
+  return kget<TopicPlan[]>(KEYS.topics, []);
+}
+
+export async function addTopicPlan(
+  data: Omit<TopicPlan, "id" | "createdAt" | "queuedAt">
+): Promise<TopicPlan> {
+  const plan: TopicPlan = {
+    ...data,
+    id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    createdAt: new Date().toISOString(),
+    queuedAt: null,
+  };
+  const all = await getTopics();
+  all.push(plan);
+  await kset(KEYS.topics, all);
+  return plan;
+}
+
+export async function updateTopicPlan(
+  id: string,
+  updates: Partial<TopicPlan>
+): Promise<TopicPlan | null> {
+  const all = await getTopics();
+  const idx = all.findIndex((t) => t.id === id);
+  if (idx === -1) return null;
+  all[idx] = { ...all[idx], ...updates };
+  await kset(KEYS.topics, all);
+  return all[idx];
+}
+
+export async function deleteTopicPlan(id: string): Promise<boolean> {
+  const all = await getTopics();
+  const next = all.filter((t) => t.id !== id);
+  if (next.length === all.length) return false;
+  await kset(KEYS.topics, next);
+  return true;
 }

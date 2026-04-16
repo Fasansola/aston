@@ -41,12 +41,15 @@ export async function POST(req: NextRequest) {
 
     const current = await getSettings();
     const updated: SchedulerSettings = {
-      enabled:      typeof body.enabled === "boolean" ? body.enabled : current.enabled,
-      blogsPerDay:  typeof body.blogsPerDay === "number" && body.blogsPerDay >= 1 && body.blogsPerDay <= 20
-                      ? body.blogsPerDay : current.blogsPerDay,
-      publishMode:  "draft_only",
-      maxRetries:   typeof body.maxRetries === "number" && body.maxRetries >= 0 && body.maxRetries <= 5
-                      ? body.maxRetries : current.maxRetries,
+      enabled:           typeof body.enabled === "boolean" ? body.enabled : current.enabled,
+      blogsPerDay:       typeof body.blogsPerDay === "number" && body.blogsPerDay >= 1 && body.blogsPerDay <= 20
+                           ? body.blogsPerDay : current.blogsPerDay,
+      publishMode:       "draft_only",
+      maxRetries:        typeof body.maxRetries === "number" && body.maxRetries >= 0 && body.maxRetries <= 5
+                           ? body.maxRetries : current.maxRetries,
+      blockOnQaWarning:  typeof body.blockOnQaWarning === "boolean" ? body.blockOnQaWarning : (current.blockOnQaWarning ?? false),
+      maxPerRun:         typeof body.maxPerRun === "number" && body.maxPerRun >= 1 && body.maxPerRun <= 10
+                           ? body.maxPerRun : (current.maxPerRun ?? 1),
     };
 
     await saveSettings(updated);
