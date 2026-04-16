@@ -1,7 +1,16 @@
 {
   "functions": {
     "app/api/generate/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 300
+    },
+    "app/api/cron/route.ts": {
+      "maxDuration": 300
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "0 8,11,14,17,20 * * *"
+    }
+  ]
 }
