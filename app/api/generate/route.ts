@@ -6,16 +6,17 @@
  * Runs on Vercel — trusted IPs that SiteGround never blocks.
  *
  * Pipeline:
- *  1. Validate request + API secret
- *  2. Select relevant links for the topic (link manager)
- *  3. Generate structure blueprint with GPT-4o (headings, word targets, FAQ)
- *  4. Generate full article content from blueprint with GPT-4o
- *  5. Generate 4 content-aware image prompts with GPT-4o
- *  6. Generate 4 images with DALL·E 3 (in parallel)
- *  7. Upload images to WordPress media library (in parallel)
- *  8. Run QA engine — fail hard on blocking issues, flag warnings
- *  9. Create WordPress draft post with all ACF + Yoast fields
- * 10. Return the draft post URL with QA report
+ *  1.  Validate request + API secret
+ *  2.  Process source input into a brief (Modes B/C/D only)
+ *  3.  Select relevant links for the topic
+ *  4.  Generate structure blueprint with GPT-4o
+ *  5.  Generate full article content from blueprint with GPT-4o
+ *  6.  Generate 4 content-aware image prompts with GPT-4o
+ *  7.  Generate 4 images with DALL·E 3 (in parallel)
+ *  8.  Upload images to WordPress media library (in parallel)
+ *  9.  Run QA engine — fail hard on blocking issues, flag warnings
+ *  10. Create WordPress draft post with all ACF + Yoast fields
+ *  11. Return the draft post URL with QA report
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -23,6 +24,12 @@ import { generateBlueprint, generateBlogContent, generateImagePrompts, generateI
 import { uploadImageToWordPress, createWordPressPost } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 import { runQA } from "@/lib/qa";
+import {
+  GenerationMode,
+  SourceBrief,
+  emptyBrief,
+  processSourceInput,
+} from "@/lib/source";
 
 // Vercel default timeout is 300s on all plans.
 // We set 180s as a safe ceiling — the full pipeline takes ~90-120s.
@@ -33,7 +40,17 @@ export async function POST(req: NextRequest) {
   try {
     // ── 1. Validate request ──────────────────────────────
     const body = await req.json();
-    const { topic, secret } = body;
+    const {
+      topic,
+      secret,
+      mode = "topic_only",
+      sourceText = "",
+    }: {
+      topic: string;
+      secret: string;
+      mode: GenerationMode;
+      sourceText: string;
+    } = body;
 
     if (!topic || typeof topic !== "string" || topic.trim().length < 5) {
       return NextResponse.json(
@@ -49,34 +66,61 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const validModes: GenerationMode[] = [
+      "topic_only",
+      "source_assisted",
+      "improve_existing",
+      "notes_to_article",
+    ];
+    if (!validModes.includes(mode)) {
+      return NextResponse.json({ error: "Invalid generation mode." }, { status: 400 });
+    }
+
+    if (mode !== "topic_only" && !sourceText?.trim()) {
+      return NextResponse.json(
+        { error: "Source text is required for this generation mode." },
+        { status: 400 }
+      );
+    }
+
     const title = topic.trim();
 
-    // ── 2. Select relevant links ─────────────────────────
+    // ── 2. Process source input (Modes B / C / D) ────────
+    let sourceBrief: SourceBrief;
+    if (mode === "topic_only") {
+      sourceBrief = emptyBrief();
+    } else {
+      console.log(`[generate] Processing source input (mode: ${mode})...`);
+      sourceBrief = await processSourceInput(mode, title, sourceText);
+      console.log(`[generate] Source brief ready: ${sourceBrief.summary}`);
+    }
+
+    // ── 3. Select relevant links ─────────────────────────
     console.log(`[generate] Starting for title: "${title}"`);
     const selectedLinks = selectLinks(title);
     console.log(
       `[generate] Selected ${selectedLinks.internal.length} internal + ${selectedLinks.external.length} external links`
     );
 
-    // ── 3. Generate structure blueprint ──────────────────
+    // ── 4. Generate structure blueprint ──────────────────
     console.log("[generate] Generating blueprint...");
-    const blueprint = await generateBlueprint(title, selectedLinks);
+    const blueprint = await generateBlueprint(title, selectedLinks, sourceBrief);
     console.log(
       `[generate] Blueprint ready. Focus keyword: "${blueprint.focus_keyword}", ~${blueprint.estimated_word_count} words`
     );
 
-    // ── 4. Generate blog content from blueprint ───────────
-    const content = await generateBlogContent(title, blueprint, selectedLinks);
+    // ── 5. Generate blog content from blueprint ───────────
+    const content = await generateBlogContent(title, blueprint, selectedLinks, sourceBrief);
     console.log(
       `[generate] Content ready. Slug: "${content.slug}", read: ${content.read_mins} min`
     );
 
-    // ── 5. Generate content-aware image prompts ──────────
+    // ── 6. Generate content-aware image prompts ──────────
     console.log("[generate] Generating image prompts from content...");
     const imagePrompts = await generateImagePrompts(title, content);
     console.log("[generate] Image prompts ready.");
 
-    // ── 6. Generate all 4 images in parallel ─────────────
+    // ── 7. Generate all 4 images in parallel ─────────────
     console.log("[generate] Generating images with DALL·E 3...");
     const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
       generateImage(imagePrompts.keypoint_one_img_prompt),
@@ -92,7 +136,7 @@ export async function POST(req: NextRequest) {
       .replace(/[^a-z0-9]+/g, "-")
       .slice(0, 50);
 
-    // ── 7. Upload images to WordPress ────────────────────
+    // ── 8. Upload images to WordPress ────────────────────
     console.log("[generate] Uploading images to WordPress...");
     const [kp1Media, kp2Media, splitMedia, featuredMedia] = await Promise.all([
       uploadImageToWordPress(kp1Buffer, `${fileSlug}-kp1.png`, imagePrompts.keypoint_one_img_alt),
@@ -111,7 +155,7 @@ export async function POST(req: NextRequest) {
       featuredImg:    featuredMedia.id,
     };
 
-    // ── 8. Run QA ─────────────────────────────────────────
+    // ── 9. Run QA ─────────────────────────────────────────
     console.log("[generate] Running QA checks...");
     const qa = runQA(content, imagePrompts, imageIds);
     console.log(
@@ -134,7 +178,7 @@ export async function POST(req: NextRequest) {
       console.warn(`[generate] QA warnings: ${qa.warnings.join(" | ")}`);
     }
 
-    // ── 9. Strip IMGSLOT placeholders (images handled by ACF) ──
+    // ── 10. Strip IMGSLOT placeholders (images handled by ACF) ─
     const assembled = {
       main_content:   content.main_content.replace("IMGSLOT_MAIN", ""),
       more_content_1: content.more_content_1.replace("IMGSLOT_ONE", ""),
@@ -142,15 +186,16 @@ export async function POST(req: NextRequest) {
       more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
     };
 
-    // ── 10. Create the WordPress post ────────────────────
+    // ── 11. Create the WordPress post ────────────────────
     console.log("[generate] Creating WordPress post...");
     const post = await createWordPressPost(title, content, imagePrompts, assembled, imageIds);
     console.log(`[generate] Post created! ID: ${post.id}, slug: "${content.slug}"`);
 
-    // ── 11. Return success ────────────────────────────────
+    // ── 12. Return success ────────────────────────────────
     return NextResponse.json({
       success: true,
       postId: post.id,
+      mode,
       title,
       slug: content.slug,
       focusKeyword: content.focus_keyword,

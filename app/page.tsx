@@ -3,6 +3,34 @@
 import { useState } from "react";
 
 type Status = "idle" | "loading" | "success" | "error";
+type GenerationMode = "topic_only" | "source_assisted" | "improve_existing" | "notes_to_article";
+
+const MODES: { id: GenerationMode; label: string; description: string; placeholder: string }[] = [
+  {
+    id: "topic_only",
+    label: "Topic only",
+    description: "Write from scratch",
+    placeholder: "",
+  },
+  {
+    id: "source_assisted",
+    label: "Source-assisted",
+    description: "Paste a reference article",
+    placeholder: "Paste the source article text here. The AI will extract facts and write a fully original Aston article — not a rewrite.",
+  },
+  {
+    id: "improve_existing",
+    label: "Improve existing",
+    description: "Refresh an Aston post",
+    placeholder: "Paste the existing Aston blog post here. The AI will improve structure, SEO, links, and FAQ while preserving the best content.",
+  },
+  {
+    id: "notes_to_article",
+    label: "From notes",
+    description: "Expand rough notes",
+    placeholder: "Paste your notes or bullet points here. The AI will expand them into a full structured article.",
+  },
+];
 
 interface GenerateResult {
   title: string;
@@ -45,6 +73,8 @@ const SUGGESTIONS = [
 
 export default function HomePage() {
   const [topic, setTopic] = useState("");
+  const [mode, setMode] = useState<GenerationMode>("topic_only");
+  const [sourceText, setSourceText] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [stepIndex, setStepIndex] = useState(0);
   const [result, setResult] = useState<GenerateResult | null>(null);
@@ -61,8 +91,12 @@ export default function HomePage() {
     return interval;
   };
 
+  const selectedMode = MODES.find((m) => m.id === mode)!;
+  const needsSource = mode !== "topic_only";
+  const canGenerate = !!topic.trim() && (!needsSource || !!sourceText.trim());
+
   const handleGenerate = async () => {
-    if (!topic.trim() || status === "loading") return;
+    if (!canGenerate || status === "loading") return;
     setStatus("loading");
     setResult(null);
     setError("");
@@ -75,6 +109,8 @@ export default function HomePage() {
         body: JSON.stringify({
           topic: topic.trim(),
           secret: process.env.NEXT_PUBLIC_API_SECRET,
+          mode,
+          sourceText: sourceText.trim(),
         }),
       });
 
@@ -99,6 +135,8 @@ export default function HomePage() {
     setResult(null);
     setError("");
     setTopic("");
+    setSourceText("");
+    setMode("topic_only");
     setStepIndex(0);
   };
 
@@ -133,18 +171,62 @@ export default function HomePage() {
         <main>
           {(status === "idle" || status === "error") && (
             <div className="space-y-6">
+
+              {/* Mode selector */}
+              <div>
+                <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">Generation mode</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {MODES.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => setMode(m.id)}
+                      className={`text-left px-3 py-2.5 rounded-lg border transition-all duration-150 ${
+                        mode === m.id
+                          ? "border-[#C9A84C]/60 bg-[#C9A84C]/10"
+                          : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
+                      }`}
+                    >
+                      <p className={`text-xs font-medium ${mode === m.id ? "text-[#C9A84C]" : "text-white/60"}`}>{m.label}</p>
+                      <p className="text-white/30 text-xs mt-0.5">{m.description}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Topic */}
               <div>
                 <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">Blog Topic</label>
                 <textarea
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                   placeholder="e.g. How to set up a free zone company in Dubai"
-                  rows={3}
+                  rows={2}
                   className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
                   onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
                 />
                 <p className="text-white/20 text-xs mt-2">Press ⌘ + Enter to generate</p>
               </div>
+
+              {/* Source input — shown for modes B/C/D */}
+              {needsSource && (
+                <div>
+                  <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
+                    {mode === "source_assisted" && "Source article"}
+                    {mode === "improve_existing" && "Existing Aston post"}
+                    {mode === "notes_to_article" && "Notes"}
+                  </label>
+                  <textarea
+                    value={sourceText}
+                    onChange={(e) => setSourceText(e.target.value)}
+                    placeholder={selectedMode.placeholder}
+                    rows={8}
+                    className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
+                  />
+                  <p className="text-white/20 text-xs mt-1.5">
+                    {sourceText.trim().split(/\s+/).filter(Boolean).length.toLocaleString()} words pasted
+                  </p>
+                </div>
+              )}
 
               {status === "error" && (
                 <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
@@ -154,7 +236,7 @@ export default function HomePage() {
 
               <button
                 onClick={handleGenerate}
-                disabled={!topic.trim()}
+                disabled={!canGenerate}
                 className="w-full bg-[#C9A84C] hover:bg-[#D4B86A] disabled:opacity-30 disabled:cursor-not-allowed text-black font-medium text-sm tracking-wide py-3.5 rounded-lg transition-all duration-200"
               >
                 Generate Post

@@ -16,6 +16,7 @@ import OpenAI from "openai";
 import axios from "axios";
 import { BlogContent, Blueprint, ImagePrompts } from "./wordpress";
 import { SelectedLinks, formatLinksForPrompt } from "./links";
+import { SourceBrief, formatBriefForPrompt } from "./source";
 
 // ── Fixed system prompt — never changes between requests ──────
 const SYSTEM_PROMPT = `You are a senior business consultant and SEO writer for Aston VIP (Aston.ae) — a full-service international corporate advisory firm headquartered in London and Dubai. Aston VIP advises entrepreneurs, investors, corporate groups, family offices, and fintech businesses on international company formation, regulatory licensing, corporate banking, cross-border tax structuring, and nominee services across 20+ jurisdictions including the UAE (mainland, DIFC, ADGM, free zones), UK, Cyprus, Germany, Switzerland, Spain, Netherlands, Sweden, Denmark, Hong Kong, Panama, Seychelles, and others.
@@ -52,7 +53,8 @@ seamless, hassle-free, empower, unlock the power of, cutting-edge, innovative so
  */
 export async function generateBlueprint(
   title: string,
-  selectedLinks: SelectedLinks
+  selectedLinks: SelectedLinks,
+  sourceBrief?: SourceBrief
 ): Promise<Blueprint> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -61,8 +63,11 @@ export async function generateBlueprint(
     ...selectedLinks.external.map((l) => l.title),
   ].join(", ");
 
+  const sourceBriefBlock = sourceBrief ? formatBriefForPrompt(sourceBrief) : "";
+
   const userPrompt = `Blog title: "${title}"
 Available link topics for context: ${linkCategories}
+${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
 
 Plan the structure of this blog post and return it as a single valid JSON object. No markdown, no code fences:
 
@@ -171,11 +176,13 @@ BLUEPRINT RULES:
 export async function generateBlogContent(
   title: string,
   blueprint: Blueprint,
-  selectedLinks: SelectedLinks
+  selectedLinks: SelectedLinks,
+  sourceBrief?: SourceBrief
 ): Promise<BlogContent> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   const linksBlock = formatLinksForPrompt(selectedLinks);
+  const sourceBriefBlock = sourceBrief ? formatBriefForPrompt(sourceBrief) : "";
 
   // Serialise blueprint sections into clear per-field instructions
   const sectionInstructions = blueprint.sections
@@ -195,7 +202,7 @@ ${subs}`;
     .join("\n");
 
   const userPrompt = `Blog title: "${title}"
-
+${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
 You have already planned the structure. Now write the full article following the blueprint exactly.
 The headings, section angles, and word targets below are fixed — do not change them.
 
