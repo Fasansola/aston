@@ -1,13 +1,18 @@
 /**
  * lib/openai.ts
  * ─────────────────────────────────────────────────────────────
- * All OpenAI interactions: GPT-4o for blog content,
- * DALL·E 3 for realistic images.
+ * All OpenAI interactions: GPT-4o for blog content + SEO,
+ * GPT-4o for content-aware image prompts, DALL·E 3 for images.
+ *
+ * Two-step generation:
+ *  Step 1 — generateBlogContent(): full article text + SEO metadata
+ *  Step 2 — generateImagePrompts(): 4 prompts written from actual content
  */
 
 import OpenAI from "openai";
 import axios from "axios";
-import { BlogContent } from "./wordpress";
+import { BlogContent, ImagePrompts } from "./wordpress";
+import { SelectedLinks, formatLinksForPrompt } from "./links";
 
 // ── Fixed system prompt — never changes between requests ──────
 const SYSTEM_PROMPT = `You are a senior business consultant and SEO writer for Aston VIP (Aston.ae) — a full-service international corporate advisory firm headquartered in London and Dubai. Aston VIP advises entrepreneurs, investors, corporate groups, family offices, and fintech businesses on international company formation, regulatory licensing, corporate banking, cross-border tax structuring, and nominee services across 20+ jurisdictions including the UAE (mainland, DIFC, ADGM, free zones), UK, Cyprus, Germany, Switzerland, Spain, Netherlands, Sweden, Denmark, Hong Kong, Panama, Seychelles, and others.
@@ -33,37 +38,40 @@ TONE AND STYLE RULES:
 - Every claim about costs, timelines, or regulations must reflect real, accurate information. Do not invent figures
 
 BANNED PHRASES — never use any of these under any circumstances:
-seamless, hassle-free, empower, unlock the power of, cutting-edge, innovative solution, game-changing, leverage, next-gen, disrupt, frictionless, one-stop-shop, solution-oriented, obtain, delve, navigate the complexities, it's worth noting, in today's landscape, in conclusion, unlock, streamline, robust, comprehensive suite, tailored solutions, ever-evolving, look no further
+seamless, hassle-free, empower, unlock the power of, cutting-edge, innovative solution, game-changing, leverage, next-gen, disrupt, frictionless, one-stop-shop, solution-oriented, obtain, delve, navigate the complexities, it's worth noting, in today's landscape, in conclusion, unlock, streamline, robust, comprehensive suite, tailored solutions, ever-evolving, look no further`;
 
-ASTON VIP VISUAL STYLE — apply to all 4 image prompts:
-- Style: clean corporate photography, bright and airy
-- Lighting: natural daylight or soft indoor lighting, never dark or moody
-- People: suited professionals where included, diverse but formal
-- Architecture: modern glass buildings, high-end offices, financial districts
-- Colour palette: neutral whites, warm greys, soft golds — no oversaturated colours
-- Never include: text, logos, watermarks, flags, clocks, screens with visible content
-- Always end every image prompt with this quality string: "shot on Canon EOS R5, 35mm lens, sharp focus, high resolution, professional corporate photography, no text, no logos"
-- Location rule: if the topic relates to UAE/DIFC/ADGM use Dubai settings. If non-UAE use the relevant international city or neutral high-end office. If mixed jurisdictions use a neutral international office setting`;
+// ── Step 1: Generate blog content + SEO metadata ─────────────
 
 /**
- * Generate full structured blog post content using GPT-4o.
- * Returns a typed BlogContent object ready for WordPress.
+ * Generate full structured blog content using GPT-4o.
+ * Does NOT generate image prompts — those come from generateImagePrompts()
+ * after the content is written, so prompts reference actual article content.
  */
-export async function generateBlogContent(title: string): Promise<BlogContent> {
+export async function generateBlogContent(
+  title: string,
+  selectedLinks: SelectedLinks
+): Promise<BlogContent> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const linksBlock = formatLinksForPrompt(selectedLinks);
 
   const userPrompt = `Blog title: "${title}"
 
-Based on this title, do the following before writing:
+Before writing, do the following:
 1. Identify the primary focus keyword this article should rank for
 2. Identify 4-6 secondary keywords or LSI terms to support it
-3. Use these throughout the article as instructed
+3. Write the SEO title, meta description, URL slug, and excerpt
+4. Use these throughout the article as instructed
 
 Then write the full blog post and return it as a single valid JSON object with exactly these fields. No markdown, no code fences, no text before or after the JSON:
 
 {
   "focus_keyword": "string",
   "secondary_keywords": ["string", "string", "string", "string"],
+  "seo_title": "string",
+  "meta_description": "string",
+  "slug": "string",
+  "excerpt": "string",
   "main_content": "string",
   "keypoint_one": "string",
   "more_content_1": "string",
@@ -76,14 +84,8 @@ Then write the full blog post and return it as a single valid JSON object with e
   "key_takeaways": "string",
   "final_points": "string",
   "read_mins": "string",
-  "keypoint_one_img_prompt": "string",
-  "keypoint_one_img_alt": "string",
-  "keypoint_two_img_prompt": "string",
-  "keypoint_two_img_alt": "string",
-  "post_split_img_prompt": "string",
-  "post_split_img_alt": "string",
-  "featured_img_prompt": "string",
-  "featured_img_alt": "string"
+  "internal_links_used": [{"anchor": "string", "url": "string"}],
+  "external_links_used": [{"anchor": "string", "url": "string"}]
 }
 
 FIELD INSTRUCTIONS:
@@ -93,6 +95,18 @@ The single primary keyword phrase this article targets for Google ranking. Examp
 
 secondary_keywords:
 A JSON array of 4-6 related keyword phrases used naturally within the article body.
+
+seo_title:
+The page title tag for Google. 50-60 characters. Include the focus keyword near the front. Do not include "Aston VIP" or the site name. No pipes or dashes at the end. Example: "DIFC Fund Manager Licence: Requirements and Costs"
+
+meta_description:
+The meta description for Google. 145-155 characters. Include the focus keyword once. Write as an informative sentence that gives a clear reason to click. No calls to action like "click here".
+
+slug:
+URL-safe slug for the WordPress post. Lowercase, hyphens only, no slashes. 3-6 words. Example: "difc-fund-manager-licence"
+
+excerpt:
+A 2-3 sentence plain-text excerpt used in post listings. No HTML. 40-60 words. Summarise the article's key value for the reader.
 
 main_content (350-450 words):
 - Open with the business problem or opportunity this topic addresses. Make the reader feel the stakes in the first two sentences
@@ -115,7 +129,7 @@ more_content_1 (350-450 words):
 - Heading hierarchy rule: every H4 must sit under an H3, every H5 must sit under an H4. Never skip levels
 - Must include at least one of: a specific cost or fee range in AED or USD, a named regulatory body, a realistic processing timeline, or a direct comparison between two jurisdictions or licence types
 - Use 1-2 secondary keywords naturally
-- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>
 
 more_content_2 (350-450 words):
 - Cover requirements, eligibility, process steps, or common mistakes
@@ -124,7 +138,7 @@ more_content_2 (350-450 words):
 - Heading hierarchy rule: every H4 must sit under an H3, every H5 must sit under an H4. Never skip levels
 - Must include a bulleted or numbered list of at least 4 concrete items — actual documents, named steps, real costs, or specific eligibility conditions. No vague items. Each must contain a fact, figure, or named detail
 - Use 1-2 secondary keywords naturally
-- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>
 
 quote_1:
 A short, punchy, practical piece of advice directly relevant to the content in more_content_1 or more_content_2. Maximum 2 sentences. No em dashes. Written as actionable guidance the reader can apply immediately.
@@ -138,7 +152,7 @@ more_content_3 (350-450 words):
 - Include at least one real-world scenario written as a short narrative. Example: "A fintech founder relocating from London..." or "A family office looking to hold real estate across three markets..."
 - Reference Aston's client base where appropriate: regulated financial businesses, crypto companies, trading firms, HNWIs, family offices, corporate groups
 - Use 1-2 secondary keywords naturally
-- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>
 
 keypoint_two:
 A single compelling sentence (maximum 25 words) pulled from the key insight of more_content_3. Written as a bold editorial statement. No em dashes. No question marks. Different point from keypoint_one.
@@ -173,112 +187,13 @@ final_points:
 read_mins:
 A number string only. Estimate at 200 words per minute. Example: "9"
 
-keypoint_one_img_prompt:
-A complete ready-to-send DALL-E prompt for more_content_1. Describe a specific scene directly relevant to the first major angle of the article. Not abstract. Apply full Aston VIP visual style. End with the quality string. 2-3 sentences maximum.
+internal_links_used:
+JSON array of objects. For each internal link you placed in the article body, record the exact anchor text used and the URL. Example: [{"anchor": "DIFC fund manager licence", "url": "https://aston.ae/category-3c-difc-fund-manager-licence/"}]
 
-keypoint_one_img_alt:
-SEO-optimised alt text for the keypoint one image. Describe what is literally shown in the image using specific nouns. Naturally include one relevant keyword. Maximum 125 characters. No keyword stuffing. Example: "Corporate advisor reviewing DIFC fund manager licence documents in a modern Dubai office."
+external_links_used:
+JSON array of objects. For each external link you placed in the article body, record the exact anchor text used and the URL. If none used, return an empty array.
 
-keypoint_two_img_prompt:
-A complete ready-to-send DALL-E prompt for more_content_3. Must show a different scene and setting from keypoint_one_img_prompt. Apply full Aston VIP visual style. End with the quality string. 2-3 sentences maximum.
-
-keypoint_two_img_alt:
-SEO-optimised alt text for the keypoint two image. Describe what is literally shown in the image using specific nouns. Naturally include one relevant keyword. Maximum 125 characters. No keyword stuffing. Example: "Two professionals in a glass-walled London boardroom discussing international company formation."
-
-post_split_img_prompt:
-A complete ready-to-send DALL-E prompt for a wide-angle architectural image relevant to the topic jurisdiction. Minimal or no people. Apply full Aston VIP visual style. End with the quality string. 2-3 sentences maximum.
-
-post_split_img_alt:
-SEO-optimised alt text for the post split image. Describe the architecture or setting shown. Naturally include a jurisdiction or location keyword. Maximum 125 characters. No keyword stuffing. Example: "Wide-angle view of the DIFC financial district in Dubai at midday, glass towers and open plaza."
-
-featured_img_prompt:
-A complete ready-to-send DALL-E prompt for the full-width hero image representing the entire article. Must include a suited professional or small group. Wide-angle, premium, editorial feel. Apply full Aston VIP visual style. End with the quality string. 2-3 sentences maximum.
-
-featured_img_alt:
-SEO-optimised alt text for the featured hero image. Describe the people and setting shown. Naturally include the primary focus keyword or a close variant. Maximum 125 characters. No keyword stuffing. Example: "Business advisor and client discussing ADGM company setup in a bright Dubai office."
-
-INTERNAL LINKS — include 3-5 naturally within body content using descriptive anchor text. Only use URLs from this verified list. Do not fabricate URLs. Do not force irrelevant links:
-
-https://aston.ae/100-foreign-ownership-dubai/
-https://aston.ae/accounting-bookkeeping-dubai/
-https://aston.ae/adgm-cat-4-license-categories-benefits/
-https://aston.ae/adgm-hedge-funds/
-https://aston.ae/adgm-public-register/
-https://aston.ae/advantages-of-setting-up-in-adgm/
-https://aston.ae/aisp-and-pisp-licensing-in-the-difc/
-https://aston.ae/alternative-trading-system-in-the-difc/
-https://aston.ae/anti-money-laundering-aml-policy/
-https://aston.ae/aston-ae-business-audit-dubai/
-https://aston.ae/business-in-dubai-guide/
-https://aston.ae/business-setup-dubai/
-https://aston.ae/business-setup-dubai/business-setup-dubai-mainland-company-setup/
-https://aston.ae/business-setup-dubai/crypto-company-setup-dubai/
-https://aston.ae/business-setup-dubai/cyprus-trust-dubai/
-https://aston.ae/business-setup-dubai/dmcc-business-setup-dubai/
-https://aston.ae/business-setup-dubai/ifza-business-setup/
-https://aston.ae/business-setup-dubai/vara-license/
-https://aston.ae/category-3c-difc-fund-manager-licence/
-https://aston.ae/category-4-difc-investment-advisory-licence/
-https://aston.ae/contact-us/
-https://aston.ae/corporate-banking/
-https://aston.ae/defi-and-dapps-in-the-difc/
-https://aston.ae/dfsa-licensing-in-dubai-requirements/
-https://aston.ae/dfsa-tokenisation-regulatory-sandbox/
-https://aston.ae/difc-active-enterprises/
-https://aston.ae/difc-category-3a-brokerage-licence/
-https://aston.ae/difc-digital-assets-regime/
-https://aston.ae/difc-digital-assets-regime-crypto-tokens/
-https://aston.ae/difc-employment-law-your-comprehensive-guide/
-https://aston.ae/difc-investment-crowdfunding-business-license-explained/
-https://aston.ae/difc-licensing-categories/
-https://aston.ae/difc-loan-crowdfunding-business-licence/
-https://aston.ae/difc-venture-studio-launchpad-licence/
-https://aston.ae/difc-innovation-market-explorer-licences/
-https://aston.ae/electronic-money-institution-licenses-in-the-difc/
-https://aston.ae/foundation-set-up-in-dubai-how-to-get-started/
-https://aston.ae/freezone/abu-dhabi-global-market-adgm/
-https://aston.ae/freezone/dubai-international-financial-centre-difc/
-https://aston.ae/freezone/international-free-zone-authority-ifza/
-https://aston.ae/get-local-bank-account/
-https://aston.ae/general-data-protection-regulation-gdpr-compliance-aston-vip/
-https://aston.ae/gold-trade/
-https://aston.ae/how-to-apply-for-adgm-category-3c-license/
-https://aston.ae/how-to-get-approved-vara-license-in-dubai/
-https://aston.ae/how-to-get-vara-license-dubai/
-https://aston.ae/how-to-setup-a-business-bank-account-in-dubai/
-https://aston.ae/how-to-setup-an-adgm-spv-in-the-uae/
-https://aston.ae/how-to-start-a-commodities-trading-company-in-dubai/
-https://aston.ae/investment-token-funds-in-the-difc/
-https://aston.ae/large-cash-transactions/
-https://aston.ae/legal/
-https://aston.ae/navigating-offshore-company-registration-in-the-uae/
-https://aston.ae/non-fungible-tokens-uae/
-https://aston.ae/oil-fuel-trading-dubai/
-https://aston.ae/open-company-bank-account-in-dubai/
-https://aston.ae/open-private-bank-account-in-dubai/
-https://aston.ae/procedures-to-llc-company-formation-in-dubai/
-https://aston.ae/relocation-services/
-https://aston.ae/securing-dubai-crypto-exchange-license/
-https://aston.ae/start-free-zone-dwtc/
-https://aston.ae/starting-a-business-in-ifza-free-zone/
-https://aston.ae/step-by-step-process-to-company-liquidation-in-dubai/
-https://aston.ae/tax-consultancy/
-https://aston.ae/tokenisation-of-real-estate-in-the-uae/
-https://aston.ae/tokenised-real-estate-crowdfunding-platform-in-the-difc/
-https://aston.ae/uae-freezones/
-https://aston.ae/vara-broker-dealer-licences/
-https://aston.ae/vip/
-https://aston.ae/vip-residence-visa/
-https://aston.ae/virtual-assets-service-providers-in-difc-and-why-the-centre-attracts/
-https://aston.ae/virtual-assets-service-providers-in-the-adgm/
-https://aston.ae/virtual-assets-service-providers-in-the-uae/
-
-EXTERNAL LINKS — include up to 4 where genuinely relevant. Only use these:
-https://www.dfsa.ae
-https://www.difc.ae
-https://www.adgm.com
-https://www.fatf-gafi.org
-https://www.imf.org`;
+${linksBlock}`;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
@@ -292,7 +207,6 @@ https://www.imf.org`;
 
   const raw = response.choices[0].message.content?.trim() ?? "";
 
-  // Extract the first complete JSON object — handles any stray text GPT adds
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     throw new Error(`No JSON found in GPT response. Raw: ${raw.slice(0, 200)}`);
@@ -305,10 +219,91 @@ https://www.imf.org`;
   }
 }
 
+// ── Step 2: Generate content-aware image prompts ──────────────
+
+/**
+ * Generate 4 DALL·E image prompts based on the actual written content.
+ * Called AFTER generateBlogContent() so prompts reference real sections.
+ */
+export async function generateImagePrompts(
+  title: string,
+  content: BlogContent
+): Promise<ImagePrompts> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const userPrompt = `You have just written a blog post titled: "${title}"
+
+Here is a summary of the four content sections that need images:
+
+SECTION 1 (keypoint_one image — covers: ${content.main_content.slice(0, 300).replace(/<[^>]+>/g, " ").trim()}...)
+
+SECTION 2 (keypoint_two image — covers: ${content.more_content_3.slice(0, 300).replace(/<[^>]+>/g, " ").trim()}...)
+
+SECTION 3 (post split image — this is a wide-angle architectural or setting image for the overall topic jurisdiction)
+
+SECTION 4 (featured hero image — represents the entire article, wide-angle editorial feel with professionals)
+
+Now write 4 DALL·E image prompts for these sections. Each prompt must:
+- Directly reference a scene or setting from that specific section's content
+- Apply the Aston VIP visual style: clean corporate photography, bright and airy, natural daylight or soft indoor lighting, suited professionals (where included), modern glass buildings or high-end offices, neutral whites/warm greys/soft golds, no oversaturated colours
+- Never include: text, logos, watermarks, flags, clocks, screens with visible content
+- End with this exact quality string: "shot on Canon EOS R5, 35mm lens, sharp focus, high resolution, professional corporate photography, no text, no logos"
+- Location: if topic is UAE/DIFC/ADGM use Dubai settings. If non-UAE use the relevant city. If mixed use a neutral international office
+- Be 2-3 sentences maximum
+
+Return as a single valid JSON object with exactly these fields. No markdown, no code fences:
+
+{
+  "keypoint_one_img_prompt": "string",
+  "keypoint_one_img_alt": "string",
+  "keypoint_two_img_prompt": "string",
+  "keypoint_two_img_alt": "string",
+  "post_split_img_prompt": "string",
+  "post_split_img_alt": "string",
+  "featured_img_prompt": "string",
+  "featured_img_alt": "string"
+}
+
+ALT TEXT RULES (for all 4 alt fields):
+- Describe what is literally shown in the image using specific nouns
+- Naturally include one relevant keyword
+- Maximum 125 characters
+- No keyword stuffing
+- Example: "Corporate advisor reviewing DIFC fund manager licence documents in a modern Dubai office."`;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.5,
+    max_tokens: 2000,
+  });
+
+  const raw = response.choices[0].message.content?.trim() ?? "";
+
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error(
+      `No JSON found in image prompts response. Raw: ${raw.slice(0, 200)}`
+    );
+  }
+
+  try {
+    return JSON.parse(jsonMatch[0]) as ImagePrompts;
+  } catch {
+    throw new Error(
+      `GPT returned invalid JSON for image prompts. Raw: ${raw.slice(0, 200)}`
+    );
+  }
+}
+
+// ── DALL·E 3 image generation ─────────────────────────────────
+
 /**
  * Generate a DALL·E 3 image and return it as a Buffer.
- * Returning a buffer means we never write to disk —
- * cleaner for serverless environments like Vercel.
+ * Buffer avoids writing to disk — clean for serverless environments.
  */
 export async function generateImage(prompt: string): Promise<Buffer> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -318,13 +313,14 @@ export async function generateImage(prompt: string): Promise<Buffer> {
     n: 1,
     size: "1792x1024",
     quality: "hd",
-    style: "natural", // More photorealistic than "vivid"
+    style: "natural",
   });
 
-  const imageUrl = response.data?.[0]?.url ?? '';
-  if (!imageUrl) throw new Error('DALL·E returned no image URL');
+  const imageUrl = response.data?.[0]?.url ?? "";
+  if (!imageUrl) throw new Error("DALL·E returned no image URL");
 
-  // Download image as buffer — no temp files needed on Vercel
-  const imageResponse = await axios.get(imageUrl, { responseType: "arraybuffer" });
+  const imageResponse = await axios.get(imageUrl, {
+    responseType: "arraybuffer",
+  });
   return Buffer.from(imageResponse.data);
 }

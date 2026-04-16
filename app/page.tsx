@@ -6,13 +6,21 @@ type Status = "idle" | "loading" | "success" | "error";
 
 interface GenerateResult {
   title: string;
+  slug: string;
+  focusKeyword: string;
+  seoTitle: string;
   readMins: string;
+  linksUsed: {
+    internal: Array<{ anchor: string; url: string }>;
+    external: Array<{ anchor: string; url: string }>;
+  };
   editUrl: string;
   previewUrl: string;
 }
 
 const STEPS = [
   "Writing blog content with GPT-4o...",
+  "Generating content-aware image prompts...",
   "Generating images with DALL·E 3...",
   "Uploading images to WordPress...",
   "Publishing draft post...",
@@ -180,7 +188,7 @@ export default function HomePage() {
                   </div>
                 ))}
               </div>
-              <p className="text-center text-white/20 text-xs">This takes about 45–60 seconds</p>
+              <p className="text-center text-white/20 text-xs">This takes about 90–120 seconds</p>
             </div>
           )}
 
@@ -201,8 +209,31 @@ export default function HomePage() {
                   <p className="text-white font-medium leading-snug">{result.title}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">Read time</p>
-                  <p className="text-white/60 text-sm">{result.readMins}</p>
+                  <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">SEO title</p>
+                  <p className="text-white/60 text-sm">{result.seoTitle}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">Focus keyword</p>
+                    <p className="text-white/60 text-sm">{result.focusKeyword}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">Slug</p>
+                    <p className="text-white/60 text-sm font-mono text-xs">{result.slug}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">Read time</p>
+                    <p className="text-white/60 text-sm">{result.readMins} min</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">Links placed</p>
+                    <p className="text-white/60 text-sm">
+                      {result.linksUsed.internal.length} internal
+                      {result.linksUsed.external.length > 0 && `, ${result.linksUsed.external.length} external`}
+                    </p>
+                  </div>
                 </div>
               </div>
 

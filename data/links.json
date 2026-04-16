@@ -1,0 +1,690 @@
+{
+  "internal": [
+    {
+      "id": "foreign-ownership",
+      "url": "https://aston.ae/100-foreign-ownership-dubai/",
+      "title": "100% Foreign Ownership in Dubai",
+      "category": "company-formation",
+      "keywords": ["foreign ownership", "100% foreign ownership", "full ownership dubai", "company ownership uae"],
+      "anchors": ["100% foreign ownership in Dubai", "full foreign ownership"],
+      "status": "active"
+    },
+    {
+      "id": "accounting-bookkeeping",
+      "url": "https://aston.ae/accounting-bookkeeping-dubai/",
+      "title": "Accounting and Bookkeeping Services Dubai",
+      "category": "compliance",
+      "keywords": ["accounting", "bookkeeping", "dubai accounting", "financial records"],
+      "anchors": ["accounting and bookkeeping services", "Dubai accounting services"],
+      "status": "active"
+    },
+    {
+      "id": "adgm-cat4-benefits",
+      "url": "https://aston.ae/adgm-cat-4-license-categories-benefits/",
+      "title": "ADGM Category 4 Licence — Categories and Benefits",
+      "category": "adgm-licensing",
+      "keywords": ["adgm cat 4", "adgm category 4", "adgm licence categories", "adgm investment advisory"],
+      "anchors": ["ADGM Cat 4 licence", "ADGM Category 4 benefits"],
+      "status": "active"
+    },
+    {
+      "id": "adgm-hedge-funds",
+      "url": "https://aston.ae/adgm-hedge-funds/",
+      "title": "ADGM Hedge Fund Setup",
+      "category": "adgm-licensing",
+      "keywords": ["adgm hedge fund", "hedge fund adgm", "adgm fund manager", "alternative investment fund"],
+      "anchors": ["ADGM hedge fund setup", "hedge funds in ADGM"],
+      "status": "active"
+    },
+    {
+      "id": "adgm-public-register",
+      "url": "https://aston.ae/adgm-public-register/",
+      "title": "ADGM Public Register",
+      "category": "adgm-licensing",
+      "keywords": ["adgm public register", "adgm company register", "adgm registry"],
+      "anchors": ["ADGM public register", "ADGM company registry"],
+      "status": "active"
+    },
+    {
+      "id": "adgm-advantages",
+      "url": "https://aston.ae/advantages-of-setting-up-in-adgm/",
+      "title": "Advantages of Setting Up in ADGM",
+      "category": "adgm-licensing",
+      "keywords": ["adgm advantages", "adgm benefits", "why choose adgm", "adgm vs difc"],
+      "anchors": ["advantages of ADGM", "benefits of setting up in ADGM"],
+      "status": "active"
+    },
+    {
+      "id": "difc-aisp-pisp",
+      "url": "https://aston.ae/aisp-and-pisp-licensing-in-the-difc/",
+      "title": "AISP and PISP Licensing in the DIFC",
+      "category": "difc-licensing",
+      "keywords": ["aisp", "pisp", "account information service", "payment initiation service", "payment institution difc", "open banking difc"],
+      "anchors": ["AISP and PISP licensing in DIFC", "payment institution licence DIFC"],
+      "status": "active"
+    },
+    {
+      "id": "difc-ats",
+      "url": "https://aston.ae/alternative-trading-system-in-the-difc/",
+      "title": "Alternative Trading System in the DIFC",
+      "category": "difc-licensing",
+      "keywords": ["alternative trading system", "ats difc", "multilateral trading facility", "trading venue difc"],
+      "anchors": ["alternative trading system DIFC", "DIFC ATS licence"],
+      "status": "active"
+    },
+    {
+      "id": "aml-policy",
+      "url": "https://aston.ae/anti-money-laundering-aml-policy/",
+      "title": "Anti-Money Laundering AML Policy",
+      "category": "compliance",
+      "keywords": ["aml", "anti-money laundering", "aml policy", "aml compliance", "kyc aml", "financial crime"],
+      "anchors": ["anti-money laundering policy", "AML compliance framework"],
+      "status": "active"
+    },
+    {
+      "id": "business-audit",
+      "url": "https://aston.ae/aston-ae-business-audit-dubai/",
+      "title": "Business Audit Services Dubai",
+      "category": "compliance",
+      "keywords": ["business audit", "audit dubai", "corporate audit", "company audit uae"],
+      "anchors": ["business audit Dubai", "corporate audit services UAE"],
+      "status": "active"
+    },
+    {
+      "id": "business-in-dubai-guide",
+      "url": "https://aston.ae/business-in-dubai-guide/",
+      "title": "Business in Dubai: Complete Guide",
+      "category": "company-formation",
+      "keywords": ["business in dubai", "dubai business guide", "start business dubai", "company setup dubai overview"],
+      "anchors": ["business in Dubai guide", "setting up a business in Dubai"],
+      "status": "active"
+    },
+    {
+      "id": "business-setup-dubai",
+      "url": "https://aston.ae/business-setup-dubai/",
+      "title": "Business Setup in Dubai",
+      "category": "company-formation",
+      "keywords": ["business setup dubai", "company formation dubai", "dubai company registration", "start company dubai"],
+      "anchors": ["business setup in Dubai", "Dubai company formation"],
+      "status": "active"
+    },
+    {
+      "id": "mainland-company-setup",
+      "url": "https://aston.ae/business-setup-dubai/business-setup-dubai-mainland-company-setup/",
+      "title": "Dubai Mainland Company Setup",
+      "category": "company-formation",
+      "keywords": ["mainland company dubai", "dubai mainland", "mainland business setup", "llc mainland", "dcd licence"],
+      "anchors": ["Dubai mainland company setup", "mainland business formation"],
+      "status": "active"
+    },
+    {
+      "id": "crypto-company-setup",
+      "url": "https://aston.ae/business-setup-dubai/crypto-company-setup-dubai/",
+      "title": "Crypto Company Setup Dubai",
+      "category": "crypto-vara",
+      "keywords": ["crypto company dubai", "crypto business setup", "cryptocurrency company uae", "digital asset company"],
+      "anchors": ["crypto company setup in Dubai", "Dubai crypto business formation"],
+      "status": "active"
+    },
+    {
+      "id": "cyprus-trust",
+      "url": "https://aston.ae/business-setup-dubai/cyprus-trust-dubai/",
+      "title": "Cyprus Trust Setup",
+      "category": "offshore",
+      "keywords": ["cyprus trust", "trust structure", "offshore trust", "asset protection trust"],
+      "anchors": ["Cyprus trust setup", "offshore trust structure"],
+      "status": "active"
+    },
+    {
+      "id": "dmcc-setup",
+      "url": "https://aston.ae/business-setup-dubai/dmcc-business-setup-dubai/",
+      "title": "DMCC Business Setup Dubai",
+      "category": "freezone",
+      "keywords": ["dmcc", "dmcc free zone", "dmcc setup", "dubai multi commodities centre", "dmcc licence"],
+      "anchors": ["DMCC business setup", "DMCC free zone company"],
+      "status": "active"
+    },
+    {
+      "id": "ifza-setup",
+      "url": "https://aston.ae/business-setup-dubai/ifza-business-setup/",
+      "title": "IFZA Business Setup",
+      "category": "freezone",
+      "keywords": ["ifza", "ifza free zone", "ifza setup", "international free zone authority"],
+      "anchors": ["IFZA business setup", "IFZA free zone company"],
+      "status": "active"
+    },
+    {
+      "id": "vara-licence",
+      "url": "https://aston.ae/business-setup-dubai/vara-license/",
+      "title": "VARA Licence Dubai",
+      "category": "crypto-vara",
+      "keywords": ["vara", "vara licence", "vara license", "virtual assets regulatory authority", "vara dubai"],
+      "anchors": ["VARA licence in Dubai", "Virtual Assets Regulatory Authority licence"],
+      "status": "active"
+    },
+    {
+      "id": "difc-cat3c-fund-manager",
+      "url": "https://aston.ae/category-3c-difc-fund-manager-licence/",
+      "title": "DIFC Category 3C Fund Manager Licence",
+      "category": "difc-licensing",
+      "keywords": ["difc fund manager", "category 3c", "cat 3c difc", "dfsa fund manager", "difc asset management"],
+      "anchors": ["DIFC Category 3C fund manager licence", "DFSA Cat 3C fund manager"],
+      "status": "active"
+    },
+    {
+      "id": "difc-cat4-advisory",
+      "url": "https://aston.ae/category-4-difc-investment-advisory-licence/",
+      "title": "DIFC Category 4 Investment Advisory Licence",
+      "category": "difc-licensing",
+      "keywords": ["difc investment advisory", "category 4 difc", "cat 4 dfsa", "investment adviser difc"],
+      "anchors": ["DIFC Category 4 investment advisory licence", "DFSA Cat 4 licence"],
+      "status": "active"
+    },
+    {
+      "id": "corporate-banking",
+      "url": "https://aston.ae/corporate-banking/",
+      "title": "Corporate Banking Services",
+      "category": "banking",
+      "keywords": ["corporate banking", "business banking uae", "corporate bank account", "banking solutions dubai"],
+      "anchors": ["corporate banking services", "corporate bank account UAE"],
+      "status": "active"
+    },
+    {
+      "id": "difc-defi-dapps",
+      "url": "https://aston.ae/defi-and-dapps-in-the-difc/",
+      "title": "DeFi and dApps in the DIFC",
+      "category": "difc-licensing",
+      "keywords": ["defi difc", "dapps difc", "decentralised finance difc", "blockchain difc", "web3 difc"],
+      "anchors": ["DeFi and dApps in DIFC", "DIFC decentralised finance framework"],
+      "status": "active"
+    },
+    {
+      "id": "dfsa-licensing",
+      "url": "https://aston.ae/dfsa-licensing-in-dubai-requirements/",
+      "title": "DFSA Licensing Requirements in Dubai",
+      "category": "difc-licensing",
+      "keywords": ["dfsa", "dfsa licence", "dfsa licensing", "dfsa requirements", "dubai financial services authority licence"],
+      "anchors": ["DFSA licensing requirements", "how to get a DFSA licence"],
+      "status": "active"
+    },
+    {
+      "id": "dfsa-tokenisation-sandbox",
+      "url": "https://aston.ae/dfsa-tokenisation-regulatory-sandbox/",
+      "title": "DFSA Tokenisation Regulatory Sandbox",
+      "category": "difc-licensing",
+      "keywords": ["dfsa sandbox", "tokenisation sandbox", "dfsa tokenisation", "regulatory sandbox difc"],
+      "anchors": ["DFSA tokenisation sandbox", "DFSA regulatory innovation testing"],
+      "status": "active"
+    },
+    {
+      "id": "difc-active-enterprise",
+      "url": "https://aston.ae/difc-active-enterprises/",
+      "title": "DIFC Active Enterprise Licence",
+      "category": "difc-licensing",
+      "keywords": ["difc active enterprise", "difc non-regulated", "difc holding", "difc commercial licence"],
+      "anchors": ["DIFC active enterprise licence", "DIFC non-regulated company"],
+      "status": "active"
+    },
+    {
+      "id": "difc-cat3a-brokerage",
+      "url": "https://aston.ae/difc-category-3a-brokerage-licence/",
+      "title": "DIFC Category 3A Brokerage Licence",
+      "category": "difc-licensing",
+      "keywords": ["difc brokerage", "category 3a difc", "broker dealer difc", "dfsa broker", "securities broker difc"],
+      "anchors": ["DIFC Category 3A brokerage licence", "DFSA broker-dealer licence"],
+      "status": "active"
+    },
+    {
+      "id": "difc-digital-assets",
+      "url": "https://aston.ae/difc-digital-assets-regime/",
+      "title": "DIFC Digital Assets Regime",
+      "category": "difc-licensing",
+      "keywords": ["difc digital assets", "digital asset regime difc", "dfsa crypto", "difc crypto regulation"],
+      "anchors": ["DIFC digital assets regime", "DFSA digital asset framework"],
+      "status": "active"
+    },
+    {
+      "id": "difc-crypto-tokens",
+      "url": "https://aston.ae/difc-digital-assets-regime-crypto-tokens/",
+      "title": "DIFC Digital Assets Regime — Crypto Tokens",
+      "category": "crypto-vara",
+      "keywords": ["difc crypto tokens", "digital tokens difc", "crypto token regulation", "dfsa crypto tokens"],
+      "anchors": ["DIFC crypto token regulation", "DFSA digital assets crypto tokens"],
+      "status": "active"
+    },
+    {
+      "id": "difc-employment-law",
+      "url": "https://aston.ae/difc-employment-law-your-comprehensive-guide/",
+      "title": "DIFC Employment Law Guide",
+      "category": "difc-licensing",
+      "keywords": ["difc employment law", "difc employment", "difc hr", "difc labour law"],
+      "anchors": ["DIFC employment law", "DIFC employment regulations guide"],
+      "status": "active"
+    },
+    {
+      "id": "difc-investment-crowdfunding",
+      "url": "https://aston.ae/difc-investment-crowdfunding-business-license-explained/",
+      "title": "DIFC Investment Crowdfunding Licence",
+      "category": "difc-licensing",
+      "keywords": ["difc crowdfunding", "investment crowdfunding difc", "equity crowdfunding difc", "dfsa crowdfunding"],
+      "anchors": ["DIFC investment crowdfunding licence", "DFSA crowdfunding framework"],
+      "status": "active"
+    },
+    {
+      "id": "difc-licensing-categories",
+      "url": "https://aston.ae/difc-licensing-categories/",
+      "title": "DIFC Licensing Categories Overview",
+      "category": "difc-licensing",
+      "keywords": ["difc licence categories", "dfsa categories", "difc licensing", "difc financial services licence"],
+      "anchors": ["DIFC licensing categories", "overview of DFSA licence types"],
+      "status": "active"
+    },
+    {
+      "id": "difc-loan-crowdfunding",
+      "url": "https://aston.ae/difc-loan-crowdfunding-business-licence/",
+      "title": "DIFC Loan Crowdfunding Licence",
+      "category": "difc-licensing",
+      "keywords": ["difc loan crowdfunding", "p2p lending difc", "peer to peer difc", "debt crowdfunding difc"],
+      "anchors": ["DIFC loan crowdfunding licence", "DIFC peer-to-peer lending"],
+      "status": "active"
+    },
+    {
+      "id": "difc-venture-studio",
+      "url": "https://aston.ae/difc-venture-studio-launchpad-licence/",
+      "title": "DIFC Venture Studio and Launchpad Licence",
+      "category": "difc-licensing",
+      "keywords": ["difc venture studio", "difc launchpad", "difc startup", "difc incubator"],
+      "anchors": ["DIFC venture studio licence", "DIFC launchpad programme"],
+      "status": "active"
+    },
+    {
+      "id": "difc-innovation-explorer",
+      "url": "https://aston.ae/difc-innovation-market-explorer-licences/",
+      "title": "DIFC Innovation and Market Explorer Licences",
+      "category": "difc-licensing",
+      "keywords": ["difc innovation licence", "difc explorer licence", "difc market explorer", "difc fintech"],
+      "anchors": ["DIFC innovation licence", "DIFC market explorer programme"],
+      "status": "active"
+    },
+    {
+      "id": "difc-emi",
+      "url": "https://aston.ae/electronic-money-institution-licenses-in-the-difc/",
+      "title": "Electronic Money Institution Licence in DIFC",
+      "category": "difc-licensing",
+      "keywords": ["emi", "electronic money institution", "emi difc", "emoney licence", "dfsa emi"],
+      "anchors": ["electronic money institution licence DIFC", "DIFC EMI licence"],
+      "status": "active"
+    },
+    {
+      "id": "dubai-foundation",
+      "url": "https://aston.ae/foundation-set-up-in-dubai-how-to-get-started/",
+      "title": "Foundation Setup in Dubai",
+      "category": "company-formation",
+      "keywords": ["foundation dubai", "private foundation uae", "foundation setup", "charitable foundation uae"],
+      "anchors": ["foundation setup in Dubai", "UAE private foundation"],
+      "status": "active"
+    },
+    {
+      "id": "adgm-overview",
+      "url": "https://aston.ae/freezone/abu-dhabi-global-market-adgm/",
+      "title": "Abu Dhabi Global Market (ADGM) Overview",
+      "category": "adgm-licensing",
+      "keywords": ["adgm", "abu dhabi global market", "adgm setup", "adgm company formation"],
+      "anchors": ["Abu Dhabi Global Market (ADGM)", "ADGM company formation"],
+      "status": "active"
+    },
+    {
+      "id": "difc-overview",
+      "url": "https://aston.ae/freezone/dubai-international-financial-centre-difc/",
+      "title": "Dubai International Financial Centre (DIFC) Overview",
+      "category": "difc-licensing",
+      "keywords": ["difc", "dubai international financial centre", "difc company", "difc setup"],
+      "anchors": ["Dubai International Financial Centre (DIFC)", "DIFC company formation"],
+      "status": "active"
+    },
+    {
+      "id": "ifza-overview",
+      "url": "https://aston.ae/freezone/international-free-zone-authority-ifza/",
+      "title": "International Free Zone Authority (IFZA) Overview",
+      "category": "freezone",
+      "keywords": ["ifza", "international free zone authority", "ifza overview"],
+      "anchors": ["International Free Zone Authority (IFZA)", "IFZA free zone overview"],
+      "status": "active"
+    },
+    {
+      "id": "local-bank-account",
+      "url": "https://aston.ae/get-local-bank-account/",
+      "title": "Get a Local Bank Account in the UAE",
+      "category": "banking",
+      "keywords": ["local bank account", "uae bank account", "uae banking", "personal account uae"],
+      "anchors": ["local bank account in the UAE", "UAE local banking"],
+      "status": "active"
+    },
+    {
+      "id": "gdpr-compliance",
+      "url": "https://aston.ae/general-data-protection-regulation-gdpr-compliance-aston-vip/",
+      "title": "GDPR Compliance Services",
+      "category": "compliance",
+      "keywords": ["gdpr", "data protection", "gdpr compliance", "data privacy"],
+      "anchors": ["GDPR compliance", "data protection compliance UAE"],
+      "status": "active"
+    },
+    {
+      "id": "gold-trade",
+      "url": "https://aston.ae/gold-trade/",
+      "title": "Gold Trade and Precious Metals Dubai",
+      "category": "company-formation",
+      "keywords": ["gold trading", "precious metals", "gold trade dubai", "gold company uae"],
+      "anchors": ["gold trade in Dubai", "precious metals trading UAE"],
+      "status": "active"
+    },
+    {
+      "id": "adgm-cat3c-application",
+      "url": "https://aston.ae/how-to-apply-for-adgm-category-3c-license/",
+      "title": "How to Apply for ADGM Category 3C Licence",
+      "category": "adgm-licensing",
+      "keywords": ["adgm category 3c", "adgm cat 3c", "adgm fund manager licence", "apply adgm cat 3c"],
+      "anchors": ["ADGM Category 3C licence application", "how to apply for ADGM Cat 3C"],
+      "status": "active"
+    },
+    {
+      "id": "vara-approval-guide",
+      "url": "https://aston.ae/how-to-get-approved-vara-license-in-dubai/",
+      "title": "How to Get VARA Approval in Dubai",
+      "category": "crypto-vara",
+      "keywords": ["vara approval", "get vara licence", "vara licence process", "vara application"],
+      "anchors": ["how to get VARA approval", "VARA licence application process"],
+      "status": "active"
+    },
+    {
+      "id": "vara-licence-guide",
+      "url": "https://aston.ae/how-to-get-vara-license-dubai/",
+      "title": "How to Get a VARA Licence in Dubai",
+      "category": "crypto-vara",
+      "keywords": ["vara licence", "vara license dubai", "vara setup", "vara registration"],
+      "anchors": ["VARA licence in Dubai", "how to obtain a VARA licence"],
+      "status": "active"
+    },
+    {
+      "id": "business-bank-account",
+      "url": "https://aston.ae/how-to-setup-a-business-bank-account-in-dubai/",
+      "title": "How to Set Up a Business Bank Account in Dubai",
+      "category": "banking",
+      "keywords": ["business bank account dubai", "set up bank account dubai", "corporate banking dubai", "open business account"],
+      "anchors": ["set up a business bank account in Dubai", "Dubai business bank account"],
+      "status": "active"
+    },
+    {
+      "id": "adgm-spv",
+      "url": "https://aston.ae/how-to-setup-an-adgm-spv-in-the-uae/",
+      "title": "ADGM SPV Setup in the UAE",
+      "category": "adgm-licensing",
+      "keywords": ["adgm spv", "special purpose vehicle adgm", "spv uae", "adgm holding"],
+      "anchors": ["ADGM SPV setup", "special purpose vehicle in ADGM"],
+      "status": "active"
+    },
+    {
+      "id": "commodities-trading",
+      "url": "https://aston.ae/how-to-start-a-commodities-trading-company-in-dubai/",
+      "title": "Commodities Trading Company Dubai",
+      "category": "company-formation",
+      "keywords": ["commodities trading", "trading company dubai", "commodity broker uae", "dmcc commodities"],
+      "anchors": ["commodities trading company in Dubai", "start a trading company in Dubai"],
+      "status": "active"
+    },
+    {
+      "id": "difc-investment-token-funds",
+      "url": "https://aston.ae/investment-token-funds-in-the-difc/",
+      "title": "Investment Token Funds in the DIFC",
+      "category": "difc-licensing",
+      "keywords": ["investment token fund", "token fund difc", "tokenised fund difc", "digital fund difc"],
+      "anchors": ["investment token funds in DIFC", "DIFC tokenised investment fund"],
+      "status": "active"
+    },
+    {
+      "id": "large-cash-transactions",
+      "url": "https://aston.ae/large-cash-transactions/",
+      "title": "Large Cash Transaction Reporting",
+      "category": "compliance",
+      "keywords": ["cash transactions", "large cash", "cash reporting uae", "aml cash", "suspicious transaction"],
+      "anchors": ["large cash transaction reporting", "cash transaction compliance UAE"],
+      "status": "active"
+    },
+    {
+      "id": "offshore-company-uae",
+      "url": "https://aston.ae/navigating-offshore-company-registration-in-the-uae/",
+      "title": "Offshore Company Registration in the UAE",
+      "category": "offshore",
+      "keywords": ["offshore company uae", "offshore registration", "rak icc", "jafza offshore", "uae offshore"],
+      "anchors": ["offshore company registration in the UAE", "UAE offshore company setup"],
+      "status": "active"
+    },
+    {
+      "id": "nft-uae",
+      "url": "https://aston.ae/non-fungible-tokens-uae/",
+      "title": "Non-Fungible Tokens (NFTs) in the UAE",
+      "category": "crypto-vara",
+      "keywords": ["nft", "non-fungible tokens", "nft uae", "nft regulation uae", "nft dubai"],
+      "anchors": ["NFTs in the UAE", "non-fungible token regulation UAE"],
+      "status": "active"
+    },
+    {
+      "id": "oil-fuel-trading",
+      "url": "https://aston.ae/oil-fuel-trading-dubai/",
+      "title": "Oil and Fuel Trading Company Dubai",
+      "category": "company-formation",
+      "keywords": ["oil trading", "fuel trading dubai", "oil company dubai", "energy trading uae"],
+      "anchors": ["oil and fuel trading in Dubai", "Dubai energy trading company"],
+      "status": "active"
+    },
+    {
+      "id": "open-company-bank-account",
+      "url": "https://aston.ae/open-company-bank-account-in-dubai/",
+      "title": "Open a Company Bank Account in Dubai",
+      "category": "banking",
+      "keywords": ["open company bank account", "corporate account dubai", "business account dubai", "company banking"],
+      "anchors": ["open a company bank account in Dubai", "corporate bank account Dubai"],
+      "status": "active"
+    },
+    {
+      "id": "private-bank-account",
+      "url": "https://aston.ae/open-private-bank-account-in-dubai/",
+      "title": "Open a Private Bank Account in Dubai",
+      "category": "banking",
+      "keywords": ["private bank account", "personal banking dubai", "private banking uae", "hnwi banking dubai"],
+      "anchors": ["open a private bank account in Dubai", "private banking in Dubai"],
+      "status": "active"
+    },
+    {
+      "id": "llc-formation",
+      "url": "https://aston.ae/procedures-to-llc-company-formation-in-dubai/",
+      "title": "LLC Company Formation in Dubai",
+      "category": "company-formation",
+      "keywords": ["llc formation dubai", "llc dubai", "limited liability company dubai", "wll dubai"],
+      "anchors": ["LLC company formation in Dubai", "Dubai LLC setup process"],
+      "status": "active"
+    },
+    {
+      "id": "relocation-services",
+      "url": "https://aston.ae/relocation-services/",
+      "title": "Relocation Services Dubai",
+      "category": "visa-residency",
+      "keywords": ["relocation dubai", "relocate uae", "move to dubai", "relocation services"],
+      "anchors": ["relocation services in Dubai", "relocate to Dubai"],
+      "status": "active"
+    },
+    {
+      "id": "crypto-exchange-licence",
+      "url": "https://aston.ae/securing-dubai-crypto-exchange-license/",
+      "title": "Crypto Exchange Licence Dubai",
+      "category": "crypto-vara",
+      "keywords": ["crypto exchange", "crypto exchange licence", "digital asset exchange dubai", "bitcoin exchange licence"],
+      "anchors": ["crypto exchange licence in Dubai", "Dubai crypto exchange setup"],
+      "status": "active"
+    },
+    {
+      "id": "dwtc-freezone",
+      "url": "https://aston.ae/start-free-zone-dwtc/",
+      "title": "DWTC Free Zone Setup",
+      "category": "freezone",
+      "keywords": ["dwtc", "world trade centre freezone", "dwtc free zone", "dubai world trade centre"],
+      "anchors": ["DWTC free zone setup", "Dubai World Trade Centre free zone"],
+      "status": "active"
+    },
+    {
+      "id": "ifza-business",
+      "url": "https://aston.ae/starting-a-business-in-ifza-free-zone/",
+      "title": "Starting a Business in IFZA Free Zone",
+      "category": "freezone",
+      "keywords": ["ifza free zone", "start business ifza", "ifza company formation", "ifza cost"],
+      "anchors": ["starting a business in IFZA", "IFZA free zone company setup"],
+      "status": "active"
+    },
+    {
+      "id": "company-liquidation",
+      "url": "https://aston.ae/step-by-step-process-to-company-liquidation-in-dubai/",
+      "title": "Company Liquidation in Dubai",
+      "category": "company-formation",
+      "keywords": ["company liquidation", "liquidation dubai", "close company dubai", "deregister company uae"],
+      "anchors": ["company liquidation in Dubai", "Dubai company closure process"],
+      "status": "active"
+    },
+    {
+      "id": "tax-consultancy",
+      "url": "https://aston.ae/tax-consultancy/",
+      "title": "Tax Consultancy Services UAE",
+      "category": "tax",
+      "keywords": ["tax consultancy", "uae tax", "corporate tax uae", "tax advice dubai", "vat uae", "tax planning"],
+      "anchors": ["tax consultancy services", "UAE corporate tax advice"],
+      "status": "active"
+    },
+    {
+      "id": "real-estate-tokenisation",
+      "url": "https://aston.ae/tokenisation-of-real-estate-in-the-uae/",
+      "title": "Tokenisation of Real Estate in the UAE",
+      "category": "crypto-vara",
+      "keywords": ["tokenisation real estate", "real estate tokens", "tokenised property uae", "property token"],
+      "anchors": ["tokenisation of real estate in the UAE", "UAE property tokenisation"],
+      "status": "active"
+    },
+    {
+      "id": "difc-tokenised-crowdfunding",
+      "url": "https://aston.ae/tokenised-real-estate-crowdfunding-platform-in-the-difc/",
+      "title": "Tokenised Real Estate Crowdfunding Platform in DIFC",
+      "category": "difc-licensing",
+      "keywords": ["tokenised crowdfunding", "real estate crowdfunding difc", "difc property crowdfunding", "dfsa crowdfunding platform"],
+      "anchors": ["tokenised real estate crowdfunding in DIFC", "DIFC property crowdfunding platform"],
+      "status": "active"
+    },
+    {
+      "id": "uae-freezones",
+      "url": "https://aston.ae/uae-freezones/",
+      "title": "UAE Free Zones Guide",
+      "category": "freezone",
+      "keywords": ["uae free zones", "freezone uae", "free zone comparison", "best free zone uae", "freezone setup"],
+      "anchors": ["UAE free zones guide", "compare UAE free zones"],
+      "status": "active"
+    },
+    {
+      "id": "vara-broker-dealer",
+      "url": "https://aston.ae/vara-broker-dealer-licences/",
+      "title": "VARA Broker-Dealer Licences",
+      "category": "crypto-vara",
+      "keywords": ["vara broker dealer", "broker dealer vara", "vara broker", "crypto broker dubai"],
+      "anchors": ["VARA broker-dealer licence", "VARA broker licence Dubai"],
+      "status": "active"
+    },
+    {
+      "id": "vip-services",
+      "url": "https://aston.ae/vip/",
+      "title": "Aston VIP Premium Services",
+      "category": "company-formation",
+      "keywords": ["aston vip", "vip services", "premium advisory", "hnwi advisory"],
+      "anchors": ["Aston VIP services", "VIP corporate advisory"],
+      "status": "active"
+    },
+    {
+      "id": "residence-visa",
+      "url": "https://aston.ae/vip-residence-visa/",
+      "title": "UAE Residence Visa",
+      "category": "visa-residency",
+      "keywords": ["residence visa", "uae visa", "golden visa", "investor visa uae", "dubai visa", "uae residency"],
+      "anchors": ["UAE residence visa", "Dubai investor visa"],
+      "status": "active"
+    },
+    {
+      "id": "vasp-difc",
+      "url": "https://aston.ae/virtual-assets-service-providers-in-difc-and-why-the-centre-attracts/",
+      "title": "Virtual Asset Service Providers in DIFC",
+      "category": "difc-licensing",
+      "keywords": ["vasp difc", "virtual asset service provider difc", "difc vasp", "crypto service provider difc"],
+      "anchors": ["virtual asset service providers in DIFC", "VASP licensing in DIFC"],
+      "status": "active"
+    },
+    {
+      "id": "vasp-adgm",
+      "url": "https://aston.ae/virtual-assets-service-providers-in-the-adgm/",
+      "title": "Virtual Asset Service Providers in ADGM",
+      "category": "adgm-licensing",
+      "keywords": ["vasp adgm", "virtual asset service provider adgm", "adgm crypto", "adgm vasp"],
+      "anchors": ["virtual asset service providers in ADGM", "VASP licensing in ADGM"],
+      "status": "active"
+    },
+    {
+      "id": "vasp-uae",
+      "url": "https://aston.ae/virtual-assets-service-providers-in-the-uae/",
+      "title": "Virtual Asset Service Providers in the UAE",
+      "category": "crypto-vara",
+      "keywords": ["vasp uae", "virtual asset service provider uae", "crypto regulation uae", "uae crypto licence"],
+      "anchors": ["virtual asset service providers in the UAE", "UAE VASP regulation"],
+      "status": "active"
+    }
+  ],
+  "external": [
+    {
+      "id": "dfsa",
+      "url": "https://www.dfsa.ae",
+      "title": "Dubai Financial Services Authority",
+      "category": "difc-licensing",
+      "keywords": ["dfsa", "dubai financial services authority", "dfsa regulation", "dfsa official"],
+      "anchors": ["Dubai Financial Services Authority (DFSA)", "DFSA official website"],
+      "status": "active"
+    },
+    {
+      "id": "difc-official",
+      "url": "https://www.difc.ae",
+      "title": "Dubai International Financial Centre",
+      "category": "difc-licensing",
+      "keywords": ["difc official", "difc website", "dubai international financial centre official"],
+      "anchors": ["Dubai International Financial Centre (DIFC)", "DIFC official"],
+      "status": "active"
+    },
+    {
+      "id": "adgm-official",
+      "url": "https://www.adgm.com",
+      "title": "Abu Dhabi Global Market",
+      "category": "adgm-licensing",
+      "keywords": ["adgm official", "abu dhabi global market official", "adgm website", "fsra"],
+      "anchors": ["Abu Dhabi Global Market (ADGM)", "ADGM official"],
+      "status": "active"
+    },
+    {
+      "id": "fatf",
+      "url": "https://www.fatf-gafi.org",
+      "title": "Financial Action Task Force (FATF)",
+      "category": "compliance",
+      "keywords": ["fatf", "financial action task force", "aml standards", "fatf recommendations", "grey list"],
+      "anchors": ["Financial Action Task Force (FATF)", "FATF AML recommendations"],
+      "status": "active"
+    },
+    {
+      "id": "imf",
+      "url": "https://www.imf.org",
+      "title": "International Monetary Fund (IMF)",
+      "category": "tax",
+      "keywords": ["imf", "international monetary fund", "global economy", "imf report"],
+      "anchors": ["International Monetary Fund (IMF)", "IMF global economic outlook"],
+      "status": "active"
+    }
+  ]
+}
