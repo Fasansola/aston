@@ -3,11 +3,12 @@
 /**
  * app/admin/page.tsx
  * ─────────────────────────────────────────────────────────────
- * Admin dashboard — 4 tabs:
- *   Dashboard  : stats, scheduler settings, run log
- *   Queue      : topic queue management
- *   Topics     : topic planner (Step 11)
- *   Links      : link manager (Step 1.6)
+ * Admin dashboard — 5 tabs:
+ *   Dashboard   : stats, scheduler settings, run log
+ *   Queue       : topic queue management
+ *   Topics      : topic planner (Step 11)
+ *   Links       : link manager (Step 1.6)
+ *   Performance : GSC + GA4 metrics per post (Step 12)
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -49,6 +50,15 @@ interface TopicPlan {
   status: TopicPlanStatus; notes: string;
   createdAt: string; queuedAt: string | null;
 }
+type PerformanceClass = "high" | "medium" | "low" | "unknown";
+interface PostPerformance {
+  postId: string; topic: string; url: string;
+  focusKeyword: string; cluster: string;
+  publishedDate: string; lastSyncedAt: string;
+  impressions: number; clicks: number; avgPosition: number; ctr: number;
+  pageviews: number; sessions: number; avgTimeOnPage: number; bounceRate: number;
+  classification: PerformanceClass;
+}
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -65,6 +75,12 @@ const TOPIC_STATUS_COLOURS: Record<TopicPlanStatus, string> = {
   idea: "bg-gray-100 text-gray-600", planned: "bg-blue-100 text-blue-700",
   approved: "bg-indigo-100 text-indigo-700", queued: "bg-green-100 text-green-700",
   archived: "bg-gray-50 text-gray-400",
+};
+const PERF_COLOURS: Record<PerformanceClass, string> = {
+  high:    "bg-green-100 text-green-700",
+  medium:  "bg-yellow-100 text-yellow-700",
+  low:     "bg-red-100 text-red-700",
+  unknown: "bg-gray-100 text-gray-500",
 };
 
 function fmt(iso: string | null) {
@@ -83,7 +99,7 @@ function Toggle({ checked, onChange, disabled = false }: { checked: boolean; onC
 
 // ── Main component ─────────────────────────────────────────────
 
-type Tab = "dashboard" | "queue" | "topics" | "links";
+type Tab = "dashboard" | "queue" | "topics" | "links" | "performance";
 
 export default function AdminPage() {
   const [secret, setSecret] = useState("");
@@ -115,6 +131,11 @@ export default function AdminPage() {
   const [lForm, setLForm] = useState({ url: "", title: "", type: "internal" as "internal" | "external", category: "", keywords: "", anchors: "", status: "active" as "active" | "inactive" });
   const [addingLink, setAddingLink] = useState(false);
   const [editingLink, setEditingLink] = useState<LinkEntry | null>(null);
+
+  // Performance data
+  const [perfRecords, setPerfRecords] = useState<PostPerformance[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   // ── Auth ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -149,11 +170,17 @@ export default function AdminPage() {
     setLinks(data.links ?? []);
   }, []);
 
+  const fetchPerformance = useCallback(async (s: string) => {
+    const res = await fetch(`/api/performance?secret=${encodeURIComponent(s)}`);
+    const data = await res.json();
+    setPerfRecords(data.records ?? []);
+  }, []);
+
   const fetchAll = useCallback(async (s: string) => {
     setLoading(true);
-    try { await Promise.all([fetchDashboard(s), fetchTopics(s), fetchLinks(s)]); }
+    try { await Promise.all([fetchDashboard(s), fetchTopics(s), fetchLinks(s), fetchPerformance(s)]); }
     finally { setLoading(false); }
-  }, [fetchDashboard, fetchTopics, fetchLinks]);
+  }, [fetchDashboard, fetchTopics, fetchLinks, fetchPerformance]);
 
   const handleLogin = () => {
     if (!secret.trim()) return;
@@ -296,6 +323,31 @@ export default function AdminPage() {
     await fetchLinks(secret);
   }
 
+  // ── Performance actions ────────────────────────────────────────
+  async function syncPerformance(action: "sync_all" | "sync_post", postId?: string) {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/performance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-secret": secret },
+        body: JSON.stringify({ action, postId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncResult(`Error: ${data.error}`);
+      } else if (action === "sync_all") {
+        const r = data.result;
+        setSyncResult(`Synced ${r.synced} posts, ${r.skipped} skipped${r.errors.length ? `, ${r.errors.length} errors` : ""}.`);
+      } else {
+        setSyncResult(`Post synced: ${data.record?.classification ?? "unknown"} (${data.record?.impressions ?? 0} impressions)`);
+      }
+      await fetchPerformance(secret);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   // ── Auth screen ────────────────────────────────────────────────
   if (!authed) {
     return (
@@ -336,13 +388,14 @@ export default function AdminPage() {
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200 px-6">
         <nav className="flex gap-0 -mb-px">
-          {(["dashboard", "queue", "topics", "links"] as Tab[]).map((t) => (
+          {(["dashboard", "queue", "topics", "links", "performance"] as Tab[]).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-5 py-3 text-sm font-medium border-b-2 capitalize transition ${tab === t ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
               {t}
               {t === "queue" && stats ? <span className="ml-1.5 text-xs bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5">{stats.queued}</span> : null}
               {t === "topics" ? <span className="ml-1.5 text-xs bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5">{topics.filter(x => x.status !== "archived").length}</span> : null}
               {t === "links" ? <span className="ml-1.5 text-xs bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5">{links.filter(x => x.status === "active").length}</span> : null}
+              {t === "performance" ? <span className="ml-1.5 text-xs bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5">{perfRecords.length}</span> : null}
             </button>
           ))}
         </nav>
@@ -786,6 +839,130 @@ export default function AdminPage() {
                           </td>
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </>
+        )}
+
+        {/* ══ PERFORMANCE TAB ════════════════════════════════════ */}
+        {tab === "performance" && (
+          <>
+            {/* Sync controls */}
+            <section className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Performance Sync</h2>
+                  <p className="text-xs text-gray-400 mt-1">Fetches last 90 days from Google Search Console + GA4 (if configured). Auto-syncs every Monday 03:00 UTC.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {syncResult && <p className={`text-sm ${syncResult.startsWith("Error") ? "text-red-500" : "text-green-600"}`}>{syncResult}</p>}
+                  <button onClick={() => syncPerformance("sync_all")} disabled={syncing}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+                    {syncing ? "Syncing…" : "Sync all posts"}
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* Summary cards */}
+            {perfRecords.length > 0 && (() => {
+              const high   = perfRecords.filter(p => p.classification === "high").length;
+              const medium = perfRecords.filter(p => p.classification === "medium").length;
+              const low    = perfRecords.filter(p => p.classification === "low").length;
+              const unknown = perfRecords.filter(p => p.classification === "unknown").length;
+              const tracked = perfRecords.filter(p => p.impressions > 0);
+              const avgPos = tracked.length ? (tracked.reduce((s, p) => s + p.avgPosition, 0) / tracked.length).toFixed(1) : "—";
+              const avgCtr = tracked.length ? (tracked.reduce((s, p) => s + p.ctr, 0) / tracked.length).toFixed(1) : "—";
+              const totalClicks = perfRecords.reduce((s, p) => s + p.clicks, 0);
+              return (
+                <section>
+                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Overview</h2>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                    {[
+                      { label: "High performers",   value: high,   colour: "text-green-600" },
+                      { label: "Medium performers",  value: medium, colour: "text-yellow-600" },
+                      { label: "Low performers",     value: low,    colour: "text-red-500" },
+                      { label: "Not indexed yet",    value: unknown, colour: "text-gray-400" },
+                      { label: "Avg position",       value: avgPos, colour: "text-gray-700" },
+                      { label: "Avg CTR %",          value: avgCtr, colour: "text-gray-700" },
+                      { label: "Total clicks (90d)", value: totalClicks, colour: "text-blue-600" },
+                    ].map((s) => (
+                      <div key={s.label} className="bg-white rounded-lg shadow-sm p-4 text-center">
+                        <p className={`text-2xl font-bold ${s.colour}`}>{s.value}</p>
+                        <p className="text-xs text-gray-500 mt-1">{s.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            })()}
+
+            {/* Posts table */}
+            <section className="bg-white rounded-xl shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-100">
+                <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Posts ({perfRecords.length})</h2>
+              </div>
+              {perfRecords.length === 0 ? (
+                <p className="text-sm text-gray-400 px-6 py-8 text-center">
+                  No performance data yet. Click &ldquo;Sync all posts&rdquo; to pull data from Google Search Console.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Topic</th>
+                        <th className="px-4 py-3 text-center">Class</th>
+                        <th className="px-4 py-3 text-right">Impressions</th>
+                        <th className="px-4 py-3 text-right">Clicks</th>
+                        <th className="px-4 py-3 text-right">Avg pos</th>
+                        <th className="px-4 py-3 text-right">CTR %</th>
+                        <th className="px-4 py-3 text-right">Pageviews</th>
+                        <th className="px-4 py-3 text-right">Avg time</th>
+                        <th className="px-4 py-3 text-left">Synced</th>
+                        <th className="px-4 py-3 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {[...perfRecords]
+                        .sort((a, b) => {
+                          const order: Record<PerformanceClass, number> = { high: 0, medium: 1, low: 2, unknown: 3 };
+                          return (order[a.classification] - order[b.classification]) || (a.avgPosition - b.avgPosition);
+                        })
+                        .map((p) => (
+                          <tr key={p.postId} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 max-w-[200px]">
+                              <a href={p.url} target="_blank" rel="noopener noreferrer"
+                                className="font-medium text-gray-900 hover:text-blue-600 truncate block" title={p.topic}>
+                                {p.topic}
+                              </a>
+                              {p.cluster && <p className="text-xs text-gray-400">{p.cluster}</p>}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${PERF_COLOURS[p.classification]}`}>
+                                {p.classification}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right text-sm">{p.impressions.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right text-sm font-medium text-blue-600">{p.clicks.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right text-sm">{p.avgPosition > 0 ? p.avgPosition.toFixed(1) : "—"}</td>
+                            <td className="px-4 py-3 text-right text-sm">{p.ctr > 0 ? p.ctr.toFixed(1) + "%" : "—"}</td>
+                            <td className="px-4 py-3 text-right text-xs text-gray-500">{p.pageviews > 0 ? p.pageviews.toLocaleString() : "—"}</td>
+                            <td className="px-4 py-3 text-right text-xs text-gray-500">
+                              {p.avgTimeOnPage > 0 ? `${Math.floor(p.avgTimeOnPage / 60)}m ${Math.round(p.avgTimeOnPage % 60)}s` : "—"}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{fmt(p.lastSyncedAt)}</td>
+                            <td className="px-4 py-3 text-center">
+                              <button onClick={() => syncPerformance("sync_post", p.postId)} disabled={syncing}
+                                className="text-xs text-blue-600 hover:underline disabled:opacity-40">
+                                Sync
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
                     </tbody>
                   </table>
                 </div>

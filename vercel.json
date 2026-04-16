@@ -11,6 +11,10 @@
     {
       "path": "/api/cron",
       "schedule": "0 8,11,14,17,20 * * *"
+    },
+    {
+      "path": "/api/cron-performance",
+      "schedule": "0 3 * * 1"
     }
   ]
 }

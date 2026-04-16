@@ -152,6 +152,7 @@ export async function GET(req: NextRequest) {
         completedAt: new Date().toISOString(),
         wpPostId: post.id,
         wpEditUrl: `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
+        wpPostUrl: post.link ?? null,
         qaScore: qa.score,
         qaWarnings: qa.warnings,
         lastError: null,

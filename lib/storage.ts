@@ -35,6 +35,7 @@ export interface QueueItem {
   lastError: string | null;
   wpPostId: number | null;
   wpEditUrl: string | null;
+  wpPostUrl: string | null;
   qaScore: number | null;
   qaWarnings: string[];
 }
@@ -200,6 +201,7 @@ export async function addQueueItem(
     lastError: null,
     wpPostId: null,
     wpEditUrl: null,
+    wpPostUrl: null,
     qaScore: null,
     qaWarnings: [],
   };
@@ -287,6 +289,44 @@ export async function completedTodayCount(): Promise<number> {
   return queue.filter(
     (i) => i.status === "completed" && i.completedAt?.startsWith(today)
   ).length;
+}
+
+// ── Performance Tracking ──────────────────────────────────────
+
+export type PerformanceClass = "high" | "medium" | "low" | "unknown";
+
+export interface PostPerformance {
+  postId: string;          // WP post ID (string)
+  topic: string;
+  url: string;             // frontend URL
+  focusKeyword: string;
+  cluster: string;
+  publishedDate: string;
+  lastSyncedAt: string;
+  // GSC metrics
+  impressions: number;
+  clicks: number;
+  avgPosition: number;
+  ctr: number;             // percentage e.g. 4.2
+  // GA4 metrics (0 if not configured)
+  pageviews: number;
+  sessions: number;
+  avgTimeOnPage: number;   // seconds
+  bounceRate: number;      // percentage
+  // Classification
+  classification: PerformanceClass;
+}
+
+export async function getPerformance(): Promise<PostPerformance[]> {
+  return kget<PostPerformance[]>("aston:performance", []);
+}
+
+export async function upsertPostPerformance(record: PostPerformance): Promise<void> {
+  const all = await getPerformance();
+  const idx = all.findIndex((p) => p.postId === record.postId);
+  if (idx === -1) all.push(record);
+  else all[idx] = record;
+  await kset("aston:performance", all);
 }
 
 // ── Link Manager ──────────────────────────────────────────────

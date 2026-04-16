@@ -211,8 +211,8 @@ export async function POST(req: NextRequest) {
         internal: content.internal_links_used,
         external: content.external_links_used,
       },
-      editUrl: `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
-      previewUrl: post.link,
+      editUrl:    `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
+      previewUrl: post.link ?? null,
     });
 
   } catch (error: unknown) {
