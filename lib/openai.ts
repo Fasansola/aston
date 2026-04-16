@@ -120,6 +120,16 @@ Plan the structure of this blog post and return it as a single valid JSON object
         { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" }
       ]
+    },
+    {
+      "field": "more_content_6",
+      "h3_heading": "string",
+      "angle": "string",
+      "target_words": 320,
+      "subsections": [
+        { "h4_heading": "string", "angle": "string" },
+        { "h4_heading": "string", "angle": "string" }
+      ]
     }
   ],
   "faq_questions": ["string", "string", "string", "string"]
@@ -136,6 +146,7 @@ BLUEPRINT RULES:
 - sections[].subsections[].h4_heading: the exact H4 heading, sentence case, max 8 words
 - sections[].subsections[].angle: one sentence describing the subsection focus
 - more_content_4 must always open with an Aston VIP CTA heading adapted to the topic
+- more_content_6 must be a distinct fifth body section covering a practical angle not addressed in sections 1–4 (e.g. common mistakes, jurisdiction comparison, a specific use case, or a compliance checklist). Do not duplicate more_content_4 themes.
 - faq_questions: 4 specific questions a real reader would ask about this topic. Questions only, no answers yet`;
 
   const response = await openai.chat.completions.create({
@@ -236,7 +247,8 @@ Return as a single valid JSON object with exactly these fields. No markdown, no 
   "more_content_4": "string",
   "quote_2": "string",
   "key_takeaways": "string",
-  "faq": "string",
+  "more_content_5": "string",
+  "more_content_6": "string",
   "final_points": "string",
   "read_mins": "string",
   "internal_links_used": [{"anchor": "string", "url": "string"}],
@@ -309,12 +321,21 @@ key_takeaways:
 HTML <ul><li> list of exactly 5 items. Each must contain at least one named figure, regulator, jurisdiction, timeline, or cost. Include the focus keyword in at least one item.
 Allowed HTML: <ul>, <li>, <strong>
 
-faq:
-Write answers for each of these questions using the format below.
+more_content_5:
+Write answers for each of these FAQ questions using the format below.
 Questions: ${blueprint.faq_questions.map((q, i) => `Q${i + 1}: ${q}`).join(" | ")}
 Format each as: <h3>Question text</h3><p>Answer (2-4 sentences, factual, specific)</p>
 Do NOT wrap in any container — just the h3/p pairs.
 Allowed HTML: <h3>, <p>, <strong>
+
+more_content_6:
+- Use EXACTLY this H3: "${blueprint.sections[4]?.h3_heading ?? ""}"
+- Follow the angle: ${blueprint.sections[4]?.angle ?? ""}
+- Write each H4 subsection as specified in the blueprint
+- Target ~${blueprint.sections[4]?.target_words ?? 320} words
+- This is a distinct fifth body section — do not repeat themes from more_content_4
+- Use 1-2 secondary keywords naturally
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>
 
 final_points:
 HTML <ul><li> list of exactly 4 practical next steps. Start each with a verb. Specific and actionable.

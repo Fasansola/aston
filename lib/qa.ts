@@ -99,7 +99,8 @@ export function runQA(
   const allFields = [
     bodyFields,
     content.key_takeaways,
-    content.faq,
+    content.more_content_5,
+    content.more_content_6,
     content.final_points,
     content.keypoint_one,
     content.keypoint_two,
@@ -123,7 +124,7 @@ export function runQA(
   // Required content sections
   checks.main_content_exists = (content.main_content?.length ?? 0) > 80;
   checks.key_takeaways_exists = !!content.key_takeaways?.trim();
-  checks.faq_exists = !!content.faq?.trim();
+  checks.more_content_5_exists = !!content.more_content_5?.trim();
   checks.final_points_exists = !!content.final_points?.trim();
 
   // CTA: more_content_4 must contain the contact link
@@ -236,7 +237,7 @@ export function runQA(
     "excerpt_exists",
     "main_content_exists",
     "key_takeaways_exists",
-    "faq_exists",
+    "more_content_5_exists",
     "final_points_exists",
     "cta_exists",
     "internal_links_sufficient",
