@@ -10,7 +10,7 @@
   "crons": [
     {
       "path": "/api/cron",
-      "schedule": "0 8,11,14,17,20 * * *"
+      "schedule": "0 8 * * *"
     },
     {
       "path": "/api/cron-performance",
