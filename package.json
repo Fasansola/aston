@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@google/genai": "^1.50.1",
     "@upstash/redis": "^1.37.0",
     "axios": "^1.15.0",
     "form-data": "^4.0.5",

@@ -458,25 +458,25 @@ Alt text rules: describe what is literally shown using specific nouns, include o
 // ── DALL·E 3 image generation ─────────────────────────────────
 
 /**
- * Generate a DALL·E 3 image and return it as a Buffer.
+ * Generate an Imagen 3 image via Google AI Studio and return it as a Buffer.
  * Buffer avoids writing to disk — clean for serverless environments.
  */
 export async function generateImage(prompt: string): Promise<Buffer> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const response = await openai.images.generate({
-    model: "dall-e-3",
+  const { GoogleGenAI } = await import("@google/genai");
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+  const response = await ai.models.generateImages({
+    model: "imagen-3.0-generate-002",
     prompt,
-    n: 1,
-    size: "1792x1024",
-    quality: "hd",
-    style: "natural",
+    config: {
+      numberOfImages: 1,
+      aspectRatio: "16:9",
+      outputMimeType: "image/png",
+    },
   });
 
-  const imageUrl = response.data?.[0]?.url ?? "";
-  if (!imageUrl) throw new Error("DALL·E returned no image URL");
+  const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
+  if (!imageBytes) throw new Error("Imagen 3 returned no image data");
 
-  const imageResponse = await axios.get(imageUrl, {
-    responseType: "arraybuffer",
-  });
-  return Buffer.from(imageResponse.data);
+  return Buffer.from(imageBytes, "base64");
 }

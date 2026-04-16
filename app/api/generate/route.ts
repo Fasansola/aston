@@ -12,7 +12,7 @@
  *  4.  Generate structure blueprint with GPT-4o
  *  5.  Generate full article content from blueprint with GPT-4o
  *  6.  Generate 4 content-aware image prompts with GPT-4o
- *  7.  Generate 4 images with DALL·E 3 (in parallel)
+ *  7.  Generate 4 images with Imagen 3 (in parallel)
  *  8.  Upload images to WordPress media library (in parallel)
  *  9.  Run QA engine — fail hard on blocking issues, flag warnings
  *  10. Create WordPress draft post with all ACF + Yoast fields
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
     console.log("[generate] Image prompts ready.");
 
     // ── 7. Generate all 4 images in parallel ─────────────
-    console.log("[generate] Generating images with DALL·E 3...");
+    console.log("[generate] Generating images with Imagen 3...");
     const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
       generateImage(imagePrompts.keypoint_one_img_prompt),
       generateImage(imagePrompts.keypoint_two_img_prompt),
