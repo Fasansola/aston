@@ -91,6 +91,7 @@ function validateContent(content: BlogContent, imagePrompts: ImagePrompts): void
     ["keypoint_one", content.keypoint_one],
     ["keypoint_two", content.keypoint_two],
     ["key_takeaways", content.key_takeaways],
+    ["faq", content.faq],
     ["final_points", content.final_points],
     ["keypoint_one_img_prompt", imagePrompts.keypoint_one_img_prompt],
     ["featured_img_prompt", imagePrompts.featured_img_prompt],
@@ -167,7 +168,7 @@ export async function createWordPressPost(
           read_mins:        parseInt(content.read_mins, 10) || 7,
           post_split_img:   imageIds.postSplitImg,
           Final_Points:     content.final_points,
-          more_content_5:   "",
+          more_content_5:   content.faq,
           more_content_6:   "",
         },
       },
@@ -207,6 +208,7 @@ export interface BlogContent {
   more_content_4: string;
   quote_2: string;
   key_takeaways: string;
+  faq: string;
   final_points: string;
   read_mins: string;
   // Link usage report
@@ -223,4 +225,25 @@ export interface ImagePrompts {
   post_split_img_alt: string;
   featured_img_prompt: string;
   featured_img_alt: string;
+}
+
+export interface Blueprint {
+  focus_keyword: string;
+  secondary_keywords: string[];
+  seo_title: string;
+  meta_description: string;
+  slug: string;
+  estimated_word_count: number;
+  intro_angle: string;
+  sections: Array<{
+    field: string;
+    h3_heading: string;
+    angle: string;
+    target_words: number;
+    subsections: Array<{
+      h4_heading: string;
+      angle: string;
+    }>;
+  }>;
+  faq_questions: string[];
 }

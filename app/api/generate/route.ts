@@ -8,16 +8,17 @@
  * Pipeline:
  *  1. Validate request + API secret
  *  2. Select relevant links for the topic (link manager)
- *  3. Generate blog content + SEO metadata with GPT-4o
- *  4. Generate 4 content-aware image prompts with GPT-4o
- *  5. Generate 4 images with DALL·E 3 (in parallel)
- *  6. Upload images to WordPress media library (in parallel)
- *  7. Create WordPress draft post with all ACF + Yoast fields
- *  8. Return the draft post URL
+ *  3. Generate structure blueprint with GPT-4o (headings, word targets, FAQ)
+ *  4. Generate full article content from blueprint with GPT-4o
+ *  5. Generate 4 content-aware image prompts with GPT-4o
+ *  6. Generate 4 images with DALL·E 3 (in parallel)
+ *  7. Upload images to WordPress media library (in parallel)
+ *  8. Create WordPress draft post with all ACF + Yoast fields
+ *  9. Return the draft post URL
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { generateBlogContent, generateImagePrompts, generateImage } from "@/lib/openai";
+import { generateBlueprint, generateBlogContent, generateImagePrompts, generateImage } from "@/lib/openai";
 import { uploadImageToWordPress, createWordPressPost } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 
@@ -55,18 +56,25 @@ export async function POST(req: NextRequest) {
       `[generate] Selected ${selectedLinks.internal.length} internal + ${selectedLinks.external.length} external links`
     );
 
-    // ── 3. Generate blog content + SEO ───────────────────
-    const content = await generateBlogContent(title, selectedLinks);
+    // ── 3. Generate structure blueprint ──────────────────
+    console.log("[generate] Generating blueprint...");
+    const blueprint = await generateBlueprint(title, selectedLinks);
     console.log(
-      `[generate] Content ready. Focus keyword: "${content.focus_keyword}", slug: "${content.slug}"`
+      `[generate] Blueprint ready. Focus keyword: "${blueprint.focus_keyword}", ~${blueprint.estimated_word_count} words`
     );
 
-    // ── 4. Generate content-aware image prompts ──────────
+    // ── 4. Generate blog content from blueprint ───────────
+    const content = await generateBlogContent(title, blueprint, selectedLinks);
+    console.log(
+      `[generate] Content ready. Slug: "${content.slug}", read: ${content.read_mins} min`
+    );
+
+    // ── 5. Generate content-aware image prompts ──────────
     console.log("[generate] Generating image prompts from content...");
     const imagePrompts = await generateImagePrompts(title, content);
     console.log("[generate] Image prompts ready.");
 
-    // ── 5. Generate all 4 images in parallel ─────────────
+    // ── 6. Generate all 4 images in parallel ─────────────
     console.log("[generate] Generating images with DALL·E 3...");
     const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
       generateImage(imagePrompts.keypoint_one_img_prompt),
@@ -82,7 +90,7 @@ export async function POST(req: NextRequest) {
       .replace(/[^a-z0-9]+/g, "-")
       .slice(0, 50);
 
-    // ── 6. Upload images to WordPress ────────────────────
+    // ── 7. Upload images to WordPress ────────────────────
     console.log("[generate] Uploading images to WordPress...");
     const [kp1Media, kp2Media, splitMedia, featuredMedia] = await Promise.all([
       uploadImageToWordPress(kp1Buffer, `${fileSlug}-kp1.png`, imagePrompts.keypoint_one_img_alt),
@@ -94,7 +102,7 @@ export async function POST(req: NextRequest) {
       `[generate] Images uploaded: ${kp1Media.id}, ${kp2Media.id}, ${splitMedia.id}, ${featuredMedia.id}`
     );
 
-    // ── 7. Strip IMGSLOT placeholders (images handled by ACF) ──
+    // ── 8. Strip IMGSLOT placeholders (images handled by ACF) ──
     const assembled = {
       main_content:   content.main_content.replace("IMGSLOT_MAIN", ""),
       more_content_1: content.more_content_1.replace("IMGSLOT_ONE", ""),
@@ -102,7 +110,7 @@ export async function POST(req: NextRequest) {
       more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
     };
 
-    // ── 8. Create the WordPress post ─────────────────────
+    // ── 9. Create the WordPress post ─────────────────────
     console.log("[generate] Creating WordPress post...");
     const post = await createWordPressPost(title, content, imagePrompts, assembled, {
       keypointOneImg: kp1Media.id,
@@ -112,7 +120,7 @@ export async function POST(req: NextRequest) {
     });
     console.log(`[generate] Post created! ID: ${post.id}, slug: "${content.slug}"`);
 
-    // ── 9. Return success ─────────────────────────────────
+    // ── 10. Return success ────────────────────────────────
     return NextResponse.json({
       success: true,
       postId: post.id,

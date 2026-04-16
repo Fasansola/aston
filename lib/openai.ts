@@ -1,17 +1,20 @@
 /**
  * lib/openai.ts
  * ─────────────────────────────────────────────────────────────
- * All OpenAI interactions: GPT-4o for blog content + SEO,
- * GPT-4o for content-aware image prompts, DALL·E 3 for images.
+ * All OpenAI interactions.
  *
- * Two-step generation:
- *  Step 1 — generateBlogContent(): full article text + SEO metadata
- *  Step 2 — generateImagePrompts(): 4 prompts written from actual content
+ * Three-step generation pipeline:
+ *  Step 1 — generateBlueprint(): fast structural outline (headings, word
+ *            targets, angles, FAQ questions) — no prose written yet
+ *  Step 2 — generateBlogContent(): full article written strictly to the
+ *            blueprint — consistent layout, correct word counts
+ *  Step 3 — generateImagePrompts(): 4 DALL·E prompts derived from the
+ *            actual written content, not the title alone
  */
 
 import OpenAI from "openai";
 import axios from "axios";
-import { BlogContent, ImagePrompts } from "./wordpress";
+import { BlogContent, Blueprint, ImagePrompts } from "./wordpress";
 import { SelectedLinks, formatLinksForPrompt } from "./links";
 
 // ── Fixed system prompt — never changes between requests ──────
@@ -40,30 +43,28 @@ TONE AND STYLE RULES:
 BANNED PHRASES — never use any of these under any circumstances:
 seamless, hassle-free, empower, unlock the power of, cutting-edge, innovative solution, game-changing, leverage, next-gen, disrupt, frictionless, one-stop-shop, solution-oriented, obtain, delve, navigate the complexities, it's worth noting, in today's landscape, in conclusion, unlock, streamline, robust, comprehensive suite, tailored solutions, ever-evolving, look no further`;
 
-// ── Step 1: Generate blog content + SEO metadata ─────────────
+// ── Step 1: Generate structure blueprint ──────────────────────
 
 /**
- * Generate full structured blog content using GPT-4o.
- * Does NOT generate image prompts — those come from generateImagePrompts()
- * after the content is written, so prompts reference actual article content.
+ * Fast first call — produces a structured outline before any prose is written.
+ * The blueprint enforces consistent layout, correct word targets per section,
+ * and specific headings/angles that the content generator must follow exactly.
  */
-export async function generateBlogContent(
+export async function generateBlueprint(
   title: string,
   selectedLinks: SelectedLinks
-): Promise<BlogContent> {
+): Promise<Blueprint> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-  const linksBlock = formatLinksForPrompt(selectedLinks);
+  const linkCategories = [
+    ...selectedLinks.internal.map((l) => l.title),
+    ...selectedLinks.external.map((l) => l.title),
+  ].join(", ");
 
   const userPrompt = `Blog title: "${title}"
+Available link topics for context: ${linkCategories}
 
-Before writing, do the following:
-1. Identify the primary focus keyword this article should rank for
-2. Identify 4-6 secondary keywords or LSI terms to support it
-3. Write the SEO title, meta description, URL slug, and excerpt
-4. Use these throughout the article as instructed
-
-Then write the full blog post and return it as a single valid JSON object with exactly these fields. No markdown, no code fences, no text before or after the JSON:
+Plan the structure of this blog post and return it as a single valid JSON object. No markdown, no code fences:
 
 {
   "focus_keyword": "string",
@@ -71,6 +72,152 @@ Then write the full blog post and return it as a single valid JSON object with e
   "seo_title": "string",
   "meta_description": "string",
   "slug": "string",
+  "estimated_word_count": 2200,
+  "intro_angle": "string",
+  "sections": [
+    {
+      "field": "more_content_1",
+      "h3_heading": "string",
+      "angle": "string",
+      "target_words": 380,
+      "subsections": [
+        { "h4_heading": "string", "angle": "string" },
+        { "h4_heading": "string", "angle": "string" }
+      ]
+    },
+    {
+      "field": "more_content_2",
+      "h3_heading": "string",
+      "angle": "string",
+      "target_words": 380,
+      "subsections": [
+        { "h4_heading": "string", "angle": "string" },
+        { "h4_heading": "string", "angle": "string" }
+      ]
+    },
+    {
+      "field": "more_content_3",
+      "h3_heading": "string",
+      "angle": "string",
+      "target_words": 380,
+      "subsections": [
+        { "h4_heading": "string", "angle": "string" },
+        { "h4_heading": "string", "angle": "string" }
+      ]
+    },
+    {
+      "field": "more_content_4",
+      "h3_heading": "Aston VIP's role in your [adapt to topic]",
+      "angle": "string",
+      "target_words": 380,
+      "subsections": [
+        { "h4_heading": "string", "angle": "string" },
+        { "h4_heading": "string", "angle": "string" },
+        { "h4_heading": "string", "angle": "string" }
+      ]
+    }
+  ],
+  "faq_questions": ["string", "string", "string", "string"]
+}
+
+BLUEPRINT RULES:
+- focus_keyword: the single phrase this article should rank for in Google
+- seo_title: 50-60 characters, include focus keyword, no site name
+- meta_description: 145-155 characters, include focus keyword once, written for click-through
+- slug: lowercase hyphenated, 3-6 words, based on focus keyword
+- intro_angle: one sentence describing what the intro should establish — the business problem or opportunity
+- sections[].h3_heading: the exact H3 heading for that section, sentence case, max 8 words
+- sections[].angle: one sentence describing what that section covers and what the reader should understand after reading it
+- sections[].subsections[].h4_heading: the exact H4 heading, sentence case, max 8 words
+- sections[].subsections[].angle: one sentence describing the subsection focus
+- more_content_4 must always open with an Aston VIP CTA heading adapted to the topic
+- faq_questions: 4 specific questions a real reader would ask about this topic. Questions only, no answers yet`;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.4,
+    max_tokens: 1500,
+  });
+
+  const raw = response.choices[0].message.content?.trim() ?? "";
+
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error(
+      `No JSON found in blueprint response. Raw: ${raw.slice(0, 200)}`
+    );
+  }
+
+  try {
+    return JSON.parse(jsonMatch[0]) as Blueprint;
+  } catch {
+    throw new Error(
+      `Blueprint returned invalid JSON. Raw: ${raw.slice(0, 200)}`
+    );
+  }
+}
+
+// ── Step 2: Generate blog content from blueprint ──────────────
+
+/**
+ * Write the full article using the blueprint as the source of truth.
+ * Every section heading, angle, and word target comes from the blueprint —
+ * the AI fills in the prose, not the structure.
+ */
+export async function generateBlogContent(
+  title: string,
+  blueprint: Blueprint,
+  selectedLinks: SelectedLinks
+): Promise<BlogContent> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const linksBlock = formatLinksForPrompt(selectedLinks);
+
+  // Serialise blueprint sections into clear per-field instructions
+  const sectionInstructions = blueprint.sections
+    .map((s) => {
+      const subs = s.subsections
+        .map((sub) => `    H4: "${sub.h4_heading}" — ${sub.angle}`)
+        .join("\n");
+      return `${s.field} (target: ~${s.target_words} words)
+  H3: "${s.h3_heading}"
+  Angle: ${s.angle}
+${subs}`;
+    })
+    .join("\n\n");
+
+  const faqInstructions = blueprint.faq_questions
+    .map((q, i) => `  Q${i + 1}: ${q}`)
+    .join("\n");
+
+  const userPrompt = `Blog title: "${title}"
+
+You have already planned the structure. Now write the full article following the blueprint exactly.
+The headings, section angles, and word targets below are fixed — do not change them.
+
+BLUEPRINT:
+Focus keyword: ${blueprint.focus_keyword}
+Secondary keywords: ${blueprint.secondary_keywords.join(", ")}
+Intro angle: ${blueprint.intro_angle}
+
+SECTION STRUCTURE (follow exactly):
+${sectionInstructions}
+
+FAQ QUESTIONS (write a concise, factual answer for each):
+${faqInstructions}
+
+Return as a single valid JSON object with exactly these fields. No markdown, no code fences:
+
+{
+  "focus_keyword": "${blueprint.focus_keyword}",
+  "secondary_keywords": ${JSON.stringify(blueprint.secondary_keywords)},
+  "seo_title": "${blueprint.seo_title}",
+  "meta_description": "${blueprint.meta_description}",
+  "slug": "${blueprint.slug}",
   "excerpt": "string",
   "main_content": "string",
   "keypoint_one": "string",
@@ -82,6 +229,7 @@ Then write the full blog post and return it as a single valid JSON object with e
   "more_content_4": "string",
   "quote_2": "string",
   "key_takeaways": "string",
+  "faq": "string",
   "final_points": "string",
   "read_mins": "string",
   "internal_links_used": [{"anchor": "string", "url": "string"}],
@@ -90,108 +238,89 @@ Then write the full blog post and return it as a single valid JSON object with e
 
 FIELD INSTRUCTIONS:
 
-focus_keyword:
-The single primary keyword phrase this article targets for Google ranking. Example: "DIFC fund manager licence". Return as a plain string.
-
-secondary_keywords:
-A JSON array of 4-6 related keyword phrases used naturally within the article body.
-
-seo_title:
-The page title tag for Google. 50-60 characters. Include the focus keyword near the front. Do not include "Aston VIP" or the site name. No pipes or dashes at the end. Example: "DIFC Fund Manager Licence: Requirements and Costs"
-
-meta_description:
-The meta description for Google. 145-155 characters. Include the focus keyword once. Write as an informative sentence that gives a clear reason to click. No calls to action like "click here".
-
-slug:
-URL-safe slug for the WordPress post. Lowercase, hyphens only, no slashes. 3-6 words. Example: "difc-fund-manager-licence"
-
 excerpt:
-A 2-3 sentence plain-text excerpt used in post listings. No HTML. 40-60 words. Summarise the article's key value for the reader.
+2-3 sentence plain-text excerpt for WordPress archive pages. No HTML. 40-60 words.
 
-main_content (350-450 words):
-- Open with the business problem or opportunity this topic addresses. Make the reader feel the stakes in the first two sentences
+main_content (180-220 words):
+- Open with the business problem or opportunity described in the intro angle: "${blueprint.intro_angle}"
 - Include the focus keyword naturally within the first 50 words
-- Introduce 2-3 key themes without listing them as bullets
-- For UAE topics reference the specific jurisdiction (DIFC, ADGM, mainland, or relevant free zone) not "Dubai" generically
-- For non-UAE topics reference Aston's international coverage and London/Dubai offices naturally
+- Do NOT open with an H3. Start with a <p> tag
+- After the opening paragraph you may use H3/H4 for any subsections if needed
+- Heading hierarchy: every H4 must sit under an H3. Never skip levels
 - End with a sentence that pulls the reader into what follows
-- Do NOT open with an H3. Start with a P tag. After the opening paragraph, use H3 for major sub-sections, H4 for subsections within each H3, and H5 for individual sub-points
-- Heading hierarchy rule: every H4 must sit under an H3, every H5 must sit under an H4. Never skip levels
-- Allowed HTML: <h3>, <h4>, <h5>, <p>, <strong>, <em>
+- Allowed HTML: <h3>, <h4>, <p>, <strong>, <em>
 
 keypoint_one:
-A single compelling sentence (maximum 25 words) pulled from the key insight of main_content. Written as a bold editorial statement. No em dashes. No question marks. This is used as a callout quote in the page layout.
+A single compelling sentence (max 25 words) from the key insight of main_content. Bold editorial statement. No em dashes. No question marks.
 
-more_content_1 (350-450 words):
-- Deep-dive into the first major angle of the topic
-- Open with an H3 heading containing the focus keyword or a close variant
-- Under each H3 use at least two H4 subsections. Under each H4 use H5 sub-points where appropriate
-- Heading hierarchy rule: every H4 must sit under an H3, every H5 must sit under an H4. Never skip levels
-- Must include at least one of: a specific cost or fee range in AED or USD, a named regulatory body, a realistic processing timeline, or a direct comparison between two jurisdictions or licence types
+more_content_1:
+- Use EXACTLY this H3: "${blueprint.sections[0]?.h3_heading ?? ""}"
+- Follow the angle: ${blueprint.sections[0]?.angle ?? ""}
+- Write each H4 subsection as specified in the blueprint
+- Target ~${blueprint.sections[0]?.target_words ?? 380} words
+- Must include at least one: specific cost/fee in AED or USD, named regulatory body, realistic timeline, or jurisdiction comparison
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>
 
-more_content_2 (350-450 words):
-- Cover requirements, eligibility, process steps, or common mistakes
-- Open with an H3 heading
-- Under each H3 use at least two H4 subsections. Under each H4 use H5 sub-points where appropriate
-- Heading hierarchy rule: every H4 must sit under an H3, every H5 must sit under an H4. Never skip levels
-- Must include a bulleted or numbered list of at least 4 concrete items — actual documents, named steps, real costs, or specific eligibility conditions. No vague items. Each must contain a fact, figure, or named detail
+more_content_2:
+- Use EXACTLY this H3: "${blueprint.sections[1]?.h3_heading ?? ""}"
+- Follow the angle: ${blueprint.sections[1]?.angle ?? ""}
+- Write each H4 subsection as specified in the blueprint
+- Target ~${blueprint.sections[1]?.target_words ?? 380} words
+- Must include a bulleted or numbered list of at least 4 concrete items with facts, figures, or named details
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>
 
 quote_1:
-A short, punchy, practical piece of advice directly relevant to the content in more_content_1 or more_content_2. Maximum 2 sentences. No em dashes. Written as actionable guidance the reader can apply immediately.
+Short, punchy, practical advice from more_content_1 or more_content_2. Max 2 sentences. No em dashes. Actionable.
 
-more_content_3 (350-450 words):
-- Address who this topic is most relevant for
-- Open with an H3 heading
-- Under each H3 use at least two H4 subsections. Under each H4 use H5 sub-points where appropriate
-- Heading hierarchy rule: every H4 must sit under an H3, every H5 must sit under an H4. Never skip levels
-- Cover ideal client profiles, business types, investor categories, or industry sectors
-- Include at least one real-world scenario written as a short narrative. Example: "A fintech founder relocating from London..." or "A family office looking to hold real estate across three markets..."
-- Reference Aston's client base where appropriate: regulated financial businesses, crypto companies, trading firms, HNWIs, family offices, corporate groups
+more_content_3:
+- Use EXACTLY this H3: "${blueprint.sections[2]?.h3_heading ?? ""}"
+- Follow the angle: ${blueprint.sections[2]?.angle ?? ""}
+- Write each H4 subsection as specified in the blueprint
+- Target ~${blueprint.sections[2]?.target_words ?? 380} words
+- Cover ideal client profiles. Include at least one real-world scenario as a short narrative
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>
 
 keypoint_two:
-A single compelling sentence (maximum 25 words) pulled from the key insight of more_content_3. Written as a bold editorial statement. No em dashes. No question marks. Different point from keypoint_one.
+A single compelling sentence (max 25 words) from the key insight of more_content_3. Bold editorial statement. No em dashes. No question marks. Different from keypoint_one.
 
-more_content_4 (350-450 words):
-- Open with: <h3>Aston VIP's role in your [topic-relevant process]</h3> — adapt the ending to the specific topic
-- Under the H3 use H4 subsections for each distinct service area (e.g. regulatory liaison, banking introductions, document preparation). Use H5 for specific detail points under each H4
-- Heading hierarchy rule: every H4 must sit under an H3, every H5 must sit under an H4. Never skip levels
-- Describe Aston's end-to-end involvement specific to this topic and jurisdiction. Do not describe Aston generically
-- Where relevant mention: regulatory correspondence and authority liaison, document preparation and compliance review, corporate banking introductions, nominee director or shareholder services, cross-border tax structuring, Aston's London and Dubai offices as a differentiator
+more_content_4:
+- Use EXACTLY this H3: "${blueprint.sections[3]?.h3_heading ?? "Aston VIP's role in your process"}"
+- Follow the angle: ${blueprint.sections[3]?.angle ?? ""}
+- Write each H4 subsection as specified in the blueprint
+- Target ~${blueprint.sections[3]?.target_words ?? 380} words
+- Describe Aston's end-to-end involvement specific to this topic. Do not describe Aston generically
 - Close with: <p>To discuss your situation, <a href="https://aston.ae/contact-us/">speak with our team</a>.</p>
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <strong>, <a>
 
 quote_2:
-A second short, punchy piece of advice directly relevant to Aston VIP's advisory process or the client outcome described in more_content_4. Maximum 2 sentences. No em dashes. Different from quote_1.
+Short, punchy advice from more_content_4. Max 2 sentences. No em dashes. Different from quote_1.
 
 key_takeaways:
-- HTML ul/li list of exactly 5 items
-- Each item must be specific and factual, containing at least one named figure, regulator, jurisdiction, timeline, or cost
-- Include the focus keyword or a close variant in at least one item
-- BAD: <li>Dubai offers many business setup options.</li>
-- GOOD: <li>DIFC Cat 4 licences require a minimum base capital of USD 10,000 and are regulated by the DFSA.</li>
-- Allowed HTML: <ul>, <li>, <strong>
+HTML <ul><li> list of exactly 5 items. Each must contain at least one named figure, regulator, jurisdiction, timeline, or cost. Include the focus keyword in at least one item.
+Allowed HTML: <ul>, <li>, <strong>
+
+faq:
+Write answers for each of these questions using the format below.
+Questions: ${blueprint.faq_questions.map((q, i) => `Q${i + 1}: ${q}`).join(" | ")}
+Format each as: <h3>Question text</h3><p>Answer (2-4 sentences, factual, specific)</p>
+Do NOT wrap in any container — just the h3/p pairs.
+Allowed HTML: <h3>, <p>, <strong>
 
 final_points:
-- HTML ul/li list of exactly 4 items
-- Practical next steps. Start each with a verb. Specific and actionable
-- BAD: <li>Consider your options carefully.</li>
-- GOOD: <li>Compare DIFC and ADGM licensing costs before committing to a jurisdiction, as fees and capital requirements differ significantly.</li>
-- Allowed HTML: <ul>, <li>, <strong>
+HTML <ul><li> list of exactly 4 practical next steps. Start each with a verb. Specific and actionable.
+Allowed HTML: <ul>, <li>, <strong>
 
 read_mins:
-A number string only. Estimate at 200 words per minute. Example: "9"
+Number string only. Estimate at 200 words per minute. Example: "9"
 
 internal_links_used:
-JSON array of objects. For each internal link you placed in the article body, record the exact anchor text used and the URL. Example: [{"anchor": "DIFC fund manager licence", "url": "https://aston.ae/category-3c-difc-fund-manager-licence/"}]
+Array of objects recording every internal link placed in the article body.
 
 external_links_used:
-JSON array of objects. For each external link you placed in the article body, record the exact anchor text used and the URL. If none used, return an empty array.
+Array of objects recording every external link placed. Empty array if none used.
 
 ${linksBlock}`;
 
@@ -202,7 +331,7 @@ ${linksBlock}`;
       { role: "user", content: userPrompt },
     ],
     temperature: 0.6,
-    max_tokens: 8000,
+    max_tokens: 9000,
   });
 
   const raw = response.choices[0].message.content?.trim() ?? "";
@@ -219,11 +348,12 @@ ${linksBlock}`;
   }
 }
 
-// ── Step 2: Generate content-aware image prompts ──────────────
+// ── Step 3: Generate content-aware image prompts ──────────────
 
 /**
- * Generate 4 DALL·E image prompts based on the actual written content.
- * Called AFTER generateBlogContent() so prompts reference real sections.
+ * Write 4 DALL·E prompts from the actual written content.
+ * Called after generateBlogContent() so each prompt references the real
+ * section topic, not just the article title.
  */
 export async function generateImagePrompts(
   title: string,
@@ -231,27 +361,30 @@ export async function generateImagePrompts(
 ): Promise<ImagePrompts> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+  const strip = (html: string) =>
+    html.slice(0, 300).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
   const userPrompt = `You have just written a blog post titled: "${title}"
 
 Here is a summary of the four content sections that need images:
 
-SECTION 1 (keypoint_one image — covers: ${content.main_content.slice(0, 300).replace(/<[^>]+>/g, " ").trim()}...)
+SECTION 1 (keypoint_one image — covers: ${strip(content.main_content)}...)
 
-SECTION 2 (keypoint_two image — covers: ${content.more_content_3.slice(0, 300).replace(/<[^>]+>/g, " ").trim()}...)
+SECTION 2 (keypoint_two image — covers: ${strip(content.more_content_3)}...)
 
-SECTION 3 (post split image — this is a wide-angle architectural or setting image for the overall topic jurisdiction)
+SECTION 3 (post split image — wide-angle architectural or setting image for the overall topic jurisdiction)
 
 SECTION 4 (featured hero image — represents the entire article, wide-angle editorial feel with professionals)
 
-Now write 4 DALL·E image prompts for these sections. Each prompt must:
-- Directly reference a scene or setting from that specific section's content
-- Apply the Aston VIP visual style: clean corporate photography, bright and airy, natural daylight or soft indoor lighting, suited professionals (where included), modern glass buildings or high-end offices, neutral whites/warm greys/soft golds, no oversaturated colours
+Write 4 DALL·E image prompts. Each must:
+- Directly reference a scene from that section's actual content — no generic office photos
+- Apply Aston VIP visual style: clean corporate photography, bright and airy, natural daylight or soft indoor lighting, suited professionals (where included), modern glass buildings or high-end offices, neutral whites/warm greys/soft golds, no oversaturated colours
 - Never include: text, logos, watermarks, flags, clocks, screens with visible content
-- End with this exact quality string: "shot on Canon EOS R5, 35mm lens, sharp focus, high resolution, professional corporate photography, no text, no logos"
-- Location: if topic is UAE/DIFC/ADGM use Dubai settings. If non-UAE use the relevant city. If mixed use a neutral international office
-- Be 2-3 sentences maximum
+- End with: "shot on Canon EOS R5, 35mm lens, sharp focus, high resolution, professional corporate photography, no text, no logos"
+- Location: UAE/DIFC/ADGM topics use Dubai settings. Non-UAE use relevant city. Mixed use neutral international office
+- 2-3 sentences maximum
 
-Return as a single valid JSON object with exactly these fields. No markdown, no code fences:
+Return as a single valid JSON object. No markdown, no code fences:
 
 {
   "keypoint_one_img_prompt": "string",
@@ -264,12 +397,7 @@ Return as a single valid JSON object with exactly these fields. No markdown, no 
   "featured_img_alt": "string"
 }
 
-ALT TEXT RULES (for all 4 alt fields):
-- Describe what is literally shown in the image using specific nouns
-- Naturally include one relevant keyword
-- Maximum 125 characters
-- No keyword stuffing
-- Example: "Corporate advisor reviewing DIFC fund manager licence documents in a modern Dubai office."`;
+Alt text rules: describe what is literally shown using specific nouns, include one relevant keyword naturally, max 125 characters, no keyword stuffing.`;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",

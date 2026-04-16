@@ -19,11 +19,11 @@ interface GenerateResult {
 }
 
 const STEPS = [
-  "Writing blog content with GPT-4o...",
+  "Planning article structure and blueprint...",
+  "Writing blog content from blueprint...",
   "Generating content-aware image prompts...",
   "Generating images with DALL·E 3...",
-  "Uploading images to WordPress...",
-  "Publishing draft post...",
+  "Uploading images and publishing draft...",
 ];
 
 const SUGGESTIONS = [
@@ -188,7 +188,7 @@ export default function HomePage() {
                   </div>
                 ))}
               </div>
-              <p className="text-center text-white/20 text-xs">This takes about 90–120 seconds</p>
+              <p className="text-center text-white/20 text-xs">This takes about 2–3 minutes</p>
             </div>
           )}
 
