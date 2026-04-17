@@ -150,7 +150,7 @@ BLUEPRINT RULES:
 - faq_questions: 4 specific questions a real reader would ask about this topic. Questions only, no answers yet`;
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4.1",
+    model: "gpt-5.1",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
@@ -358,7 +358,7 @@ Array of objects recording every external link placed. Empty array if none used.
 ${linksBlock}`;
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4.1",
+    model: "gpt-5.1",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
@@ -438,7 +438,7 @@ Return as a single valid JSON object. No markdown, no code fences:
 Alt text rules: describe what is literally shown using specific nouns, include one relevant keyword naturally, max 125 characters, no keyword stuffing.`;
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4.1",
+    model: "gpt-5.1",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },

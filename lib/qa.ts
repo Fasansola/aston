@@ -157,9 +157,9 @@ export function runQA(
   // ── WARNING CHECKS ────────────────────────────────────────
   // Failures here produce warnings but do not block publishing.
 
-  // Total word count (target 2,100–2,300; hard fail below 1,800)
+  // Total word count (target 2,100–2,300; hard fail below 2,100)
   const wordCount = countWords(allFields);
-  checks.word_count_in_range = wordCount >= 1800 && wordCount <= 2800;
+  checks.word_count_in_range = wordCount >= 2100 && wordCount <= 2800;
   if (wordCount > 2800)
     warnings.push(`Word count high: ${wordCount} words (target 2,100–2,300)`);
 
