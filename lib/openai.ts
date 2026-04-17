@@ -156,7 +156,7 @@ BLUEPRINT RULES:
       { role: "user", content: userPrompt },
     ],
     temperature: 0.4,
-    max_tokens: 2000,
+    max_completion_tokens: 2000,
   });
 
   const choice = response.choices[0];
@@ -364,7 +364,7 @@ ${linksBlock}`;
       { role: "user", content: userPrompt },
     ],
     temperature: 0.6,
-    max_tokens: 16000,
+    max_completion_tokens: 16000,
   });
 
   const choice = response.choices[0];
@@ -444,7 +444,7 @@ Alt text rules: describe what is literally shown using specific nouns, include o
       { role: "user", content: userPrompt },
     ],
     temperature: 0.5,
-    max_tokens: 2000,
+    max_completion_tokens: 2000,
   });
 
   const choice = response.choices[0];
