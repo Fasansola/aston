@@ -507,10 +507,16 @@ export default function AdminPage() {
         {settings && (
           <div className="px-4 py-3 border-b border-gray-700/50">
             <button onClick={() => saveScheduler({ enabled: !settings.enabled })} disabled={savingSettings}
-              className={`w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition ${settings.enabled ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" : "bg-gray-700/50 text-gray-400 hover:bg-gray-700"}`}>
+              className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-xs font-medium transition ${settings.enabled ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20" : "bg-gray-700/50 text-gray-400 hover:bg-gray-700"}`}>
               <span className={`w-2 h-2 rounded-full flex-shrink-0 ${settings.enabled ? "bg-emerald-400 animate-pulse" : "bg-gray-500"}`} />
-              {settings.enabled ? "Scheduler running" : "Scheduler paused"}
-              <span className="ml-auto text-[10px] opacity-60">{settings.enabled ? "click to stop" : "click to start"}</span>
+              <span className="flex-1 text-left">
+                <span className="block font-semibold">{settings.enabled ? "Scheduler active" : "Scheduler paused"}</span>
+                <span className="block text-[10px] opacity-70 mt-0.5">
+                  {settings.enabled
+                    ? `Runs daily at ${String(settings.runHour ?? 8).padStart(2, "0")}:00 UTC`
+                    : "Click to enable"}
+                </span>
+              </span>
             </button>
           </div>
         )}
@@ -567,17 +573,18 @@ export default function AdminPage() {
               {stats && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3">
                   {[
-                    { label: "Total",      value: stats.total,          color: "text-gray-900" },
-                    { label: "Queued",     value: stats.queued,         color: "text-blue-600" },
-                    { label: "Processing", value: stats.processing,     color: "text-amber-600" },
-                    { label: "Completed",  value: stats.completed,      color: "text-emerald-600" },
-                    { label: "Failed",     value: stats.failed,         color: "text-red-500" },
-                    { label: "Paused",     value: stats.paused,         color: "text-gray-500" },
-                    { label: "Done today", value: stats.completedToday, color: "text-indigo-600" },
+                    { label: "All time posts",  value: stats.total,          color: "text-gray-900",    sub: "in queue" },
+                    { label: "Waiting",          value: stats.queued,         color: "text-blue-600",    sub: "to generate" },
+                    { label: "Generating",       value: stats.processing,     color: "text-amber-600",   sub: "right now" },
+                    { label: "Published",        value: stats.completed,      color: "text-emerald-600", sub: "all time" },
+                    { label: "Failed",           value: stats.failed,         color: "text-red-500",     sub: "need attention" },
+                    { label: "Paused",           value: stats.paused,         color: "text-gray-500",    sub: "on hold" },
+                    { label: "Done today",       value: stats.completedToday, color: "text-indigo-600",  sub: "this run" },
                   ].map((s) => (
                     <div key={s.label} className="bg-white rounded-xl ring-1 ring-gray-200 p-4 text-center">
                       <p className={`text-2xl font-bold tabular-nums ${s.color}`}>{s.value}</p>
-                      <p className="text-xs text-gray-500 mt-1">{s.label}</p>
+                      <p className="text-xs font-medium text-gray-600 mt-1">{s.label}</p>
+                      <p className="text-[10px] text-gray-400">{s.sub}</p>
                     </div>
                   ))}
                 </div>
@@ -590,42 +597,61 @@ export default function AdminPage() {
                     <h2 className="text-base font-semibold text-gray-900">Scheduler Settings</h2>
                     {savingSettings && <div className="flex items-center gap-1.5 text-xs text-gray-400"><Spinner /> Saving…</div>}
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                    <div className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-3">
-                      <div>
-                        <p className="text-sm font-medium text-gray-700">Scheduler</p>
-                        <p className="text-xs text-gray-400 mt-0.5">{settings.enabled ? `Runs daily at ${String(settings.runHour ?? 8).padStart(2, "0")}:00 UTC` : "Currently paused"}</p>
-                      </div>
-                      <Toggle checked={settings.enabled} onChange={() => saveScheduler({ enabled: !settings.enabled })} disabled={savingSettings} />
+
+                  {/* Status banner */}
+                  <div className={`flex items-center justify-between rounded-xl px-4 py-3.5 mb-6 ${settings.enabled ? "bg-emerald-50 ring-1 ring-emerald-200" : "bg-gray-50 ring-1 ring-gray-200"}`}>
+                    <div>
+                      <p className={`text-sm font-semibold ${settings.enabled ? "text-emerald-700" : "text-gray-600"}`}>
+                        {settings.enabled ? "Scheduler is active" : "Scheduler is paused"}
+                      </p>
+                      <p className={`text-xs mt-0.5 ${settings.enabled ? "text-emerald-600" : "text-gray-400"}`}>
+                        {settings.enabled
+                          ? `Generates posts daily at ${String(settings.runHour ?? 8).padStart(2, "0")}:00 UTC`
+                          : "Enable to start generating posts automatically"}
+                      </p>
                     </div>
+                    <Toggle checked={settings.enabled} onChange={() => saveScheduler({ enabled: !settings.enabled })} disabled={savingSettings} />
+                  </div>
+
+                  {/* Daily schedule */}
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Daily Schedule</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                    <div className="rounded-lg bg-gray-50 px-4 py-3">
+                      <p className="text-xs font-medium text-gray-500 mb-2">Run time (UTC)</p>
+                      <Select value={settings.runHour ?? 8} onChange={(e) => saveScheduler({ runHour: Number(e.target.value) })} disabled={savingSettings} className="w-full">
+                        {Array.from({ length: 24 }, (_, h) => (
+                          <option key={h} value={h}>{String(h).padStart(2, "0")}:00 UTC</option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="rounded-lg bg-gray-50 px-4 py-3">
+                      <p className="text-xs font-medium text-gray-500 mb-2">Posts per day</p>
+                      <Select value={settings.blogsPerDay} onChange={(e) => saveScheduler({ blogsPerDay: Number(e.target.value) })} disabled={savingSettings} className="w-full">
+                        {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n} {n === 1 ? "post" : "posts"}</option>)}
+                      </Select>
+                    </div>
+                    <div className="rounded-lg bg-gray-50 px-4 py-3">
+                      <p className="text-xs font-medium text-gray-500 mb-2">Posts per run</p>
+                      <Select value={settings.maxPerRun} onChange={(e) => saveScheduler({ maxPerRun: Number(e.target.value) })} disabled={savingSettings} className="w-full">
+                        {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} {n === 1 ? "post" : "posts"}</option>)}
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Quality controls */}
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Quality Controls</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-3">
                       <div>
                         <p className="text-sm font-medium text-gray-700">Block on QA warning</p>
-                        <p className="text-xs text-gray-400 mt-0.5">Require clean QA to publish</p>
+                        <p className="text-xs text-gray-400 mt-0.5">Only publish posts that pass all checks</p>
                       </div>
                       <Toggle checked={settings.blockOnQaWarning} onChange={() => saveScheduler({ blockOnQaWarning: !settings.blockOnQaWarning })} disabled={savingSettings} />
                     </div>
-                    {[
-                      { label: "Blogs / day", key: "blogsPerDay" as const, opts: [1,2,3,4,5,6,7,8,9,10] },
-                      { label: "Max per run",  key: "maxPerRun" as const,   opts: [1,2,3,4,5] },
-                      { label: "Max retries",  key: "maxRetries" as const,  opts: [0,1,2,3,4,5] },
-                    ].map(({ label, key, opts }) => (
-                      <div key={key} className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-3">
-                        <p className="text-sm font-medium text-gray-700">{label}</p>
-                        <Select value={settings[key]} onChange={(e) => saveScheduler({ [key]: Number(e.target.value) })} disabled={savingSettings} className="w-20">
-                          {opts.map((n) => <option key={n} value={n}>{n}</option>)}
-                        </Select>
-                      </div>
-                    ))}
-                    <div className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-3">
-                      <div>
-                        <p className="text-sm font-medium text-gray-700">Run time (UTC)</p>
-                        <p className="text-xs text-gray-400 mt-0.5">Hour the daily job fires</p>
-                      </div>
-                      <Select value={settings.runHour ?? 8} onChange={(e) => saveScheduler({ runHour: Number(e.target.value) })} disabled={savingSettings} className="w-24">
-                        {Array.from({ length: 24 }, (_, h) => (
-                          <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
-                        ))}
+                    <div className="rounded-lg bg-gray-50 px-4 py-3">
+                      <p className="text-xs font-medium text-gray-500 mb-2">Auto-retries on failure</p>
+                      <Select value={settings.maxRetries} onChange={(e) => saveScheduler({ maxRetries: Number(e.target.value) })} disabled={savingSettings} className="w-full">
+                        {[0,1,2,3,4,5].map(n => <option key={n} value={n}>{n === 0 ? "No retries" : `${n} ${n === 1 ? "retry" : "retries"}`}</option>)}
                       </Select>
                     </div>
                   </div>
@@ -673,24 +699,35 @@ export default function AdminPage() {
               {/* Add form */}
               <div className="bg-white rounded-xl ring-1 ring-gray-200 p-6">
                 <SectionHeader title="Add to Queue" />
-                <div className="flex flex-wrap gap-3">
-                  <Input value={newTopic} onChange={(e) => setNewTopic(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addQueueItem()}
-                    placeholder="Topic title…" className="flex-1 min-w-[220px]" />
-                  <Select value={newMode} onChange={(e) => setNewMode(e.target.value as GenerationMode)}>
-                    <option value="topic_only">Topic only</option>
-                    <option value="source_assisted">Source assisted</option>
-                    <option value="improve_existing">Improve existing</option>
-                    <option value="notes_to_article">Notes to article</option>
-                  </Select>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-500">Priority</span>
-                    <Select value={newPriority} onChange={(e) => setNewPriority(Number(e.target.value))} className="w-16">
-                      {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
+                <p className="text-xs text-gray-400 -mt-2 mb-4">Topics added here will be picked up automatically by the scheduler, or you can process them manually.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto] gap-3 items-end">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Topic title</label>
+                    <Input value={newTopic} onChange={(e) => setNewTopic(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && addQueueItem()}
+                      placeholder="e.g. How to open a company in DIFC" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Mode</label>
+                    <Select value={newMode} onChange={(e) => setNewMode(e.target.value as GenerationMode)}>
+                      <option value="topic_only">Topic only</option>
+                      <option value="source_assisted">Source assisted</option>
+                      <option value="improve_existing">Improve existing</option>
+                      <option value="notes_to_article">Notes to article</option>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Priority</label>
+                    <Select value={newPriority} onChange={(e) => setNewPriority(Number(e.target.value))} className="w-24">
+                      <option value={5}>5 — High</option>
+                      <option value={4}>4</option>
+                      <option value={3}>3 — Normal</option>
+                      <option value={2}>2</option>
+                      <option value={1}>1 — Low</option>
                     </Select>
                   </div>
                   <Btn variant="primary" onClick={addQueueItem} disabled={adding || !newTopic.trim()}>
-                    {adding ? <><Spinner /> Adding…</> : <>{Icons.plus} Add</>}
+                    {adding ? <><Spinner /> Adding…</> : <>{Icons.plus} Add to queue</>}
                   </Btn>
                 </div>
               </div>
@@ -698,7 +735,10 @@ export default function AdminPage() {
               {/* Table */}
               <div className="bg-white rounded-xl ring-1 ring-gray-200 overflow-hidden">
                 <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                  <h2 className="text-base font-semibold text-gray-900">Queue <span className="ml-1.5 text-sm font-normal text-gray-400">({items.length})</span></h2>
+                  <div>
+                    <h2 className="text-base font-semibold text-gray-900">Generation Queue</h2>
+                    <p className="text-xs text-gray-400 mt-0.5">{items.length} items · {items.filter(i => i.status === "queued").length} waiting</p>
+                  </div>
                 </div>
                 {items.length === 0 ? (
                   <EmptyState icon={<svg className="w-12 h-12" fill="none" stroke="currentColor" strokeWidth={1} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>} title="Queue is empty" body="Add a topic above to get started. The scheduler will process items automatically when enabled." />
@@ -709,23 +749,29 @@ export default function AdminPage() {
                         <tr>
                           <th className="px-4 py-3 text-left">Topic</th>
                           <th className="px-4 py-3 text-left">Mode</th>
-                          <th className="px-4 py-3 text-center">Pri</th>
+                          <th className="px-4 py-3 text-center">Priority</th>
                           <th className="px-4 py-3 text-center">Status</th>
                           <th className="px-4 py-3 text-left">Added</th>
-                          <th className="px-4 py-3 text-left">Done</th>
-                          <th className="px-4 py-3 text-center">QA</th>
-                          <th className="px-4 py-3 text-center">WP</th>
+                          <th className="px-4 py-3 text-center">QA Score</th>
+                          <th className="px-4 py-3 text-center">WordPress Post</th>
                           <th className="px-4 py-3 text-center">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {items.map((item) => (
                           <tr key={item.id} className="hover:bg-gray-50/60 group">
-                            <td className="px-4 py-3 max-w-[220px]">
+                            <td className="px-4 py-3 max-w-[240px]">
                               <p className="font-medium text-gray-900 truncate" title={item.topic}>{item.topic}</p>
-                              {item.lastError && <p className="text-xs text-red-500 mt-0.5 truncate" title={item.lastError}>{item.lastError}</p>}
+                              {item.lastError && (
+                                <p className="text-xs text-red-500 mt-0.5 truncate" title={item.lastError}>
+                                  <span className="font-medium">Error:</span> {item.lastError}
+                                </p>
+                              )}
+                              {item.status === "completed" && item.completedAt && (
+                                <p className="text-xs text-gray-400 mt-0.5">Done {fmt(item.completedAt)}</p>
+                              )}
                             </td>
-                            <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{item.mode.replace(/_/g, " ")}</td>
+                            <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap capitalize">{item.mode.replace(/_/g, " ")}</td>
                             <td className="px-4 py-3 text-center">
                               <Select value={item.priority} onChange={(e) => patchQueue(item.id, { priority: Number(e.target.value) })}
                                 disabled={item.status === "completed" || item.status === "processing"} className="w-14 disabled:opacity-40 text-center">
@@ -739,20 +785,27 @@ export default function AdminPage() {
                               </span>
                             </td>
                             <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{fmt(item.createdAt)}</td>
-                            <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{fmt(item.completedAt)}</td>
                             <td className="px-4 py-3 text-center">
                               {item.qaScore != null ? (
-                                <span className={`text-xs font-semibold tabular-nums ${item.qaScore >= 80 ? "text-emerald-600" : item.qaScore >= 60 ? "text-amber-600" : "text-red-500"}`}>
-                                  {item.qaScore}
+                                <span className={`inline-flex items-center gap-1 text-xs font-semibold tabular-nums ${item.qaScore >= 80 ? "text-emerald-600" : item.qaScore >= 60 ? "text-amber-600" : "text-red-500"}`}>
+                                  {item.qaScore}<span className="font-normal text-gray-300">/100</span>
                                 </span>
                               ) : <span className="text-gray-300">—</span>}
                             </td>
                             <td className="px-4 py-3 text-center">
                               {item.wpEditUrl ? (
-                                <a href={item.wpEditUrl} target="_blank" rel="noopener noreferrer"
-                                  className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline font-medium">
-                                  #{item.wpPostId}
-                                </a>
+                                <div className="flex items-center justify-center gap-2">
+                                  <a href={item.wpEditUrl} target="_blank" rel="noopener noreferrer"
+                                    className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline font-medium">
+                                    Edit in WP
+                                  </a>
+                                  {item.wpPostUrl && (
+                                    <a href={item.wpPostUrl} target="_blank" rel="noopener noreferrer"
+                                      className="text-xs text-gray-400 hover:text-gray-600 hover:underline">
+                                      Preview
+                                    </a>
+                                  )}
+                                </div>
                               ) : <span className="text-gray-300">—</span>}
                             </td>
                             <td className="px-4 py-3">
@@ -763,7 +816,7 @@ export default function AdminPage() {
                                 {item.status !== "processing" && (
                                   confirmDeleteId === item.id ? (
                                     <span className="flex items-center gap-1">
-                                      <Btn variant="danger" size="sm" onClick={() => deleteQueueItem(item.id)}>Confirm</Btn>
+                                      <Btn variant="danger" size="sm" onClick={() => deleteQueueItem(item.id)}>Confirm delete</Btn>
                                       <Btn variant="ghost" size="sm" onClick={() => setConfirmDeleteId(null)}>Cancel</Btn>
                                     </span>
                                   ) : (
@@ -788,6 +841,7 @@ export default function AdminPage() {
               {/* Add form */}
               <div className="bg-white rounded-xl ring-1 ring-gray-200 p-6">
                 <SectionHeader title="Add Topic Plan" />
+                <p className="text-xs text-gray-400 -mt-2 mb-4">Plan your content here. Set a topic to <strong className="text-gray-600">Approved</strong> then click <strong className="text-gray-600">Queue</strong> to send it for generation.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-medium text-gray-600 mb-1">Topic title <span className="text-red-400">*</span></label>
@@ -904,6 +958,7 @@ export default function AdminPage() {
                   <>
                     <SectionHeader title="Edit Link"
                       action={<Btn variant="ghost" size="sm" onClick={() => setEditingLink(null)}>Cancel</Btn>} />
+                    <p className="text-xs text-gray-400 -mt-2 mb-4">Update the link details below. Keywords and anchors are used to match this link to relevant generated posts.</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="sm:col-span-2">
                         <label className="block text-xs font-medium text-gray-600 mb-1">URL <span className="text-red-400">*</span></label>
@@ -947,6 +1002,7 @@ export default function AdminPage() {
                 ) : (
                   <>
                     <SectionHeader title="Add Link" />
+                    <p className="text-xs text-gray-400 -mt-2 mb-4">Links are automatically inserted into generated posts based on keyword matching. Add internal Aston pages and trusted external sources here.</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="sm:col-span-2">
                         <label className="block text-xs font-medium text-gray-600 mb-1">URL <span className="text-red-400">*</span></label>
