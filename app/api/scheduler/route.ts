@@ -50,6 +50,8 @@ export async function POST(req: NextRequest) {
       blockOnQaWarning:  typeof body.blockOnQaWarning === "boolean" ? body.blockOnQaWarning : (current.blockOnQaWarning ?? false),
       maxPerRun:         typeof body.maxPerRun === "number" && body.maxPerRun >= 1 && body.maxPerRun <= 10
                            ? body.maxPerRun : (current.maxPerRun ?? 1),
+      runHour:           typeof body.runHour === "number" && body.runHour >= 0 && body.runHour <= 23
+                           ? body.runHour : (current.runHour ?? 8),
     };
 
     await saveSettings(updated);

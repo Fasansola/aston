@@ -28,6 +28,7 @@ interface QueueStats {
 interface SchedulerSettings {
   enabled: boolean; blogsPerDay: number; publishMode: "draft_only";
   maxRetries: number; blockOnQaWarning: boolean; maxPerRun: number;
+  runHour: number;
 }
 interface RunLog {
   runId: string; startedAt: string; completedAt: string | null;
@@ -593,7 +594,7 @@ export default function AdminPage() {
                     <div className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-3">
                       <div>
                         <p className="text-sm font-medium text-gray-700">Scheduler</p>
-                        <p className="text-xs text-gray-400 mt-0.5">{settings.enabled ? "Runs daily at 08:00 UTC" : "Currently paused"}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">{settings.enabled ? `Runs daily at ${String(settings.runHour ?? 8).padStart(2, "0")}:00 UTC` : "Currently paused"}</p>
                       </div>
                       <Toggle checked={settings.enabled} onChange={() => saveScheduler({ enabled: !settings.enabled })} disabled={savingSettings} />
                     </div>
@@ -616,6 +617,17 @@ export default function AdminPage() {
                         </Select>
                       </div>
                     ))}
+                    <div className="flex items-center justify-between rounded-lg bg-gray-50 px-4 py-3">
+                      <div>
+                        <p className="text-sm font-medium text-gray-700">Run time (UTC)</p>
+                        <p className="text-xs text-gray-400 mt-0.5">Hour the daily job fires</p>
+                      </div>
+                      <Select value={settings.runHour ?? 8} onChange={(e) => saveScheduler({ runHour: Number(e.target.value) })} disabled={savingSettings} className="w-24">
+                        {Array.from({ length: 24 }, (_, h) => (
+                          <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                        ))}
+                      </Select>
+                    </div>
                   </div>
                 </div>
               )}

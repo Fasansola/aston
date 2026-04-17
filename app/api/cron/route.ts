@@ -133,6 +133,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ skipped: true, reason: "scheduler_disabled" });
     }
 
+    const currentHour = new Date().getUTCHours();
+    const runHour = settings.runHour ?? 8;
+    if (currentHour !== runHour) {
+      console.log(`[cron] Not run hour (now ${currentHour}:xx UTC, configured ${runHour}:00 UTC) — skipping`);
+      await updateRunLog(runId, { completedAt: new Date().toISOString(), status: "completed" });
+      return NextResponse.json({ skipped: true, reason: "not_run_hour", currentHour, runHour });
+    }
+
     const doneToday = await completedTodayCount();
     if (doneToday >= settings.blogsPerDay) {
       console.log(`[cron] Daily quota reached (${doneToday}/${settings.blogsPerDay}) — skipping`);

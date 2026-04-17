@@ -47,6 +47,7 @@ export interface SchedulerSettings {
   maxRetries: number;
   blockOnQaWarning: boolean;
   maxPerRun: number;
+  runHour: number; // 0–23 UTC — cron fires hourly, only processes at this hour
 }
 
 export interface RunLog {
@@ -111,6 +112,7 @@ const DEFAULT_SETTINGS: SchedulerSettings = {
   maxRetries: 2,
   blockOnQaWarning: false,
   maxPerRun: 1,
+  runHour: 8,
 };
 
 // ── Storage adapter ───────────────────────────────────────────
