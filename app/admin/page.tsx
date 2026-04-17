@@ -513,7 +513,7 @@ export default function AdminPage() {
                 <span className="block font-semibold">{settings.enabled ? "Scheduler active" : "Scheduler paused"}</span>
                 <span className="block text-[10px] opacity-70 mt-0.5">
                   {settings.enabled
-                    ? `Runs daily at ${String(settings.runHour ?? 8).padStart(2, "0")}:00 UTC`
+                    ? "Runs daily at 08:00 UTC"
                     : "Click to enable"}
                 </span>
               </span>
@@ -606,7 +606,7 @@ export default function AdminPage() {
                       </p>
                       <p className={`text-xs mt-0.5 ${settings.enabled ? "text-emerald-600" : "text-gray-400"}`}>
                         {settings.enabled
-                          ? `Generates posts daily at ${String(settings.runHour ?? 8).padStart(2, "0")}:00 UTC`
+                          ? "Generates posts daily at 08:00 UTC"
                           : "Enable to start generating posts automatically"}
                       </p>
                     </div>
@@ -617,12 +617,9 @@ export default function AdminPage() {
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Daily Schedule</p>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
                     <div className="rounded-lg bg-gray-50 px-4 py-3">
-                      <p className="text-xs font-medium text-gray-500 mb-2">Run time (UTC)</p>
-                      <Select value={settings.runHour ?? 8} onChange={(e) => saveScheduler({ runHour: Number(e.target.value) })} disabled={savingSettings} className="w-full">
-                        {Array.from({ length: 24 }, (_, h) => (
-                          <option key={h} value={h}>{String(h).padStart(2, "0")}:00 UTC</option>
-                        ))}
-                      </Select>
+                      <p className="text-xs font-medium text-gray-500 mb-1">Run time</p>
+                      <p className="text-sm font-semibold text-gray-800">08:00 UTC</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">Fixed — set in vercel.json</p>
                     </div>
                     <div className="rounded-lg bg-gray-50 px-4 py-3">
                       <p className="text-xs font-medium text-gray-500 mb-2">Posts per day</p>
