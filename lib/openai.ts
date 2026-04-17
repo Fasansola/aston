@@ -150,16 +150,21 @@ BLUEPRINT RULES:
 - faq_questions: 4 specific questions a real reader would ask about this topic. Questions only, no answers yet`;
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-4.1",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
     temperature: 0.4,
-    max_tokens: 1500,
+    max_tokens: 2000,
   });
 
-  const raw = response.choices[0].message.content?.trim() ?? "";
+  const choice = response.choices[0];
+  if (choice.finish_reason === "length") {
+    throw new Error("Blueprint response was cut off by the token limit. Increase max_tokens or shorten the prompt.");
+  }
+
+  const raw = choice.message.content?.trim() ?? "";
 
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
@@ -353,16 +358,21 @@ Array of objects recording every external link placed. Empty array if none used.
 ${linksBlock}`;
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-4.1",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
     temperature: 0.6,
-    max_tokens: 9000,
+    max_tokens: 16000,
   });
 
-  const raw = response.choices[0].message.content?.trim() ?? "";
+  const choice = response.choices[0];
+  if (choice.finish_reason === "length") {
+    throw new Error("Content response was cut off by the token limit — the JSON is incomplete. Reduce content scope or increase max_tokens.");
+  }
+
+  const raw = choice.message.content?.trim() ?? "";
 
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
@@ -428,7 +438,7 @@ Return as a single valid JSON object. No markdown, no code fences:
 Alt text rules: describe what is literally shown using specific nouns, include one relevant keyword naturally, max 125 characters, no keyword stuffing.`;
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-4.1",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
@@ -437,7 +447,12 @@ Alt text rules: describe what is literally shown using specific nouns, include o
     max_tokens: 2000,
   });
 
-  const raw = response.choices[0].message.content?.trim() ?? "";
+  const choice = response.choices[0];
+  if (choice.finish_reason === "length") {
+    throw new Error("Image prompts response was cut off by the token limit.");
+  }
+
+  const raw = choice.message.content?.trim() ?? "";
 
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {

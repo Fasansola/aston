@@ -157,12 +157,10 @@ export function runQA(
   // ── WARNING CHECKS ────────────────────────────────────────
   // Failures here produce warnings but do not block publishing.
 
-  // Total word count (target 2,100–2,300; allow 1,800–2,800)
+  // Total word count (target 2,100–2,300; hard fail below 1,800)
   const wordCount = countWords(allFields);
   checks.word_count_in_range = wordCount >= 1800 && wordCount <= 2800;
-  if (wordCount < 1800)
-    warnings.push(`Word count low: ${wordCount} words (target 2,100–2,300)`);
-  else if (wordCount > 2800)
+  if (wordCount > 2800)
     warnings.push(`Word count high: ${wordCount} words (target 2,100–2,300)`);
 
   // H3 section count (minimum 4 across body fields)
@@ -245,6 +243,7 @@ export function runQA(
     "section_images_exist",
     "image_alt_text_exists",
     "focus_keyword_in_title",
+    "word_count_in_range",
   ];
 
   for (const key of blockingKeys) {
