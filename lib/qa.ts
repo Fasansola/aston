@@ -71,6 +71,28 @@ const BANNED_PHRASES = [
   "it's worth noting",
 ];
 
+const US_SPELLINGS = [
+  "organization",
+  "optimization",
+  "authorization",
+  "centralize",
+  "recognize",
+  "realize",
+  "traveling",
+  "modeling",
+  "licensed",  // US verb form — UK uses "licenced" (adj) but "licensed" is acceptable in some contexts
+];
+
+function hasColonInHeadings(html: string): boolean {
+  const headings = (html ?? "").match(/<h[2-5][^>]*>(.*?)<\/h[2-5]>/gi) ?? [];
+  return headings.some((h) => stripHtml(h).includes(":"));
+}
+
+function hasDashInTitle(title: string): boolean {
+  // Detect em dash, en dash, or standalone hyphen surrounded by spaces in a title
+  return /\s[—–-]\s/.test(title) || /[—–]/.test(title);
+}
+
 // ── Main QA function ──────────────────────────────────────────
 
 export function runQA(
@@ -81,7 +103,8 @@ export function runQA(
     keypointTwoImg: number;
     postSplitImg: number;
     featuredImg: number;
-  }
+  },
+  title?: string
 ): QAReport {
   const checks: Record<string, boolean> = {};
   const warnings: string[] = [];
@@ -131,9 +154,9 @@ export function runQA(
   checks.cta_exists =
     (content.more_content_4 ?? "").includes("aston.ae/contact-us/");
 
-  // Internal links: minimum 3
+  // Internal links: minimum 7 (document target: 3-10 per 1,000 words)
   checks.internal_links_sufficient =
-    (content.internal_links_used?.length ?? 0) >= 3;
+    (content.internal_links_used?.length ?? 0) >= 7;
 
   // Images uploaded
   checks.featured_image_exists = (imageIds.featuredImg ?? 0) > 0;
@@ -224,6 +247,31 @@ export function runQA(
   checks.no_banned_phrases = foundBanned.length === 0;
   if (foundBanned.length > 0)
     warnings.push(`Banned phrase(s) found: ${foundBanned.join(", ")}`);
+
+  // No colons in headings (document requirement)
+  const allBodyHtml = [bodyFields, content.more_content_5, content.more_content_6].join(" ");
+  checks.no_colons_in_headings = !hasColonInHeadings(allBodyHtml);
+  if (!checks.no_colons_in_headings)
+    warnings.push("Colon found in one or more headings — headings must use sentence case without colons");
+
+  // No dashes in title (document requirement)
+  const articleTitle = title ?? content.seo_title ?? "";
+  checks.no_dashes_in_title = !hasDashInTitle(articleTitle);
+  if (!checks.no_dashes_in_title)
+    warnings.push(`Dash found in article title — titles must be written as one clean natural sentence`);
+
+  // US spelling check
+  const plainAllLower = plainAll;
+  const foundUS = US_SPELLINGS.filter((w) => plainAllLower.includes(w));
+  checks.no_us_spellings = foundUS.length === 0;
+  if (foundUS.length > 0)
+    warnings.push(`US spelling(s) found: ${foundUS.join(", ")} — use British English`);
+
+  // Key takeaways quality (must have at least 4 list items)
+  const takeawayItems = (content.key_takeaways ?? "").match(/<li/gi) ?? [];
+  checks.key_takeaways_quality = takeawayItems.length >= 4;
+  if (takeawayItems.length < 4)
+    warnings.push(`Key takeaways has only ${takeawayItems.length} items — minimum 4 required`);
 
   // ── COLLECT BLOCKING ISSUES ───────────────────────────────
 

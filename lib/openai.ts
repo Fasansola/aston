@@ -17,29 +17,56 @@ import axios from "axios";
 import { BlogContent, Blueprint, ImagePrompts } from "./wordpress";
 import { SelectedLinks, formatLinksForPrompt } from "./links";
 import { SourceBrief, formatBriefForPrompt } from "./source";
+import { StrategyBrief } from "./strategy";
 
 // ── Fixed system prompt — never changes between requests ──────
-const SYSTEM_PROMPT = `You are a senior business consultant and SEO writer for Aston VIP (Aston.ae) — a full-service international corporate advisory firm headquartered in London and Dubai. Aston VIP advises entrepreneurs, investors, corporate groups, family offices, and fintech businesses on international company formation, regulatory licensing, corporate banking, cross-border tax structuring, and nominee services across 20+ jurisdictions including the UAE (mainland, DIFC, ADGM, free zones), UK, Cyprus, Germany, Switzerland, Spain, Netherlands, Sweden, Denmark, Hong Kong, Panama, Seychelles, and others.
+const SYSTEM_PROMPT = `You are a senior business consultant, SEO strategist, and authoritative blog writer for Aston VIP (Aston.ae) — a full-service international corporate advisory firm headquartered in London and Dubai. Aston VIP advises entrepreneurs, investors, corporate groups, family offices, and fintech businesses on international company formation, regulatory licensing, corporate banking, cross-border tax structuring, and nominee services across 20+ jurisdictions including the UAE (mainland, DIFC, ADGM, free zones), UK, Cyprus, Germany, Switzerland, Spain, Netherlands, Sweden, Denmark, Hong Kong, Panama, Seychelles, and others.
 
 Aston VIP is not a registration agent. They are a proper advisory firm — clients include regulated financial businesses, crypto companies, trading firms, holding groups, and HNWIs who need compliant, bank-ready structures built correctly from the start.
 
 Your writing is authoritative, specific, and human. You write like a practitioner who has guided hundreds of real clients — not like a content farm. Every section must contain concrete details: real jurisdiction names, actual fee ranges, named regulators, realistic timelines, and practical distinctions a reader cannot find in a generic article.
 
 SEO KEYWORD RULES:
-- When given a blog title, automatically identify the primary focus keyword and 4-6 secondary/LSI keywords
-- Weave the primary keyword naturally into: the first 50 words of main_content, at least one H3 heading, and the key_takeaways section
+- When given a focus keyword, weave it naturally into the first 50 words of main_content, at least one H3 heading, and the key_takeaways section
 - Distribute secondary keywords across more_content_1 through more_content_4 without forcing them
 - Never repeat the same phrase more than 3 times across the entire article
 - Never stuff keywords into a sentence where they feel unnatural
 
 TONE AND STYLE RULES:
-- UK English only
-- Sentence case for all headings
-- All headings (H3, H4, H5) must be no longer than 8 words or 60 characters including whitespace. If a heading would exceed this, rephrase it
-- Maximum 3-4 lines per paragraph
-- Never use em dashes. Use commas or restructure the sentence instead
+- UK English only: organisation, optimisation, licence (noun), authorised, centre, travelling, adviser
+- Sentence case for all headings — do NOT use American title case
+- All headings (H3, H4, H5) must be no longer than 8 words or 60 characters. If a heading exceeds this, rephrase it
+- Maximum 3-4 lines per paragraph. Each paragraph must start with a clear idea, then explain it properly
+- Never use em dashes or en dashes. Use commas or restructure the sentence instead
+- Do NOT use colons in any heading, subheading, or section label
+- Titles must not contain dashes of any kind — write as one clean natural sentence
+- Bold text is allowed only in headings and subheadings — do NOT bold random words inside paragraphs
+- Do NOT use arrows, decorative symbols, or unusual punctuation for style
 - Write for a reader who is informed but not yet expert. Avoid jargon without context
 - Every claim about costs, timelines, or regulations must reflect real, accurate information. Do not invent figures
+- The article must read as a continuous professional blog — not a menu, checklist, or collection of bullet points
+
+LINK FORMAT RULES (mandatory):
+- Internal links MUST be written as HTML: <a href="/relevant-page-url">anchor text</a>
+- External links MUST be written as HTML: <a href="https://official-site.com" target="_blank" rel="nofollow noopener">anchor text</a>
+- Only link to real official external sources: regulators, governments, official institutions, authoritative frameworks
+- Do NOT invent external URLs. Do NOT cite random blogs or weak sources
+- Insert links inside sentences naturally — do NOT group links at the end of sections
+- Anchor text must be natural, descriptive, and fit the sentence — never use "click here" or raw URLs
+
+ARTICLE STRUCTURE (mandatory):
+1. Title (H1)
+2. Key takeaways — directly after the title, before the introduction. This section is NOT optional
+3. Introduction
+4. Main content sections
+5. Conclusion or final advisory section
+
+KEY TAKEAWAYS RULES:
+- The key_takeaways field must appear directly after the title in the final article
+- It must be clearly formatted as a bullet list
+- It must summarise the most important insights of the article
+- Each takeaway must contain real decision-useful content — not marketing or vague summaries
+- It must contain meaningful, specific, advisory-level points about structure, banking, tax, licensing, regulation, or jurisdiction logic
 
 BANNED PHRASES — never use any of these under any circumstances:
 seamless, hassle-free, empower, unlock the power of, cutting-edge, innovative solution, game-changing, leverage, next-gen, disrupt, frictionless, one-stop-shop, solution-oriented, obtain, delve, navigate the complexities, it's worth noting, in today's landscape, in conclusion, unlock, streamline, robust, comprehensive suite, tailored solutions, ever-evolving, look no further`;
@@ -54,7 +81,8 @@ seamless, hassle-free, empower, unlock the power of, cutting-edge, innovative so
 export async function generateBlueprint(
   title: string,
   selectedLinks: SelectedLinks,
-  sourceBrief?: SourceBrief
+  sourceBrief?: SourceBrief,
+  strategy?: StrategyBrief | null
 ): Promise<Blueprint> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -65,9 +93,21 @@ export async function generateBlueprint(
 
   const sourceBriefBlock = sourceBrief ? formatBriefForPrompt(sourceBrief) : "";
 
+  const strategyBlock = strategy ? `
+STRATEGY BRIEF (use as source of truth for this blueprint):
+- Primary keyword: ${strategy.keyword_model.primary_keyword}
+- Primary keyword rationale: ${strategy.keyword_model.primary_keyword_why}
+- Secondary keywords: ${strategy.keyword_model.secondary_keywords.slice(0, 10).join(", ")}
+- Article angle: ${strategy.article_angle}
+- Search intent: ${strategy.search_intent_type} — ${strategy.search_intent.slice(0, 200)}
+- Commercial service layers: ${strategy.commercial_intent_layers.slice(0, 4).join("; ")}
+- High-value strategy: ${strategy.high_value_strategy.slice(0, 300)}
+- Content risks to avoid: ${strategy.content_risks.slice(0, 5).join("; ")}
+` : "";
+
   const userPrompt = `Blog title: "${title}"
 Available link topics for context: ${linkCategories}
-${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
+${strategyBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
 
 Plan the structure of this blog post and return it as a single valid JSON object. No markdown, no code fences:
 
@@ -136,8 +176,8 @@ Plan the structure of this blog post and return it as a single valid JSON object
 }
 
 BLUEPRINT RULES:
-- focus_keyword: the single phrase this article should rank for in Google
-- seo_title: 50-60 characters, include focus keyword, no site name
+- focus_keyword: ${strategy ? `use exactly "${strategy.keyword_model.primary_keyword}" — this has been determined by the strategy engine` : "the single phrase this article should rank for in Google"}
+- seo_title: 50-60 characters, include focus keyword, no site name, no dashes, write as one clean natural sentence
 - meta_description: 145-155 characters, include focus keyword once, written for click-through
 - slug: lowercase hyphenated, 3-6 words, based on focus keyword
 - intro_angle: one sentence describing what the intro should establish — the business problem or opportunity
@@ -193,12 +233,28 @@ export async function generateBlogContent(
   title: string,
   blueprint: Blueprint,
   selectedLinks: SelectedLinks,
-  sourceBrief?: SourceBrief
+  sourceBrief?: SourceBrief,
+  strategy?: StrategyBrief | null
 ): Promise<BlogContent> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   const linksBlock = formatLinksForPrompt(selectedLinks);
   const sourceBriefBlock = sourceBrief ? formatBriefForPrompt(sourceBrief) : "";
+
+  const strategyContentBlock = strategy ? `
+STRATEGY CONTEXT (use throughout the article):
+Article angle: ${strategy.article_angle}
+Banking angle: ${strategy.banking_tax_structuring_compliance.banking.slice(0, 200)}
+Tax angle: ${strategy.banking_tax_structuring_compliance.tax.slice(0, 200)}
+Structuring angle: ${strategy.banking_tax_structuring_compliance.structuring.slice(0, 200)}
+High-value strategy: ${strategy.high_value_strategy.slice(0, 300)}
+Internal link plan: ${strategy.internal_link_plan.slice(0, 300)}
+External link plan: ${strategy.external_link_plan.slice(0, 300)}
+Content risks to avoid: ${strategy.content_risks.join("; ")}
+
+PRE-PLANNED KEY TAKEAWAYS (use these as the basis for the key_takeaways field — refine and format as HTML list):
+${strategy.key_takeaways.map((t, i) => `${i + 1}. ${t}`).join("\n")}
+` : "";
 
   // Serialise blueprint sections into clear per-field instructions
   const sectionInstructions = blueprint.sections
@@ -218,7 +274,7 @@ ${subs}`;
     .join("\n");
 
   const userPrompt = `Blog title: "${title}"
-${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
+${strategyContentBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
 You have already planned the structure. Now write the full article following the blueprint exactly.
 The headings, section angles, and word targets below are fixed — do not change them.
 
@@ -323,7 +379,7 @@ quote_2:
 Short, punchy advice from more_content_4. Max 2 sentences. No em dashes. Different from quote_1.
 
 key_takeaways:
-HTML <ul><li> list of exactly 5 items. Each must contain at least one named figure, regulator, jurisdiction, timeline, or cost. Include the focus keyword in at least one item.
+HTML <ul><li> list of 4 to 6 items. This section appears directly after the title — before the introduction. ${strategy ? "Use and refine the PRE-PLANNED KEY TAKEAWAYS provided above — adapt them to match the final article content. Each must be a standalone advisory sentence with real decision-useful insight about structure, banking, tax, licensing, regulation, or jurisdiction logic. Not marketing. Not vague summaries." : "Each must contain at least one named figure, regulator, jurisdiction, timeline, or cost. Include the focus keyword in at least one item."}
 Allowed HTML: <ul>, <li>, <strong>
 
 more_content_5:

@@ -58,24 +58,28 @@ export async function selectLinks(topic: string): Promise<SelectedLinks> {
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score);
 
-  // Pick top-scoring internal links — max one per category
-  const usedCategories = new Set<string>();
+  // Pick top-scoring internal links — max 2 per category, up to 15 total
+  const categoryCount = new Map<string, number>();
   const selectedInternal: SelectedLink[] = [];
 
   for (const { link } of scoredInternal) {
-    if (selectedInternal.length >= 5) break;
-    if (usedCategories.has(link.category)) continue;
+    if (selectedInternal.length >= 15) break;
+    const count = categoryCount.get(link.category) ?? 0;
+    if (count >= 2) continue;
 
-    usedCategories.add(link.category);
+    categoryCount.set(link.category, count + 1);
     selectedInternal.push({ url: link.url, title: link.title, anchors: link.anchors });
   }
 
-  // Backfill to 3 from unscored links across unused categories
-  if (selectedInternal.length < 3) {
-    const unscored = activeInternal.filter((l) => !usedCategories.has(l.category));
+  // Backfill to 8 from unscored links, max 2 per category
+  if (selectedInternal.length < 8) {
+    const usedUrls = new Set(selectedInternal.map((l) => l.url));
+    const unscored = activeInternal.filter((l) => !usedUrls.has(l.url));
     for (const link of unscored) {
-      if (selectedInternal.length >= 3) break;
-      usedCategories.add(link.category);
+      if (selectedInternal.length >= 8) break;
+      const count = categoryCount.get(link.category) ?? 0;
+      if (count >= 2) continue;
+      categoryCount.set(link.category, count + 1);
       selectedInternal.push({ url: link.url, title: link.title, anchors: link.anchors });
     }
   }
@@ -108,12 +112,14 @@ export function formatLinksForPrompt(links: SelectedLinks): string {
       ? `\nEXTERNAL LINKS — include 1-2 where genuinely relevant:\n${externalLines}`
       : "";
 
-  return `INTERNAL LINKS — include 3-5 naturally within body content using the suggested anchor text (or a natural variant). Only use URLs from this list. Do not invent URLs:\n${internalLines}${externalBlock}
+  return `INTERNAL LINKS — target 7 to 15 links spread across the full article (3 to 10 per 1,000 words). Only use URLs from this list. Do not invent URLs:\n${internalLines}${externalBlock}
 
 LINK RULES:
-- Place links in the body text of more_content_1 through more_content_4
+- Spread links across main_content, more_content_1, more_content_2, more_content_3, more_content_4, more_content_6, and key_takeaways — not just 1 or 2 sections
 - Use the suggested anchor text or a close natural variant — never bare URLs
-- Do not force irrelevant links into the text; relevance over quantity
-- Do not link the same URL more than once
-- In your JSON response, report which links you used in "internal_links_used" and "external_links_used" arrays`;
+- Each link must sit naturally inside a sentence and support the point being made
+- Do not force irrelevant links into the text; relevance matters
+- Do not link the same URL more than twice across the full article
+- Write every internal link as HTML: <a href="/url">anchor text</a>
+- In your JSON response, report every link used in "internal_links_used" and "external_links_used" arrays`;
 }

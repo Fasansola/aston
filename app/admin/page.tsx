@@ -203,6 +203,12 @@ export default function AdminPage() {
   const [newPriority, setNewPriority] = useState(3);
   const [adding, setAdding]       = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [showStrategyInputs, setShowStrategyInputs] = useState(false);
+  const [newAudience, setNewAudience]           = useState("");
+  const [newPrimaryCountry, setNewPrimaryCountry] = useState("");
+  const [newSecondaryCountries, setNewSecondaryCountries] = useState("");
+  const [newPriorityService, setNewPriorityService] = useState("");
+  const [newLanguage, setNewLanguage]           = useState("");
 
   const [topics, setTopics]       = useState<TopicPlan[]>([]);
   const [tForm, setTForm]         = useState({ topic: "", focusKeyword: "", cluster: "", intent: "informational", priority: 3, notes: "" });
@@ -288,9 +294,20 @@ export default function AdminPage() {
       await fetch("/api/queue", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-secret": secret },
-        body: JSON.stringify({ topic: newTopic.trim(), mode: newMode, priority: newPriority }),
+        body: JSON.stringify({
+          topic: newTopic.trim(),
+          mode: newMode,
+          priority: newPriority,
+          audience: newAudience.trim() || undefined,
+          primary_country: newPrimaryCountry.trim() || undefined,
+          secondary_countries: newSecondaryCountries.trim() || undefined,
+          priority_service: newPriorityService.trim() || undefined,
+          language: newLanguage.trim() || undefined,
+        }),
       });
       setNewTopic(""); setNewPriority(3);
+      setNewAudience(""); setNewPrimaryCountry(""); setNewSecondaryCountries("");
+      setNewPriorityService(""); setNewLanguage("");
       await fetchDashboard(secret);
       showToast("Topic added to queue");
     } finally { setAdding(false); }
@@ -726,6 +743,43 @@ export default function AdminPage() {
                   <Btn variant="primary" onClick={addQueueItem} disabled={adding || !newTopic.trim()}>
                     {adding ? <><Spinner /> Adding…</> : <>{Icons.plus} Add to queue</>}
                   </Btn>
+                </div>
+
+                {/* Strategy engine inputs */}
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowStrategyInputs((v) => !v)}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
+                  >
+                    <svg className={`w-3 h-3 transition-transform ${showStrategyInputs ? "rotate-90" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                    Strategy inputs (optional)
+                  </button>
+                  {showStrategyInputs && (
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-4 bg-indigo-50/60 rounded-lg ring-1 ring-indigo-100">
+                      <p className="col-span-full text-xs text-gray-500 -mb-1">These inputs feed the 12-step strategy engine that runs before article generation. All fields are optional.</p>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Target audience</label>
+                        <Input value={newAudience} onChange={(e) => setNewAudience(e.target.value)} placeholder="e.g. European entrepreneurs" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Primary country</label>
+                        <Input value={newPrimaryCountry} onChange={(e) => setNewPrimaryCountry(e.target.value)} placeholder="e.g. UAE" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Secondary countries</label>
+                        <Input value={newSecondaryCountries} onChange={(e) => setNewSecondaryCountries(e.target.value)} placeholder="e.g. UK, Germany" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Priority service</label>
+                        <Input value={newPriorityService} onChange={(e) => setNewPriorityService(e.target.value)} placeholder="e.g. VARA licensing" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Language</label>
+                        <Input value={newLanguage} onChange={(e) => setNewLanguage(e.target.value)} placeholder="e.g. German (leave blank for British English)" />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

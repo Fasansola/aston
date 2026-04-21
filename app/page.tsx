@@ -39,6 +39,11 @@ interface GenerateResult {
   seoTitle: string;
   readMins: string;
   wordCount: number;
+  strategy?: {
+    searchIntentType: string;
+    primaryKeyword: string;
+    articleAngle: string;
+  };
   qa: {
     status: "pass" | "warn" | "fail";
     score: number;
@@ -53,10 +58,11 @@ interface GenerateResult {
 }
 
 const STEPS = [
+  "Running 12-step strategy analysis...",
   "Planning article structure and blueprint...",
   "Writing blog content from blueprint...",
   "Generating content-aware image prompts...",
-  "Generating images with DALL·E 3...",
+  "Generating images with Imagen 3...",
   "Uploading images and publishing draft...",
 ];
 
@@ -72,13 +78,21 @@ const SUGGESTIONS = [
 ];
 
 export default function HomePage() {
-  const [topic, setTopic] = useState("");
-  const [mode, setMode] = useState<GenerationMode>("topic_only");
+  const [topic, setTopic]           = useState("");
+  const [mode, setMode]             = useState<GenerationMode>("topic_only");
   const [sourceText, setSourceText] = useState("");
-  const [status, setStatus] = useState<Status>("idle");
-  const [stepIndex, setStepIndex] = useState(0);
-  const [result, setResult] = useState<GenerateResult | null>(null);
-  const [error, setError] = useState("");
+  const [status, setStatus]         = useState<Status>("idle");
+  const [stepIndex, setStepIndex]   = useState(0);
+  const [result, setResult]         = useState<GenerateResult | null>(null);
+  const [error, setError]           = useState("");
+
+  // Strategy inputs
+  const [showStrategy, setShowStrategy]             = useState(false);
+  const [audience, setAudience]                     = useState("");
+  const [primaryCountry, setPrimaryCountry]         = useState("");
+  const [secondaryCountries, setSecondaryCountries] = useState("");
+  const [priorityService, setPriorityService]       = useState("");
+  const [language, setLanguage]                     = useState("");
 
   const startStepCycle = () => {
     setStepIndex(0);
@@ -87,13 +101,13 @@ export default function HomePage() {
       i++;
       if (i < STEPS.length) setStepIndex(i);
       else clearInterval(interval);
-    }, 12000);
+    }, 25000);
     return interval;
   };
 
   const selectedMode = MODES.find((m) => m.id === mode)!;
-  const needsSource = mode !== "topic_only";
-  const canGenerate = !!topic.trim() && (!needsSource || !!sourceText.trim());
+  const needsSource  = mode !== "topic_only";
+  const canGenerate  = !!topic.trim() && (!needsSource || !!sourceText.trim());
 
   const handleGenerate = async () => {
     if (!canGenerate || status === "loading") return;
@@ -107,10 +121,15 @@ export default function HomePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          topic: topic.trim(),
-          secret: process.env.NEXT_PUBLIC_API_SECRET,
+          topic:               topic.trim(),
+          secret:              process.env.NEXT_PUBLIC_API_SECRET,
           mode,
-          sourceText: sourceText.trim(),
+          sourceText:          sourceText.trim(),
+          audience:            audience.trim() || undefined,
+          primary_country:     primaryCountry.trim() || undefined,
+          secondary_countries: secondaryCountries.trim() || undefined,
+          priority_service:    priorityService.trim() || undefined,
+          language:            language.trim() || undefined,
         }),
       });
 
@@ -138,6 +157,11 @@ export default function HomePage() {
     setSourceText("");
     setMode("topic_only");
     setStepIndex(0);
+    setAudience("");
+    setPrimaryCountry("");
+    setSecondaryCountries("");
+    setPriorityService("");
+    setLanguage("");
   };
 
   return (
@@ -164,7 +188,7 @@ export default function HomePage() {
             Blog <span className="text-[#C9A84C]">Generator</span>
           </h1>
           <p className="text-white/40 text-sm leading-relaxed">
-            Enter a topic. We write the full post, generate images, and publish a draft to WordPress — ready for your review.
+            Enter a topic. We run a full strategy analysis, write the post, generate images, and publish a draft to WordPress — ready for your review.
           </p>
         </header>
 
@@ -205,6 +229,86 @@ export default function HomePage() {
                   onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
                 />
                 <p className="text-white/20 text-xs mt-2">Press ⌘ + Enter to generate</p>
+              </div>
+
+              {/* Strategy inputs */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowStrategy((v) => !v)}
+                  className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-[#C9A84C]/30 transition-all duration-150 group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <svg className="w-3.5 h-3.5 text-[#C9A84C]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 001.357 2.059l.537.178a2.25 2.25 0 00.707.098h.084M11.25 3.186A4.501 4.501 0 0115 7.5m0 0v-.375c0-.621.504-1.125 1.125-1.125H18a1.125 1.125 0 011.125 1.125V7.5a4.5 4.5 0 01-9 0z" />
+                    </svg>
+                    <span className="text-sm text-white/70 group-hover:text-white transition-colors">Strategy inputs</span>
+                    <span className="text-xs text-white/30">(optional — audience, country, language)</span>
+                  </div>
+                  <svg className={`w-4 h-4 text-white/30 transition-transform duration-200 ${showStrategy ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {showStrategy && (
+                  <div className="mt-3 space-y-3 p-4 rounded-lg border border-white/[0.08] bg-white/[0.02]">
+                    <p className="text-white/25 text-xs leading-relaxed">
+                      These feed the 12-step strategy engine that runs before writing. Leave blank to let the AI decide.
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-white/35 mb-1.5">Target audience</label>
+                        <input
+                          type="text"
+                          value={audience}
+                          onChange={(e) => setAudience(e.target.value)}
+                          placeholder="e.g. European entrepreneurs"
+                          className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/40 transition-colors"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-white/35 mb-1.5">Primary country</label>
+                        <input
+                          type="text"
+                          value={primaryCountry}
+                          onChange={(e) => setPrimaryCountry(e.target.value)}
+                          placeholder="e.g. UAE"
+                          className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/40 transition-colors"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-white/35 mb-1.5">Secondary countries</label>
+                        <input
+                          type="text"
+                          value={secondaryCountries}
+                          onChange={(e) => setSecondaryCountries(e.target.value)}
+                          placeholder="e.g. UK, Germany"
+                          className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/40 transition-colors"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-white/35 mb-1.5">Priority service</label>
+                        <input
+                          type="text"
+                          value={priorityService}
+                          onChange={(e) => setPriorityService(e.target.value)}
+                          placeholder="e.g. VARA licensing"
+                          className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/40 transition-colors"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs text-white/35 mb-1.5">Language</label>
+                        <input
+                          type="text"
+                          value={language}
+                          onChange={(e) => setLanguage(e.target.value)}
+                          placeholder="Leave blank for British English — or enter e.g. German, Spanish"
+                          className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/40 transition-colors"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Source input — shown for modes B/C/D */}
@@ -276,7 +380,7 @@ export default function HomePage() {
                   </div>
                 ))}
               </div>
-              <p className="text-center text-white/20 text-xs">This takes about 2–3 minutes</p>
+              <p className="text-center text-white/20 text-xs">This takes about 3–4 minutes</p>
             </div>
           )}
 
@@ -323,6 +427,28 @@ export default function HomePage() {
                     </p>
                   </div>
                 </div>
+
+                {/* Strategy metadata */}
+                {result.strategy && (
+                  <div className="border-t border-white/[0.06] pt-4 space-y-2">
+                    <p className="text-xs text-white/30 tracking-[0.12em] uppercase">Strategy</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs text-white/25 mb-1">Search intent</p>
+                        <p className="text-white/50 text-xs capitalize">{result.strategy.searchIntentType}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-white/25 mb-1">Primary keyword</p>
+                        <p className="text-white/50 text-xs">{result.strategy.primaryKeyword}</p>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs text-white/25 mb-1">Article angle</p>
+                      <p className="text-white/40 text-xs leading-relaxed">{result.strategy.articleAngle}</p>
+                    </div>
+                  </div>
+                )}
+
                 {result.qa && (
                   <div className={`rounded-lg px-4 py-3 border ${result.qa.status === "pass" ? "bg-emerald-500/10 border-emerald-500/20" : "bg-amber-500/10 border-amber-500/20"}`}>
                     <div className="flex items-center justify-between mb-1">
