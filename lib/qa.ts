@@ -154,9 +154,9 @@ export function runQA(
   checks.cta_exists =
     (content.more_content_4 ?? "").includes("aston.ae/contact-us/");
 
-  // Internal links: minimum 3
+  // Internal links: minimum 7 (document target: 3-10 per 1,000 words)
   checks.internal_links_sufficient =
-    (content.internal_links_used?.length ?? 0) >= 3;
+    (content.internal_links_used?.length ?? 0) >= 7;
 
   // Images uploaded
   checks.featured_image_exists = (imageIds.featuredImg ?? 0) > 0;

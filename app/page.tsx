@@ -236,13 +236,18 @@ export default function HomePage() {
                 <button
                   type="button"
                   onClick={() => setShowStrategy((v) => !v)}
-                  className="flex items-center gap-2 text-xs text-white/35 hover:text-[#C9A84C] tracking-[0.12em] uppercase transition-colors duration-150"
+                  className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-[#C9A84C]/30 transition-all duration-150 group"
                 >
-                  <svg className={`w-3 h-3 transition-transform duration-200 ${showStrategy ? "rotate-90" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  <div className="flex items-center gap-2.5">
+                    <svg className="w-3.5 h-3.5 text-[#C9A84C]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 001.357 2.059l.537.178a2.25 2.25 0 00.707.098h.084M11.25 3.186A4.501 4.501 0 0115 7.5m0 0v-.375c0-.621.504-1.125 1.125-1.125H18a1.125 1.125 0 011.125 1.125V7.5a4.5 4.5 0 01-9 0z" />
+                    </svg>
+                    <span className="text-sm text-white/70 group-hover:text-white transition-colors">Strategy inputs</span>
+                    <span className="text-xs text-white/30">(optional — audience, country, language)</span>
+                  </div>
+                  <svg className={`w-4 h-4 text-white/30 transition-transform duration-200 ${showStrategy ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                   </svg>
-                  Strategy inputs
-                  <span className="text-white/20 normal-case tracking-normal">(optional)</span>
                 </button>
 
                 {showStrategy && (
