@@ -71,11 +71,21 @@ export async function POST(req: NextRequest) {
       mode = "topic_only",
       sourceText = "",
       priority = 3,
+      audience = "",
+      primary_country = "",
+      secondary_countries = "",
+      priority_service = "",
+      language = "",
     }: {
       topic: string;
       mode: GenerationMode;
       sourceText: string;
       priority: number;
+      audience: string;
+      primary_country: string;
+      secondary_countries: string;
+      priority_service: string;
+      language: string;
     } = body;
 
     if (!topic?.trim()) {
@@ -88,7 +98,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const item = await addQueueItem(topic.trim(), mode, sourceText, priority);
+    const item = await addQueueItem(topic.trim(), mode, sourceText, priority, {
+      audience: audience || undefined,
+      primary_country: primary_country || undefined,
+      secondary_countries: secondary_countries || undefined,
+      priority_service: priority_service || undefined,
+      language: language || undefined,
+    });
     console.log(`[queue:POST] Added item ${item.id}: "${item.topic}" (mode: ${mode}, priority: ${priority})`);
     return NextResponse.json({ item }, { status: 201 });
   } catch (err) {

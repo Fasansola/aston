@@ -28,6 +28,7 @@ import { generateBlueprint, generateBlogContent, generateImagePrompts, generateI
 import { uploadImageToWordPress, createWordPressPost } from "@/lib/wordpress";
 import { runQA } from "@/lib/qa";
 import { emptyBrief, processSourceInput, SourceBrief } from "@/lib/source";
+import { generateStrategy, StrategyBrief, StrategyContext } from "@/lib/strategy";
 
 export const maxDuration = 300;
 
@@ -35,8 +36,25 @@ function authOk(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`;
 }
 
-async function processOneItem(itemId: string, topic: string, mode: string, sourceText: string, settings: Awaited<ReturnType<typeof getSettings>>) {
-  const item = { id: itemId, topic, mode, sourceText } as Parameters<typeof updateQueueItem>[1] & { id: string; topic: string; mode: string; sourceText: string };
+async function processOneItem(
+  itemId: string,
+  topic: string,
+  mode: string,
+  sourceText: string,
+  settings: Awaited<ReturnType<typeof getSettings>>,
+  strategyInputs?: StrategyContext
+) {
+  // Step 0 — strategy engine
+  console.log(`[cron:item] Running strategy engine for "${topic}"`);
+  const strategy: StrategyBrief = await generateStrategy({
+    topic,
+    audience:           strategyInputs?.audience,
+    primary_country:    strategyInputs?.primary_country,
+    secondary_countries: strategyInputs?.secondary_countries,
+    priority_service:   strategyInputs?.priority_service,
+    language:           strategyInputs?.language,
+  });
+  console.log(`[cron:item] Strategy ready. Keyword: "${strategy.keyword_model.primary_keyword}", intent: ${strategy.search_intent_type}`);
 
   let sourceBrief: SourceBrief;
   if (mode === "topic_only" || !sourceText?.trim()) {
@@ -46,8 +64,8 @@ async function processOneItem(itemId: string, topic: string, mode: string, sourc
   }
 
   const selectedLinks = await selectLinks(topic);
-  const blueprint = await generateBlueprint(topic, selectedLinks, sourceBrief);
-  const content = await generateBlogContent(topic, blueprint, selectedLinks, sourceBrief);
+  const blueprint = await generateBlueprint(topic, selectedLinks, sourceBrief, strategy);
+  const content = await generateBlogContent(topic, blueprint, selectedLinks, sourceBrief, strategy);
   const imagePrompts = await generateImagePrompts(topic, content);
 
   const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
@@ -72,7 +90,7 @@ async function processOneItem(itemId: string, topic: string, mode: string, sourc
     featuredImg:    featuredMedia.id,
   };
 
-  const qa = runQA(content, imagePrompts, imageIds);
+  const qa = runQA(content, imagePrompts, imageIds, topic);
   if (qa.status === "fail") {
     throw new Error(`QA failed: ${qa.blocking_issues.join("; ")}`);
   }
@@ -90,7 +108,7 @@ async function processOneItem(itemId: string, topic: string, mode: string, sourc
 
   const post = await createWordPressPost(topic, content, imagePrompts, assembled, imageIds);
 
-  await updateQueueItem(item.id, {
+  await updateQueueItem(itemId, {
     status: "completed",
     completedAt: new Date().toISOString(),
     wpPostId: post.id,
@@ -159,7 +177,13 @@ export async function GET(req: NextRequest) {
       run.topicsAttempted++;
 
       try {
-        const result = await processOneItem(item.id, item.topic, item.mode, item.sourceText, settings);
+        const result = await processOneItem(item.id, item.topic, item.mode, item.sourceText, settings, {
+          audience:           item.audience,
+          primary_country:    item.primary_country,
+          secondary_countries: item.secondary_countries,
+          priority_service:   item.priority_service,
+          language:           item.language,
+        });
         run.topicsCompleted++;
         console.log(`[cron] Item ${item.id} completed — WP post ${result.postId}, QA ${result.qaScore}/100`);
       } catch (err: unknown) {

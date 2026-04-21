@@ -38,6 +38,12 @@ export interface QueueItem {
   wpPostUrl: string | null;
   qaScore: number | null;
   qaWarnings: string[];
+  // Strategy engine inputs (optional — added in v2)
+  audience?: string;
+  primary_country?: string;
+  secondary_countries?: string;
+  priority_service?: string;
+  language?: string;
 }
 
 export interface SchedulerSettings {
@@ -188,7 +194,14 @@ export async function addQueueItem(
   topic: string,
   mode: GenerationMode = "topic_only",
   sourceText = "",
-  priority = 3
+  priority = 3,
+  strategyInputs?: {
+    audience?: string;
+    primary_country?: string;
+    secondary_countries?: string;
+    priority_service?: string;
+    language?: string;
+  }
 ): Promise<QueueItem> {
   const item: QueueItem = {
     id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -206,6 +219,7 @@ export async function addQueueItem(
     wpPostUrl: null,
     qaScore: null,
     qaWarnings: [],
+    ...(strategyInputs ?? {}),
   };
   const queue = await getQueue();
   queue.push(item);

@@ -30,10 +30,10 @@ import {
   emptyBrief,
   processSourceInput,
 } from "@/lib/source";
+import { generateStrategy, StrategyBrief } from "@/lib/strategy";
 
-// Vercel default timeout is 300s on all plans.
-// We set 180s as a safe ceiling — the full pipeline takes ~90-120s.
-export const maxDuration = 180;
+// Strategy step adds ~30-45s. Full pipeline now ~150-200s.
+export const maxDuration = 240;
 
 
 export async function POST(req: NextRequest) {
@@ -45,11 +45,21 @@ export async function POST(req: NextRequest) {
       secret,
       mode = "topic_only",
       sourceText = "",
+      audience = "",
+      primary_country = "",
+      secondary_countries = "",
+      priority_service = "",
+      language = "",
     }: {
       topic: string;
       secret: string;
       mode: GenerationMode;
       sourceText: string;
+      audience: string;
+      primary_country: string;
+      secondary_countries: string;
+      priority_service: string;
+      language: string;
     } = body;
 
     if (!topic || typeof topic !== "string" || topic.trim().length < 5) {
@@ -85,7 +95,19 @@ export async function POST(req: NextRequest) {
 
     const title = topic.trim();
 
-    // ── 2. Process source input (Modes B / C / D) ────────
+    // ── 2. Run strategy engine ───────────────────────────
+    console.log(`[generate] Running strategy engine for: "${title}"`);
+    const strategy: StrategyBrief = await generateStrategy({
+      topic: title,
+      audience:           audience || undefined,
+      primary_country:    primary_country || undefined,
+      secondary_countries: secondary_countries || undefined,
+      priority_service:   priority_service || undefined,
+      language:           language || undefined,
+    });
+    console.log(`[generate] Strategy ready. Primary keyword: "${strategy.keyword_model.primary_keyword}", intent: ${strategy.search_intent_type}`);
+
+    // ── 3. Process source input (Modes B / C / D) ────────
     let sourceBrief: SourceBrief;
     if (mode === "topic_only") {
       sourceBrief = emptyBrief();
@@ -95,32 +117,32 @@ export async function POST(req: NextRequest) {
       console.log(`[generate] Source brief ready: ${sourceBrief.summary}`);
     }
 
-    // ── 3. Select relevant links ─────────────────────────
+    // ── 4. Select relevant links ─────────────────────────
     console.log(`[generate] Starting for title: "${title}"`);
     const selectedLinks = await selectLinks(title);
     console.log(
       `[generate] Selected ${selectedLinks.internal.length} internal + ${selectedLinks.external.length} external links`
     );
 
-    // ── 4. Generate structure blueprint ──────────────────
+    // ── 5. Generate structure blueprint ──────────────────
     console.log("[generate] Generating blueprint...");
-    const blueprint = await generateBlueprint(title, selectedLinks, sourceBrief);
+    const blueprint = await generateBlueprint(title, selectedLinks, sourceBrief, strategy);
     console.log(
       `[generate] Blueprint ready. Focus keyword: "${blueprint.focus_keyword}", ~${blueprint.estimated_word_count} words`
     );
 
-    // ── 5. Generate blog content from blueprint ───────────
-    const content = await generateBlogContent(title, blueprint, selectedLinks, sourceBrief);
+    // ── 6. Generate blog content from blueprint ───────────
+    const content = await generateBlogContent(title, blueprint, selectedLinks, sourceBrief, strategy);
     console.log(
       `[generate] Content ready. Slug: "${content.slug}", read: ${content.read_mins} min`
     );
 
-    // ── 6. Generate content-aware image prompts ──────────
+    // ── 7. Generate content-aware image prompts ──────────
     console.log("[generate] Generating image prompts from content...");
     const imagePrompts = await generateImagePrompts(title, content);
     console.log("[generate] Image prompts ready.");
 
-    // ── 7. Generate all 4 images in parallel ─────────────
+    // ── 8. Generate all 4 images in parallel ─────────────
     console.log("[generate] Generating images with Imagen 3...");
     const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
       generateImage(imagePrompts.keypoint_one_img_prompt),
@@ -136,7 +158,7 @@ export async function POST(req: NextRequest) {
       .replace(/[^a-z0-9]+/g, "-")
       .slice(0, 50);
 
-    // ── 8. Upload images to WordPress ────────────────────
+    // ── 9. Upload images to WordPress ────────────────────
     console.log("[generate] Uploading images to WordPress...");
     const [kp1Media, kp2Media, splitMedia, featuredMedia] = await Promise.all([
       uploadImageToWordPress(kp1Buffer, `${fileSlug}-kp1.png`, imagePrompts.keypoint_one_img_alt),
@@ -155,9 +177,9 @@ export async function POST(req: NextRequest) {
       featuredImg:    featuredMedia.id,
     };
 
-    // ── 9. Run QA ─────────────────────────────────────────
+    // ── 10. Run QA ────────────────────────────────────────
     console.log("[generate] Running QA checks...");
-    const qa = runQA(content, imagePrompts, imageIds);
+    const qa = runQA(content, imagePrompts, imageIds, title);
     console.log(
       `[generate] QA: ${qa.status.toUpperCase()} (score ${qa.score}/100, ${qa.wordCount} words)`
     );
@@ -178,7 +200,7 @@ export async function POST(req: NextRequest) {
       console.warn(`[generate] QA warnings: ${qa.warnings.join(" | ")}`);
     }
 
-    // ── 10. Strip IMGSLOT placeholders (images handled by ACF) ─
+    // ── 11. Strip IMGSLOT placeholders (images handled by ACF) ─
     const assembled = {
       main_content:   content.main_content.replace("IMGSLOT_MAIN", ""),
       more_content_1: content.more_content_1.replace("IMGSLOT_ONE", ""),
@@ -186,12 +208,12 @@ export async function POST(req: NextRequest) {
       more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
     };
 
-    // ── 11. Create the WordPress post ────────────────────
+    // ── 12. Create the WordPress post ────────────────────
     console.log("[generate] Creating WordPress post...");
     const post = await createWordPressPost(title, content, imagePrompts, assembled, imageIds);
     console.log(`[generate] Post created! ID: ${post.id}, slug: "${content.slug}"`);
 
-    // ── 12. Return success ────────────────────────────────
+    // ── 13. Return success ────────────────────────────────
     return NextResponse.json({
       success: true,
       postId: post.id,
@@ -202,6 +224,11 @@ export async function POST(req: NextRequest) {
       seoTitle: content.seo_title,
       readMins: content.read_mins,
       wordCount: qa.wordCount,
+      strategy: {
+        searchIntentType: strategy.search_intent_type,
+        primaryKeyword: strategy.keyword_model.primary_keyword,
+        articleAngle: strategy.article_angle.slice(0, 200),
+      },
       qa: {
         status: qa.status,
         score: qa.score,
