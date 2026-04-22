@@ -55,8 +55,26 @@ interface GenerateResult {
     internal: Array<{ anchor: string; url: string }>;
     external: Array<{ anchor: string; url: string }>;
   };
+  articleHtml?: string;
+  excerpt?: string;
+  tags?: string[];
   editUrl: string;
   previewUrl: string;
+}
+
+interface TargetConfig {
+  enabled: boolean;
+  config: Record<string, string>;
+}
+
+interface PublishResultItem {
+  target: string;
+  ok: boolean;
+  status: "passed" | "warning" | "failed";
+  message: string;
+  externalUrl?: string;
+  editUrl?: string;
+  platformPostId?: string;
 }
 
 const STEPS = [
@@ -389,6 +407,21 @@ export default function HomePage() {
   const [expandedLinkGroup, setExpandedLinkGroup]       = useState<"internal" | "external" | null>(null);
   const [expandedIssues, setExpandedIssues]             = useState<Set<string>>(new Set());
 
+  // Publishing targets
+  const [showPublishingTargets, setShowPublishingTargets] = useState(false);
+  const [publishingTargets, setPublishingTargets] = useState<Record<string, TargetConfig>>({
+    wordpress: { enabled: true,  config: { status: "draft" } },
+    medium:    { enabled: false, config: { publishStatus: "draft" } },
+    devto:     { enabled: false, config: { published: "false" } },
+    hashnode:  { enabled: false, config: {} },
+    blogger:   { enabled: false, config: { isDraft: "true" } },
+    ghost:     { enabled: false, config: { status: "draft" } },
+    email:     { enabled: false, config: {} },
+  });
+  const [requireAllPass, setRequireAllPass]         = useState(true);
+  const [publishStatus, setPublishStatus]           = useState<"idle" | "publishing" | "done" | "error">("idle");
+  const [publishResults, setPublishResults]         = useState<PublishResultItem[]>([]);
+
   const startStepCycle = () => {
     setStepIndex(0);
     let i = 0;
@@ -452,6 +485,41 @@ export default function HomePage() {
     }
   };
 
+  const handlePublish = async () => {
+    if (!result?.articleHtml || publishStatus === "publishing") return;
+    const selectedTargets = Object.entries(publishingTargets)
+      .filter(([, v]) => v.enabled)
+      .map(([target, v]) => ({ target, config: v.config }));
+    if (selectedTargets.length === 0) return;
+
+    setPublishStatus("publishing");
+    try {
+      const res = await fetch("/api/publish", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-secret": process.env.NEXT_PUBLIC_API_SECRET ?? "",
+        },
+        body: JSON.stringify({
+          title:           result.title,
+          excerpt:         result.excerpt ?? "",
+          html:            result.articleHtml,
+          tags:            result.tags ?? [],
+          seoTitle:        result.seoTitle,
+          seoDescription:  undefined,
+          canonicalUrl:    result.previewUrl ?? undefined,
+          targets:         selectedTargets,
+          requireAllPass,
+        }),
+      });
+      const data = await res.json();
+      setPublishResults(data.results ?? []);
+      setPublishStatus("done");
+    } catch {
+      setPublishStatus("error");
+    }
+  };
+
   const runLinkValidation = async (links: Array<{ anchor: string; url: string }>) => {
     if (!links.length) return;
     setLinkValidationStatus("checking");
@@ -482,6 +550,8 @@ export default function HomePage() {
     setSourceText("");
     setLinkValidationStatus("idle");
     setLinkValidation(null);
+    setPublishStatus("idle");
+    setPublishResults([]);
     setMode("topic_only");
     setStepIndex(0);
     setAudience("");
@@ -638,6 +708,211 @@ export default function HomePage() {
                           className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/40 transition-colors"
                         />
                       </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Publishing targets */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowPublishingTargets((v) => !v)}
+                  className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-[#C9A84C]/30 transition-all duration-150 group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <svg className="w-3.5 h-3.5 text-[#C9A84C]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
+                    </svg>
+                    <span className="text-sm text-white/70 group-hover:text-white transition-colors">Publishing targets</span>
+                    <span className="text-xs text-white/30">
+                      ({Object.values(publishingTargets).filter((t) => t.enabled).length} selected)
+                    </span>
+                  </div>
+                  <svg className={`w-4 h-4 text-white/30 transition-transform duration-200 ${showPublishingTargets ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {showPublishingTargets && (
+                  <div className="mt-3 space-y-2 p-4 rounded-lg border border-white/[0.08] bg-white/[0.02]">
+                    <p className="text-white/25 text-xs mb-3 leading-relaxed">
+                      Select where to publish after generation. Article is generated once, then dispatched to all selected targets.
+                    </p>
+                    {(
+                      [
+                        { key: "wordpress", label: "WordPress",     hint: "Your primary Aston.ae site",                      defaultConfig: { status: "draft" } },
+                        { key: "medium",    label: "Medium",         hint: "For broad professional reach",                    defaultConfig: { publishStatus: "draft" } },
+                        { key: "devto",     label: "DEV",            hint: "For developer and technical audiences",           defaultConfig: { published: "false" } },
+                        { key: "hashnode",  label: "Hashnode",        hint: "For technical blogging and custom publications", defaultConfig: {} },
+                        { key: "blogger",   label: "Blogger",         hint: "For simple Google-based blog publishing",        defaultConfig: { isDraft: "true" } },
+                        { key: "ghost",     label: "Ghost",           hint: "For owned publication publishing",               defaultConfig: { status: "draft" } },
+                        { key: "email",     label: "Send by email",   hint: "For internal review or distribution",           defaultConfig: {} },
+                      ] as const
+                    ).map(({ key, label, hint }) => {
+                      const tgt = publishingTargets[key];
+                      return (
+                        <div key={key} className={`rounded-lg border transition-colors ${tgt.enabled ? "border-[#C9A84C]/20 bg-[#C9A84C]/[0.03]" : "border-white/[0.06]"}`}>
+                          <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={tgt.enabled}
+                              onChange={(e) => setPublishingTargets((prev) => ({
+                                ...prev,
+                                [key]: { ...prev[key], enabled: e.target.checked },
+                              }))}
+                              className="w-3.5 h-3.5 accent-[#C9A84C]"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-white/80">{label}</p>
+                              <p className="text-[10px] text-white/25">{hint}</p>
+                            </div>
+                          </label>
+                          {tgt.enabled && (
+                            <div className="px-3 pb-3 space-y-2 border-t border-white/[0.05] pt-2.5">
+                              {key === "wordpress" && (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="block text-[10px] text-white/25 mb-1">Status</label>
+                                    <select
+                                      value={tgt.config.status ?? "draft"}
+                                      onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, status: e.target.value } } }))}
+                                      className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40"
+                                    >
+                                      <option value="draft">Draft</option>
+                                      <option value="pending">Pending review</option>
+                                      <option value="publish">Publish now</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              )}
+                              {key === "medium" && (
+                                <div className="space-y-2">
+                                  <div>
+                                    <label className="block text-[10px] text-white/25 mb-1">Access token <span className="text-red-400">*</span></label>
+                                    <input type="password" placeholder="Your Medium self-issued access token" value={tgt.config.accessToken ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, accessToken: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-[10px] text-white/25 mb-1">Status</label>
+                                      <select value={tgt.config.publishStatus ?? "draft"} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, publishStatus: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40">
+                                        <option value="draft">Draft</option>
+                                        <option value="unlisted">Unlisted</option>
+                                        <option value="public">Public</option>
+                                      </select>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              {key === "devto" && (
+                                <div className="space-y-2">
+                                  <div>
+                                    <label className="block text-[10px] text-white/25 mb-1">API key <span className="text-red-400">*</span></label>
+                                    <input type="password" placeholder="Your DEV.to API key" value={tgt.config.apiKey ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, apiKey: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-[10px] text-white/25 mb-1">Publish</label>
+                                      <select value={tgt.config.published ?? "false"} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, published: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40">
+                                        <option value="false">Save as draft</option>
+                                        <option value="true">Publish now</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] text-white/25 mb-1">Series (optional)</label>
+                                      <input type="text" placeholder="Series name" value={tgt.config.series ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, series: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              {key === "hashnode" && (
+                                <div className="space-y-2">
+                                  <div>
+                                    <label className="block text-[10px] text-white/25 mb-1">API token <span className="text-red-400">*</span></label>
+                                    <input type="password" placeholder="Your Hashnode API token" value={tgt.config.token ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, token: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] text-white/25 mb-1">Publication ID <span className="text-red-400">*</span></label>
+                                    <input type="text" placeholder="Your Hashnode publication ID" value={tgt.config.publicationId ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, publicationId: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
+                                  </div>
+                                </div>
+                              )}
+                              {key === "blogger" && (
+                                <div className="space-y-2">
+                                  <div>
+                                    <label className="block text-[10px] text-white/25 mb-1">Google API key <span className="text-red-400">*</span></label>
+                                    <input type="password" placeholder="Your Google API key" value={tgt.config.apiKey ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, apiKey: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-[10px] text-white/25 mb-1">Blog ID <span className="text-red-400">*</span></label>
+                                      <input type="text" placeholder="Your Blogger blog ID" value={tgt.config.blogId ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, blogId: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] text-white/25 mb-1">Mode</label>
+                                      <select value={tgt.config.isDraft ?? "true"} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, isDraft: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40">
+                                        <option value="true">Draft</option>
+                                        <option value="false">Publish now</option>
+                                      </select>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              {key === "ghost" && (
+                                <div className="space-y-2">
+                                  <div>
+                                    <label className="block text-[10px] text-white/25 mb-1">Ghost site URL <span className="text-red-400">*</span></label>
+                                    <input type="text" placeholder="https://myblog.ghost.io" value={tgt.config.siteUrl ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, siteUrl: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-[10px] text-white/25 mb-1">Admin API key <span className="text-red-400">*</span></label>
+                                      <input type="password" placeholder="id:secret" value={tgt.config.adminApiKey ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, adminApiKey: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] text-white/25 mb-1">Status</label>
+                                      <select value={tgt.config.status ?? "draft"} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, status: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40">
+                                        <option value="draft">Draft</option>
+                                        <option value="published">Publish now</option>
+                                      </select>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              {key === "email" && (
+                                <div className="space-y-2">
+                                  <div>
+                                    <label className="block text-[10px] text-white/25 mb-1">Resend API key <span className="text-red-400">*</span></label>
+                                    <input type="password" placeholder="Your Resend API key" value={tgt.config.apiKey ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, apiKey: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-[10px] text-white/25 mb-1">Recipient email <span className="text-red-400">*</span></label>
+                                      <input type="email" placeholder="recipient@example.com" value={tgt.config.to ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, to: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] text-white/25 mb-1">Sender (optional)</label>
+                                      <input type="email" placeholder="noreply@aston.ae" value={tgt.config.from ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, from: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <div className="flex items-center gap-3 pt-2 border-t border-white/[0.05] mt-2">
+                      <input
+                        type="checkbox"
+                        id="requireAllPass"
+                        checked={requireAllPass}
+                        onChange={(e) => setRequireAllPass(e.target.checked)}
+                        className="w-3.5 h-3.5 accent-[#C9A84C]"
+                      />
+                      <label htmlFor="requireAllPass" className="text-xs text-white/40 cursor-pointer">
+                        Publish only if all selected targets pass validation
+                      </label>
                     </div>
                   </div>
                 )}
@@ -814,6 +1089,59 @@ export default function HomePage() {
                     }
                   }}
                 />
+              )}
+
+              {/* Publish to selected targets */}
+              {Object.values(publishingTargets).some((t) => t.enabled) && publishStatus !== "done" && (
+                <button
+                  onClick={handlePublish}
+                  disabled={publishStatus === "publishing"}
+                  className="w-full flex items-center justify-center gap-2 bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-40 disabled:cursor-not-allowed border border-[#C9A84C]/30 hover:border-[#C9A84C]/60 text-[#C9A84C] font-medium text-sm py-3 rounded-lg transition-all duration-200"
+                >
+                  {publishStatus === "publishing" ? (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Publishing…
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
+                      </svg>
+                      Publish to {Object.values(publishingTargets).filter((t) => t.enabled).length} target{Object.values(publishingTargets).filter((t) => t.enabled).length > 1 ? "s" : ""}
+                    </>
+                  )}
+                </button>
+              )}
+
+              {/* Publish results */}
+              {publishStatus === "done" && publishResults.length > 0 && (
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+                  <div className="px-4 py-3 border-b border-white/[0.05]">
+                    <p className="text-xs font-medium text-white/60 uppercase tracking-wide">Publishing results</p>
+                  </div>
+                  <div className="divide-y divide-white/[0.04]">
+                    {publishResults.map((r) => (
+                      <div key={r.target} className="px-4 py-3 flex items-center gap-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-medium uppercase tracking-wide shrink-0 ${r.status === "passed" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" : r.status === "warning" ? "bg-amber-500/15 text-amber-400 border-amber-500/20" : "bg-red-500/15 text-red-400 border-red-500/20"}`}>
+                          {r.status}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-white/70 font-medium capitalize">{r.target}</p>
+                          <p className="text-[10px] text-white/35 truncate">{r.message}</p>
+                        </div>
+                        {r.externalUrl && (
+                          <a href={r.externalUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#C9A84C]/70 hover:text-[#C9A84C] transition-colors shrink-0">
+                            View →
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
 
               <div className="grid grid-cols-2 gap-3">
