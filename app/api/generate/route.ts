@@ -220,6 +220,23 @@ export async function POST(req: NextRequest) {
     console.log(`[generate] Post created! ID: ${post.id}, slug: "${content.slug}"`);
 
     // ── 13. Return success ────────────────────────────────
+    // Assemble full article HTML for external platform publishing
+    const articleHtml = [
+      content.key_takeaways,
+      assembled.main_content,
+      content.keypoint_one,
+      assembled.more_content_1,
+      content.more_content_2,
+      content.quote_1,
+      assembled.more_content_3,
+      content.keypoint_two,
+      assembled.more_content_4,
+      content.quote_2,
+      content.more_content_5,
+      content.more_content_6,
+      content.final_points,
+    ].filter(Boolean).join("\n");
+
     return NextResponse.json({
       success: true,
       postId: post.id,
@@ -244,6 +261,9 @@ export async function POST(req: NextRequest) {
         internal: content.internal_links_used,
         external: content.external_links_used,
       },
+      articleHtml,
+      excerpt: content.excerpt,
+      tags: content.secondary_keywords ?? [],
       editUrl:    `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
       previewUrl: post.link ?? null,
     });
