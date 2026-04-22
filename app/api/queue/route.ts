@@ -91,6 +91,9 @@ export async function POST(req: NextRequest) {
     if (!topic?.trim()) {
       return NextResponse.json({ error: "topic is required" }, { status: 400 });
     }
+    if (!audience?.trim()) {
+      return NextResponse.json({ error: "audience is required" }, { status: 400 });
+    }
     if (priority < 1 || priority > 5) {
       return NextResponse.json(
         { error: "priority must be between 1 and 5" },

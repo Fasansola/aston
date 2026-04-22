@@ -9,8 +9,8 @@
 import OpenAI from "openai";
 
 export interface StrategyInputs {
-  topic: string;        // required when calling generateStrategy() directly
-  audience?: string;
+  topic: string;        // required
+  audience?: string;    // required at API boundary — defines tone, complexity, commercial angle
   primary_country?: string;
   secondary_countries?: string;
   priority_service?: string;
@@ -101,10 +101,10 @@ export async function generateStrategy(inputs: StrategyInputs): Promise<Strategy
   const inputLines = [
     `TOPIC: ${inputs.topic}`,
     inputs.audience        ? `TARGET_AUDIENCE: ${inputs.audience}`               : "",
-    inputs.primary_country ? `PRIMARY_COUNTRY: ${inputs.primary_country}`         : "",
-    inputs.secondary_countries ? `SECONDARY_COUNTRIES: ${inputs.secondary_countries}` : "",
-    inputs.priority_service ? `PRIORITY_SERVICE: ${inputs.priority_service}`      : "",
-    inputs.language        ? `LANGUAGE: ${inputs.language}`                       : "",
+    inputs.primary_country      ? `PRIMARY_COUNTRY: ${inputs.primary_country}`           : "",
+    inputs.secondary_countries  ? `SECONDARY_COUNTRIES: ${inputs.secondary_countries}`   : "",
+    inputs.priority_service     ? `PRIORITY_SERVICE: ${inputs.priority_service}`         : "",
+    inputs.language             ? `LANGUAGE: ${inputs.language}`                         : "",
   ].filter(Boolean).join("\n");
 
   const userPrompt = `${inputLines}
@@ -153,6 +153,19 @@ Run the full 12-step strategy analysis for this topic and return the result as a
     "specific risk this writer must avoid for this particular topic"
   ]
 }
+
+FIELD INTERACTION RULES — these fields are NOT independent. They work together:
+- TOPIC + TARGET_AUDIENCE defines the core subject AND who the article is written for (tone, complexity, examples, commercial angle all depend on audience)
+- TOPIC + PRIMARY_COUNTRY: the entire article must anchor around this country — all tax, banking, regulation, examples, and structuring logic must prioritise this jurisdiction
+- SECONDARY_COUNTRIES: used for comparison only — they must not take over the article
+- PRIORITY_SERVICE: tells the system which Aston VIP service to emphasise — affects internal linking, commercial angle, section focus, and conversion intent
+- LANGUAGE: controls the writing language AND grammar standard AND writing style — this is NOT translation. The article must sound like a native writer from that country. Output all text values (headings, sentences, descriptions) in the specified language.
+- Combined example: TOPIC=crypto licence, PRIMARY_COUNTRY=UAE, LANGUAGE=German → write in German, focus on UAE regulation, use German phrasing and terminology — not translated English
+
+FALLBACK LOGIC — when fields are missing:
+- No LANGUAGE → default to British English throughout
+- No PRIMARY_COUNTRY → use a global or cross-border angle; do not default to UAE
+- No PRIORITY_SERVICE → infer the most relevant Aston VIP service from the topic itself
 
 Rules:
 - key_takeaways: exactly 4 to 6 items. Each must be a standalone advisory sentence with real decision-useful content. Not marketing copy. Not vague summaries. Must contain specific insight about structure, banking, tax, licensing, regulation, or jurisdiction logic.

@@ -68,6 +68,12 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    if (!audience?.trim()) {
+      return NextResponse.json(
+        { error: "Please provide a target audience." },
+        { status: 400 }
+      );
+    }
 
     if (secret !== process.env.API_SECRET) {
       return NextResponse.json(
