@@ -172,7 +172,7 @@ Rules:
       { role: "user", content: userPrompt },
     ],
     temperature: 0.4,
-    max_completion_tokens: 8000,
+    max_completion_tokens: 16000,
   });
 
   const choice = response.choices[0];
