@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import type { LinkValidationResult, LinkIssue } from "@/lib/linkValidator";
 
 type Status = "idle" | "loading" | "success" | "error";
+type LinkValidationStatus = "idle" | "checking" | "done" | "error";
 type GenerationMode = "topic_only" | "source_assisted" | "improve_existing" | "notes_to_article";
 
 const MODES: { id: GenerationMode; label: string; description: string; placeholder: string }[] = [
@@ -77,6 +79,293 @@ const SUGGESTIONS = [
   "Step-by-step guide to getting a UAE trade licence",
 ];
 
+// ── Link Validation Panel ──────────────────────────────────────
+
+function StatusBadge({ status }: { status: LinkIssue["status"] }) {
+  const styles = {
+    passed:  "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
+    warning: "bg-amber-500/15 text-amber-400 border-amber-500/20",
+    failed:  "bg-red-500/15 text-red-400 border-red-500/20",
+    skipped: "bg-white/5 text-white/30 border-white/10",
+  };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-medium uppercase tracking-wide ${styles[status]}`}>
+      {status}
+    </span>
+  );
+}
+
+function LinkIssueRow({
+  issue,
+  expanded,
+  onToggle,
+}: {
+  issue: LinkIssue;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const isActionable = issue.status === "failed" || issue.status === "warning";
+  return (
+    <div className={`border rounded-lg overflow-hidden ${issue.status === "failed" ? "border-red-500/20 bg-red-500/[0.03]" : issue.status === "warning" ? "border-amber-500/20 bg-amber-500/[0.03]" : "border-white/[0.06] bg-white/[0.02]"}`}>
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[0.03] transition-colors"
+      >
+        <StatusBadge status={issue.status} />
+        <span className="text-xs text-white/40 uppercase tracking-wide w-16 shrink-0">{issue.type}</span>
+        <span className="text-xs text-white/70 flex-1 truncate">{issue.anchorText || issue.url}</span>
+        {isActionable && (
+          <svg className={`w-3 h-3 text-white/20 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        )}
+      </button>
+
+      {expanded && isActionable && (
+        <div className="px-3 pb-3 space-y-2 border-t border-white/[0.05] pt-2.5">
+          <div>
+            <p className="text-[10px] text-white/25 uppercase tracking-wide mb-0.5">URL</p>
+            <p className="text-xs text-white/40 font-mono break-all">{issue.url}</p>
+            {issue.finalUrl && issue.finalUrl !== issue.url && (
+              <p className="text-[10px] text-white/20 mt-0.5">→ Redirected to: {issue.finalUrl}</p>
+            )}
+          </div>
+          {issue.problem && (
+            <div>
+              <p className="text-[10px] text-white/25 uppercase tracking-wide mb-0.5">Problem</p>
+              <p className="text-xs text-white/60">{issue.problem}</p>
+            </div>
+          )}
+          {issue.suggestedFix && (
+            <div>
+              <p className="text-[10px] text-white/25 uppercase tracking-wide mb-0.5">Suggested fix</p>
+              <p className="text-xs text-white/50">{issue.suggestedFix}</p>
+            </div>
+          )}
+          <div className="flex gap-2 flex-wrap pt-1">
+            {issue.actions.includes("auto_fix") && (
+              <button className="text-[11px] px-2.5 py-1 rounded border border-[#C9A84C]/30 text-[#C9A84C]/80 hover:text-[#C9A84C] hover:border-[#C9A84C]/60 transition-colors">
+                Auto-fix
+              </button>
+            )}
+            {issue.actions.includes("find_better_source") && (
+              <button className="text-[11px] px-2.5 py-1 rounded border border-[#C9A84C]/30 text-[#C9A84C]/80 hover:text-[#C9A84C] hover:border-[#C9A84C]/60 transition-colors">
+                Find better source
+              </button>
+            )}
+            {issue.actions.includes("edit") && (
+              <button className="text-[11px] px-2.5 py-1 rounded border border-white/10 text-white/40 hover:text-white/60 hover:border-white/20 transition-colors">
+                Edit link
+              </button>
+            )}
+            {issue.actions.includes("remove") && (
+              <button className="text-[11px] px-2.5 py-1 rounded border border-white/10 text-white/40 hover:text-white/60 hover:border-white/20 transition-colors">
+                Remove
+              </button>
+            )}
+            {issue.actions.includes("recheck") && (
+              <button className="text-[11px] px-2.5 py-1 rounded border border-white/10 text-white/40 hover:text-white/60 hover:border-white/20 transition-colors">
+                Recheck
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LinkGroupSection({
+  label,
+  summary,
+  issues,
+  expanded,
+  onToggle,
+  expandedIssues,
+  onToggleIssue,
+}: {
+  label: string;
+  summary: { passed: number; warning: number; failed: number };
+  issues: LinkIssue[];
+  expanded: boolean;
+  onToggle: () => void;
+  expandedIssues: Set<string>;
+  onToggleIssue: (id: string) => void;
+}) {
+  const actionable = issues.filter((i) => i.status !== "passed");
+  const allPassed = actionable.length === 0;
+
+  return (
+    <div className="space-y-1.5">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between py-1 group"
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-medium text-white/60 group-hover:text-white/80 transition-colors">{label}</span>
+          <div className="flex items-center gap-1.5">
+            {summary.failed > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 border border-red-500/20">
+                {summary.failed} failed
+              </span>
+            )}
+            {summary.warning > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                {summary.warning} warning
+              </span>
+            )}
+            {allPassed && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                {summary.passed} passed
+              </span>
+            )}
+          </div>
+        </div>
+        <svg className={`w-3 h-3 text-white/20 transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="space-y-1.5 pl-1">
+          {actionable.length === 0 ? (
+            <p className="text-xs text-white/25 py-1">All links valid</p>
+          ) : (
+            actionable.map((issue) => (
+              <LinkIssueRow
+                key={issue.id}
+                issue={issue}
+                expanded={expandedIssues.has(issue.id)}
+                onToggle={() => onToggleIssue(issue.id)}
+              />
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LinkValidationPanel({
+  status,
+  result,
+  expandedGroup,
+  setExpandedGroup,
+  expandedIssues,
+  setExpandedIssues,
+  onRecheck,
+}: {
+  status: LinkValidationStatus;
+  result: LinkValidationResult | null;
+  expandedGroup: "internal" | "external" | null;
+  setExpandedGroup: (g: "internal" | "external" | null) => void;
+  expandedIssues: Set<string>;
+  setExpandedIssues: (s: Set<string>) => void;
+  onRecheck: () => void;
+}) {
+  const toggleIssue = (id: string) => {
+    const next = new Set(expandedIssues);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setExpandedIssues(next);
+  };
+
+  const toggleGroup = (g: "internal" | "external") => {
+    setExpandedGroup(expandedGroup === g ? null : g);
+  };
+
+  if (status === "checking") {
+    return (
+      <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-4">
+        <div className="flex items-center gap-2.5">
+          <svg className="w-4 h-4 text-[#C9A84C] animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <p className="text-sm text-white/50">Validating links…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div className="rounded-lg border border-red-500/20 bg-red-500/[0.03] px-4 py-3 flex items-center justify-between">
+        <p className="text-xs text-red-400">Link validation failed</p>
+        <button onClick={onRecheck} className="text-xs text-white/40 hover:text-white/70 transition-colors">Retry</button>
+      </div>
+    );
+  }
+
+  if (!result) return null;
+
+  const internalIssues = result.issues.filter((i) => i.type === "internal");
+  const externalIssues = result.issues.filter((i) => i.type === "external");
+
+  const publishState = result.canPublish
+    ? result.overallStatus === "warning"
+      ? { label: "Ready with warnings", color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20" }
+      : { label: "All links validated", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" }
+    : { label: "Publish blocked — fix failing links before going live", color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" };
+
+  return (
+    <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+      {/* Header */}
+      <div className={`px-4 py-3 border-b ${publishState.bg} border-b-white/[0.05] flex items-center justify-between`}>
+        <div className="flex items-center gap-2">
+          <p className={`text-xs font-medium ${publishState.color}`}>Link Validation</p>
+          <span className="text-white/20 text-xs">·</span>
+          <p className={`text-xs ${publishState.color}`}>{publishState.label}</p>
+        </div>
+        <button onClick={onRecheck} className="text-[10px] text-white/25 hover:text-white/50 transition-colors">
+          Recheck all
+        </button>
+      </div>
+
+      {/* Summary row */}
+      <div className="px-4 py-3 grid grid-cols-2 gap-3 border-b border-white/[0.05]">
+        <div className="space-y-1">
+          <p className="text-[10px] text-white/25 uppercase tracking-wide">Internal links</p>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-white/50">{result.summary.internal.passed} passed</span>
+            {result.summary.internal.warning > 0 && <span className="text-amber-400">{result.summary.internal.warning} warn</span>}
+            {result.summary.internal.failed > 0 && <span className="text-red-400">{result.summary.internal.failed} failed</span>}
+          </div>
+        </div>
+        <div className="space-y-1">
+          <p className="text-[10px] text-white/25 uppercase tracking-wide">External links</p>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-white/50">{result.summary.external.passed} passed</span>
+            {result.summary.external.warning > 0 && <span className="text-amber-400">{result.summary.external.warning} warn</span>}
+            {result.summary.external.failed > 0 && <span className="text-red-400">{result.summary.external.failed} failed</span>}
+          </div>
+        </div>
+      </div>
+
+      {/* Expandable groups */}
+      <div className="px-4 py-3 space-y-3">
+        <LinkGroupSection
+          label="Internal links"
+          summary={result.summary.internal}
+          issues={internalIssues}
+          expanded={expandedGroup === "internal"}
+          onToggle={() => toggleGroup("internal")}
+          expandedIssues={expandedIssues}
+          onToggleIssue={toggleIssue}
+        />
+        <LinkGroupSection
+          label="External links"
+          summary={result.summary.external}
+          issues={externalIssues}
+          expanded={expandedGroup === "external"}
+          onToggle={() => toggleGroup("external")}
+          expandedIssues={expandedIssues}
+          onToggleIssue={toggleIssue}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [topic, setTopic]           = useState("");
   const [mode, setMode]             = useState<GenerationMode>("topic_only");
@@ -93,6 +382,12 @@ export default function HomePage() {
   const [secondaryCountries, setSecondaryCountries] = useState("");
   const [priorityService, setPriorityService]       = useState("");
   const [language, setLanguage]                     = useState("");
+
+  // Link validation
+  const [linkValidationStatus, setLinkValidationStatus] = useState<LinkValidationStatus>("idle");
+  const [linkValidation, setLinkValidation]             = useState<LinkValidationResult | null>(null);
+  const [expandedLinkGroup, setExpandedLinkGroup]       = useState<"internal" | "external" | null>(null);
+  const [expandedIssues, setExpandedIssues]             = useState<Set<string>>(new Set());
 
   const startStepCycle = () => {
     setStepIndex(0);
@@ -142,10 +437,40 @@ export default function HomePage() {
 
       setResult(data);
       setStatus("success");
+
+      // Auto-run link validation after generation
+      if (data.linksUsed) {
+        runLinkValidation([
+          ...data.linksUsed.internal,
+          ...data.linksUsed.external,
+        ]);
+      }
     } catch (err: unknown) {
       clearInterval(interval);
       setError(err instanceof Error ? err.message : "Something went wrong.");
       setStatus("error");
+    }
+  };
+
+  const runLinkValidation = async (links: Array<{ anchor: string; url: string }>) => {
+    if (!links.length) return;
+    setLinkValidationStatus("checking");
+    setLinkValidation(null);
+    try {
+      const res = await fetch("/api/validate-links", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-secret": process.env.NEXT_PUBLIC_API_SECRET ?? "",
+        },
+        body: JSON.stringify({ links }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Validation failed");
+      setLinkValidation(data.validation);
+      setLinkValidationStatus("done");
+    } catch {
+      setLinkValidationStatus("error");
     }
   };
 
@@ -155,6 +480,8 @@ export default function HomePage() {
     setError("");
     setTopic("");
     setSourceText("");
+    setLinkValidationStatus("idle");
+    setLinkValidation(null);
     setMode("topic_only");
     setStepIndex(0);
     setAudience("");
@@ -471,6 +798,23 @@ export default function HomePage() {
                   </div>
                 )}
               </div>
+
+              {/* Link Validation Panel */}
+              {(linkValidationStatus === "checking" || linkValidationStatus === "done" || linkValidationStatus === "error") && (
+                <LinkValidationPanel
+                  status={linkValidationStatus}
+                  result={linkValidation}
+                  expandedGroup={expandedLinkGroup}
+                  setExpandedGroup={setExpandedLinkGroup}
+                  expandedIssues={expandedIssues}
+                  setExpandedIssues={setExpandedIssues}
+                  onRecheck={() => {
+                    if (result?.linksUsed) {
+                      runLinkValidation([...result.linksUsed.internal, ...result.linksUsed.external]);
+                    }
+                  }}
+                />
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <a href={result.editUrl} target="_blank" rel="noopener noreferrer"
