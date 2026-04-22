@@ -288,7 +288,7 @@ export default function AdminPage() {
 
   // ── Queue actions ──────────────────────────────────────────────
   async function addQueueItem() {
-    if (!newTopic.trim()) return;
+    if (!newTopic.trim() || !newAudience.trim()) return;
     setAdding(true);
     try {
       await fetch("/api/queue", {
@@ -714,13 +714,19 @@ export default function AdminPage() {
               <div className="bg-white rounded-xl ring-1 ring-gray-200 p-6">
                 <SectionHeader title="Add to Queue" />
                 <p className="text-xs text-gray-400 -mt-2 mb-4">Topics added here will be picked up automatically by the scheduler, or you can process them manually.</p>
-                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto] gap-3 items-end">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Topic title</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Topic title <span className="text-red-500">*</span></label>
                     <Input value={newTopic} onChange={(e) => setNewTopic(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && addQueueItem()}
                       placeholder="e.g. How to open a company in DIFC" />
                   </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Target audience <span className="text-red-500">*</span></label>
+                    <Input required value={newAudience} onChange={(e) => setNewAudience(e.target.value)} placeholder="e.g. founders, investors, crypto companies" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-[auto_auto_auto] gap-3 items-end mb-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1.5">Mode</label>
                     <Select value={newMode} onChange={(e) => setNewMode(e.target.value as GenerationMode)}>
@@ -740,27 +746,25 @@ export default function AdminPage() {
                       <option value={1}>1 — Low</option>
                     </Select>
                   </div>
-                  <Btn variant="primary" onClick={addQueueItem} disabled={adding || !newTopic.trim()}>
+                  <Btn variant="primary" onClick={addQueueItem} disabled={adding || !newTopic.trim() || !newAudience.trim()}>
                     {adding ? <><Spinner /> Adding…</> : <>{Icons.plus} Add to queue</>}
                   </Btn>
                 </div>
 
-                {/* Strategy engine inputs */}
-                <div className="mt-3">
+                {/* Strategy engine optional inputs */}
+                <div className="mt-1">
                   <button
                     type="button"
                     onClick={() => setShowStrategyInputs((v) => !v)}
                     className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
                   >
                     <svg className={`w-3 h-3 transition-transform ${showStrategyInputs ? "rotate-90" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-                    Strategy inputs (optional)
+                    Additional strategy inputs (optional)
                   </button>
                   {showStrategyInputs && (
                     <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-4 bg-indigo-50/60 rounded-lg ring-1 ring-indigo-100">
-                      <p className="col-span-full text-xs text-gray-500 -mb-1">These inputs feed the 12-step strategy engine that runs before article generation. All fields are optional.</p>
+                      <p className="col-span-full text-xs text-gray-500 -mb-1">These optional fields shape jurisdiction focus, service emphasis, and output language. Leave blank to let the strategy engine infer from the topic.</p>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Target audience</label>
-                        <Input value={newAudience} onChange={(e) => setNewAudience(e.target.value)} placeholder="e.g. European entrepreneurs" />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1.5">Primary country</label>
