@@ -43,6 +43,8 @@ interface TopicPlan {
   id: string; topic: string; focusKeyword: string; cluster: string;
   intent: string; priority: number; status: TopicPlanStatus; notes: string;
   createdAt: string; queuedAt: string | null;
+  audience?: string; primary_country?: string; secondary_countries?: string;
+  priority_service?: string; language?: string;
 }
 interface PostPerformance {
   postId: string; topic: string; url: string; focusKeyword: string; cluster: string;
@@ -235,7 +237,7 @@ export default function AdminPage() {
   const [newLanguage, setNewLanguage]           = useState("");
 
   const [topics, setTopics]       = useState<TopicPlan[]>([]);
-  const [tForm, setTForm]         = useState({ topic: "", focusKeyword: "", cluster: "", intent: "informational", priority: 3, notes: "" });
+  const [tForm, setTForm]         = useState({ topic: "", focusKeyword: "", cluster: "", intent: "informational", priority: 3, notes: "", audience: "", primary_country: "", secondary_countries: "", priority_service: "", language: "" });
   const [addingTopic, setAddingTopic] = useState(false);
   const [confirmTopicId, setConfirmTopicId] = useState<string | null>(null);
 
@@ -414,7 +416,7 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json", "x-api-secret": secret },
         body: JSON.stringify(tForm),
       });
-      setTForm({ topic: "", focusKeyword: "", cluster: "", intent: "informational", priority: 3, notes: "" });
+      setTForm({ topic: "", focusKeyword: "", cluster: "", intent: "informational", priority: 3, notes: "", audience: "", primary_country: "", secondary_countries: "", priority_service: "", language: "" });
       await fetchTopics(secret);
       showToast("Topic plan created");
     } finally { setAddingTopic(false); }
@@ -986,6 +988,29 @@ export default function AdminPage() {
                     <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
                     <Input value={tForm.notes} onChange={(e) => setTForm({ ...tForm, notes: e.target.value })} placeholder="Optional notes…" />
                   </div>
+                  <div className="sm:col-span-2 pt-1">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Strategy inputs (carried to generation)</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Audience</label>
+                    <Input value={tForm.audience} onChange={(e) => setTForm({ ...tForm, audience: e.target.value })} placeholder="e.g. crypto investors in the UAE" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Primary country</label>
+                    <Input value={tForm.primary_country} onChange={(e) => setTForm({ ...tForm, primary_country: e.target.value })} placeholder="e.g. UAE" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Secondary countries</label>
+                    <Input value={tForm.secondary_countries} onChange={(e) => setTForm({ ...tForm, secondary_countries: e.target.value })} placeholder="e.g. Saudi Arabia, Bahrain" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Priority service</label>
+                    <Input value={tForm.priority_service} onChange={(e) => setTForm({ ...tForm, priority_service: e.target.value })} placeholder="e.g. VARA licence" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Language</label>
+                    <Input value={tForm.language} onChange={(e) => setTForm({ ...tForm, language: e.target.value })} placeholder="e.g. English" />
+                  </div>
                 </div>
                 <div className="mt-4">
                   <Btn variant="primary" onClick={addTopic} disabled={addingTopic || !tForm.topic.trim()}>
@@ -1018,8 +1043,9 @@ export default function AdminPage() {
                       <tbody className="divide-y divide-gray-100">
                         {topics.map((t) => (
                           <tr key={t.id} className={`hover:bg-gray-50/60 ${t.status === "archived" ? "opacity-40" : ""}`}>
-                            <td className="px-4 py-3 max-w-[220px]">
+                            <td className="px-4 py-3 max-w-[240px]">
                               <p className="font-medium text-gray-900 truncate" title={t.topic}>{t.topic}</p>
+                              {t.audience && <p className="text-xs text-indigo-400 mt-0.5 truncate" title={t.audience}>{t.audience}</p>}
                               {t.notes && <p className="text-xs text-gray-400 mt-0.5 truncate">{t.notes}</p>}
                             </td>
                             <td className="px-4 py-3 text-xs text-gray-500">{t.focusKeyword || <span className="text-gray-300">—</span>}</td>

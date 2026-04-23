@@ -50,13 +50,18 @@ export async function POST(req: NextRequest) {
     }
 
     const plan = await addTopicPlan({
-      topic:        body.topic.trim(),
-      focusKeyword: body.focusKeyword?.trim() || "",
-      cluster:      body.cluster?.trim() || "",
-      intent:       body.intent?.trim() || "informational",
-      priority:     typeof body.priority === "number" ? Math.min(5, Math.max(1, body.priority)) : 3,
-      status:       "idea",
-      notes:        body.notes?.trim() || "",
+      topic:              body.topic.trim(),
+      focusKeyword:       body.focusKeyword?.trim() || "",
+      cluster:            body.cluster?.trim() || "",
+      intent:             body.intent?.trim() || "informational",
+      priority:           typeof body.priority === "number" ? Math.min(5, Math.max(1, body.priority)) : 3,
+      status:             "idea",
+      notes:              body.notes?.trim() || "",
+      audience:           body.audience?.trim() || undefined,
+      primary_country:    body.primary_country?.trim() || undefined,
+      secondary_countries: body.secondary_countries?.trim() || undefined,
+      priority_service:   body.priority_service?.trim() || undefined,
+      language:           body.language?.trim() || undefined,
     });
     console.log(`[topics:POST] Added topic ${plan.id}: "${plan.topic}"`);
     return NextResponse.json({ plan }, { status: 201 });
@@ -83,7 +88,13 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: "Topic already queued" }, { status: 409 });
       }
 
-      const queueItem = await addQueueItem(plan.topic, "topic_only", "", plan.priority);
+      const queueItem = await addQueueItem(plan.topic, "topic_only", "", plan.priority, {
+        audience:            plan.audience,
+        primary_country:     plan.primary_country,
+        secondary_countries: plan.secondary_countries,
+        priority_service:    plan.priority_service,
+        language:            plan.language,
+      });
       const updated = await updateTopicPlan(id, {
         status: "queued",
         queuedAt: new Date().toISOString(),
@@ -92,7 +103,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ plan: updated, queueItem });
     }
 
-    const allowed = ["topic", "focusKeyword", "cluster", "intent", "priority", "status", "notes"];
+    const allowed = ["topic", "focusKeyword", "cluster", "intent", "priority", "status", "notes", "audience", "primary_country", "secondary_countries", "priority_service", "language"];
     const safeUpdates = Object.fromEntries(
       Object.entries(updates).filter(([k]) => allowed.includes(k))
     );
