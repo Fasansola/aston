@@ -1359,10 +1359,10 @@ export default function AdminPage() {
                                 <span className="text-gray-300 text-xs">—</span>
                               )}
                             </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center justify-center gap-1">
+                            <td className="px-4 py-3 min-w-[140px]">
+                              <div className="flex flex-col items-center gap-1.5">
                                 {(item.status === "queued" || item.status === "failed" || item.status === "paused") && (
-                                  <Btn variant="primary" size="sm" onClick={async () => {
+                                  <Btn variant="primary" size="sm" className="w-full" onClick={async () => {
                                     if (!confirm(`Publish "${item.title}" now to all configured targets?`)) return;
                                     await fetch("/api/publish-now", {
                                       method: "POST",
@@ -1375,7 +1375,7 @@ export default function AdminPage() {
                                   </Btn>
                                 )}
                                 {(item.status === "queued" || item.status === "failed") && (
-                                  <Btn variant="ghost" size="sm" onClick={async () => {
+                                  <Btn variant="ghost" size="sm" className="w-full" onClick={async () => {
                                     await fetch("/api/publish-queue", {
                                       method: "PATCH",
                                       headers: { "Content-Type": "application/json", "x-api-secret": secret },
@@ -1387,7 +1387,7 @@ export default function AdminPage() {
                                   </Btn>
                                 )}
                                 {item.status === "paused" && (
-                                  <Btn variant="ghost" size="sm" onClick={async () => {
+                                  <Btn variant="ghost" size="sm" className="w-full" onClick={async () => {
                                     await fetch("/api/publish-queue", {
                                       method: "PATCH",
                                       headers: { "Content-Type": "application/json", "x-api-secret": secret },
@@ -1396,7 +1396,7 @@ export default function AdminPage() {
                                     fetchPublishQueue(secret);
                                   }}>Resume</Btn>
                                 )}
-                                <Btn variant="danger" size="sm" onClick={async () => {
+                                <Btn variant="danger" size="sm" className="w-full" onClick={async () => {
                                   if (!confirm("Remove this item from the publish queue?")) return;
                                   await fetch(`/api/publish-queue?id=${item.id}`, {
                                     method: "DELETE",
