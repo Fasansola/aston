@@ -52,6 +52,22 @@ interface PostPerformance {
   classification: PerformanceClass;
 }
 
+type PublishQueueStatus = "queued" | "processing" | "published" | "failed" | "paused";
+interface PublishQueueTarget { target: string; config: Record<string, string>; }
+interface PublishQueueResult { target: string; ok: boolean; status: "passed"|"warning"|"failed"; message: string; externalUrl?: string; }
+interface PublishQueueItem {
+  id: string; title: string; slug: string; excerpt: string; tags: string[];
+  seoTitle: string; metaDescription: string; canonicalUrl?: string;
+  wordCount?: number; wpPostId?: number;
+  status: PublishQueueStatus; targets: PublishQueueTarget[];
+  scheduledFor: string | null; createdAt: string; processedAt: string | null;
+  retryCount: number; lastError: string | null; results: PublishQueueResult[];
+}
+interface PublishQueueStats {
+  total: number; queued: number; processing: number;
+  published: number; failed: number; paused: number;
+}
+
 // ── Status maps ────────────────────────────────────────────────
 
 const Q_STATUS: Record<QueueStatus, { dot: string; badge: string; label: string }> = {
@@ -73,6 +89,13 @@ const TOPIC_STATUS: Record<TopicPlanStatus, string> = {
   approved: "bg-violet-50 text-violet-700 ring-violet-200",
   queued:   "bg-emerald-50 text-emerald-700 ring-emerald-200",
   archived: "bg-gray-50 text-gray-400 ring-gray-100",
+};
+const PQ_STATUS: Record<PublishQueueStatus, { dot: string; badge: string; label: string }> = {
+  queued:     { dot: "bg-blue-400",              badge: "bg-blue-50 text-blue-700 ring-blue-200",     label: "Scheduled" },
+  processing: { dot: "bg-amber-400 animate-pulse", badge: "bg-amber-50 text-amber-700 ring-amber-200", label: "Publishing" },
+  published:  { dot: "bg-emerald-400",           badge: "bg-emerald-50 text-emerald-700 ring-emerald-200", label: "Published" },
+  failed:     { dot: "bg-red-400",               badge: "bg-red-50 text-red-700 ring-red-200",        label: "Failed" },
+  paused:     { dot: "bg-gray-300",              badge: "bg-gray-50 text-gray-600 ring-gray-200",     label: "Paused" },
 };
 const PERF_STATUS: Record<PerformanceClass, { badge: string; label: string }> = {
   high:    { badge: "bg-emerald-50 text-emerald-700 ring-emerald-200", label: "High" },
@@ -179,11 +202,12 @@ const Icons = {
   edit:      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
   plus:      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>,
   arrowRight:<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>,
+  publish:   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" /></svg>,
 };
 
 // ── Main component ─────────────────────────────────────────────
 
-type Tab = "dashboard" | "queue" | "topics" | "links" | "performance";
+type Tab = "dashboard" | "queue" | "topics" | "links" | "performance" | "publish_queue";
 
 export default function AdminPage() {
   const [secret, setSecret]   = useState("");
@@ -224,6 +248,10 @@ export default function AdminPage() {
   const [perfRecords, setPerfRecords] = useState<PostPerformance[]>([]);
   const [syncing, setSyncing]     = useState(false);
   const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const [publishQueue, setPublishQueue]           = useState<PublishQueueItem[]>([]);
+  const [publishQueueStats, setPublishQueueStats] = useState<PublishQueueStats | null>(null);
+  const [pqLoading, setPqLoading]                 = useState(false);
 
   const [toast, setToast]         = useState<{ msg: string; ok: boolean } | null>(null);
 
@@ -271,11 +299,32 @@ export default function AdminPage() {
     setPerfRecords(data.records ?? []);
   }, []);
 
+  const fetchPublishQueue = useCallback(async (s: string) => {
+    try {
+      const res  = await fetch(`/api/publish-queue?secret=${encodeURIComponent(s)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setPublishQueue(data.items ?? []);
+      setPublishQueueStats(data.stats ?? null);
+    } catch {
+      // silently skip — does not block the rest of the admin
+    }
+  }, []);
+
   const fetchAll = useCallback(async (s: string) => {
     setLoading(true);
-    try { await Promise.all([fetchDashboard(s), fetchTopics(s), fetchLinks(s), fetchPerformance(s)]); }
-    finally { setLoading(false); }
-  }, [fetchDashboard, fetchTopics, fetchLinks, fetchPerformance]);
+    try {
+      await Promise.all([
+        fetchDashboard(s),
+        fetchTopics(s).catch(console.error),
+        fetchLinks(s).catch(console.error),
+        fetchPerformance(s).catch(console.error),
+        fetchPublishQueue(s),
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchDashboard, fetchTopics, fetchLinks, fetchPerformance, fetchPublishQueue]);
 
   const handleLogin = () => {
     if (!secret.trim()) return;
@@ -285,6 +334,13 @@ export default function AdminPage() {
   };
 
   useEffect(() => { if (authed && secret) fetchAll(secret); }, [authed, secret, fetchAll]);
+
+  // Refresh publish queue data each time the user switches to that tab
+  useEffect(() => {
+    if (tab === "publish_queue" && authed && secret) {
+      fetchPublishQueue(secret);
+    }
+  }, [tab, authed, secret, fetchPublishQueue]);
 
   // ── Queue actions ──────────────────────────────────────────────
   async function addQueueItem() {
@@ -494,11 +550,12 @@ export default function AdminPage() {
 
   // ── App shell ──────────────────────────────────────────────────
   const navItems: { id: Tab; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { id: "dashboard",   label: "Dashboard",   icon: Icons.dashboard },
-    { id: "queue",       label: "Queue",       icon: Icons.queue,  badge: stats?.queued },
-    { id: "topics",      label: "Topics",      icon: Icons.topics, badge: topics.filter(x => x.status !== "archived").length || undefined },
-    { id: "links",       label: "Links",       icon: Icons.links,  badge: links.filter(x => x.status === "active").length || undefined },
-    { id: "performance", label: "Performance", icon: Icons.perf,   badge: perfRecords.length || undefined },
+    { id: "dashboard",    label: "Dashboard",    icon: Icons.dashboard },
+    { id: "queue",        label: "Gen Queue",    icon: Icons.queue,   badge: stats?.queued },
+    { id: "publish_queue",label: "Publish Queue",icon: Icons.publish, badge: publishQueueStats?.queued || undefined },
+    { id: "topics",       label: "Topics",       icon: Icons.topics,  badge: topics.filter(x => x.status !== "archived").length || undefined },
+    { id: "links",        label: "Links",        icon: Icons.links,   badge: links.filter(x => x.status === "active").length || undefined },
+    { id: "performance",  label: "Performance",  icon: Icons.perf,    badge: perfRecords.length || undefined },
   ];
 
   return (
@@ -1155,6 +1212,159 @@ export default function AdminPage() {
                                 ) : (
                                   <Btn variant="ghost" size="sm" onClick={() => setConfirmLinkId(l.id)}>{Icons.trash}</Btn>
                                 )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* ══ PUBLISH QUEUE ════════════════════════════════════ */}
+          {tab === "publish_queue" && (
+            <>
+              {/* Stats */}
+              {publishQueueStats && (
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                  {[
+                    { label: "Total",      value: publishQueueStats.total,      color: "text-gray-900" },
+                    { label: "Scheduled",  value: publishQueueStats.queued,     color: "text-blue-600" },
+                    { label: "Publishing", value: publishQueueStats.processing,  color: "text-amber-600" },
+                    { label: "Published",  value: publishQueueStats.published,  color: "text-emerald-600" },
+                    { label: "Failed",     value: publishQueueStats.failed,     color: "text-red-500" },
+                    { label: "Paused",     value: publishQueueStats.paused,     color: "text-gray-400" },
+                  ].map(s => (
+                    <div key={s.label} className="bg-white rounded-xl ring-1 ring-gray-200 p-4 text-center">
+                      <p className={`text-2xl font-bold tabular-nums ${s.color}`}>{s.value}</p>
+                      <p className="text-xs text-gray-500 mt-1">{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Info card */}
+              <div className="bg-white rounded-xl ring-1 ring-gray-200 p-6">
+                <SectionHeader title="Publish Queue" action={
+                  <Btn variant="secondary" size="sm" onClick={() => { setPqLoading(true); fetchPublishQueue(secret).finally(() => setPqLoading(false)); }} disabled={pqLoading}>
+                    {pqLoading ? <Spinner /> : Icons.refresh} Refresh
+                  </Btn>
+                } />
+                <p className="text-xs text-gray-400 -mt-2">
+                  Articles queued here are automatically dispatched to their publishing targets by the hourly cron (<code className="text-gray-500">0 * * * *</code>). Items without a scheduled time publish on the next cron run.
+                </p>
+              </div>
+
+              {/* Table */}
+              <div className="bg-white rounded-xl ring-1 ring-gray-200 overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-base font-semibold text-gray-900">Queued items</h2>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {publishQueue.length} item{publishQueue.length !== 1 ? "s" : ""} ·{" "}
+                      {publishQueueStats?.queued ?? 0} awaiting dispatch
+                    </p>
+                  </div>
+                </div>
+
+                {publishQueue.length === 0 ? (
+                  <EmptyState
+                    icon={<svg className="w-12 h-12" fill="none" stroke="currentColor" strokeWidth={1} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" /></svg>}
+                    title="Publish queue is empty"
+                    body="Use the Blog Generator page to generate an article and then choose 'Queue for publishing' to schedule it for external platforms."
+                  />
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50/80 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                        <tr>
+                          <th className="px-4 py-3 text-left">Article</th>
+                          <th className="px-4 py-3 text-left">Targets</th>
+                          <th className="px-4 py-3 text-center">Status</th>
+                          <th className="px-4 py-3 text-left">Scheduled for</th>
+                          <th className="px-4 py-3 text-left">Created</th>
+                          <th className="px-4 py-3 text-left">Result</th>
+                          <th className="px-4 py-3 text-center">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {publishQueue.map((item) => (
+                          <tr key={item.id} className="hover:bg-gray-50/60">
+                            <td className="px-4 py-3 max-w-[200px]">
+                              <p className="font-medium text-gray-900 truncate text-sm" title={item.title}>{item.title}</p>
+                              {item.wpPostId && <p className="text-xs text-gray-400 mt-0.5">WP #{item.wpPostId}</p>}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex flex-wrap gap-1">
+                                {item.targets.map((t) => (
+                                  <Badge key={t.target} className="bg-gray-100 text-gray-600 ring-gray-200 capitalize">{t.target}</Badge>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <span className={`w-1.5 h-1.5 rounded-full ${PQ_STATUS[item.status].dot}`} />
+                                <Badge className={PQ_STATUS[item.status].badge}>{PQ_STATUS[item.status].label}</Badge>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-500">
+                              {item.scheduledFor ? fmt(item.scheduledFor) : <span className="text-blue-500 font-medium">ASAP</span>}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-gray-400">{fmt(item.createdAt)}</td>
+                            <td className="px-4 py-3 max-w-[180px]">
+                              {item.results.length > 0 ? (
+                                <div className="space-y-0.5">
+                                  {item.results.map((r) => (
+                                    <div key={r.target} className="flex items-center gap-1.5">
+                                      <span className={`w-1.5 h-1.5 rounded-full ${r.ok ? "bg-emerald-400" : "bg-red-400"} shrink-0`} />
+                                      <span className="text-xs text-gray-500 capitalize">{r.target}</span>
+                                      {r.externalUrl && (
+                                        <a href={r.externalUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-indigo-500 hover:underline">↗</a>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : item.lastError ? (
+                                <p className="text-xs text-red-500 truncate" title={item.lastError}>{item.lastError}</p>
+                              ) : (
+                                <span className="text-gray-300 text-xs">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-center gap-1">
+                                {(item.status === "queued" || item.status === "failed") && (
+                                  <Btn variant="ghost" size="sm" onClick={async () => {
+                                    await fetch("/api/publish-queue", {
+                                      method: "PATCH",
+                                      headers: { "Content-Type": "application/json", "x-api-secret": secret },
+                                      body: JSON.stringify({ id: item.id, status: item.status === "paused" ? "queued" : "paused" }),
+                                    });
+                                    fetchPublishQueue(secret);
+                                  }}>
+                                    {item.status === "failed" ? "Retry" : "Pause"}
+                                  </Btn>
+                                )}
+                                {item.status === "paused" && (
+                                  <Btn variant="ghost" size="sm" onClick={async () => {
+                                    await fetch("/api/publish-queue", {
+                                      method: "PATCH",
+                                      headers: { "Content-Type": "application/json", "x-api-secret": secret },
+                                      body: JSON.stringify({ id: item.id, status: "queued" }),
+                                    });
+                                    fetchPublishQueue(secret);
+                                  }}>Resume</Btn>
+                                )}
+                                <Btn variant="danger" size="sm" onClick={async () => {
+                                  if (!confirm("Remove this item from the publish queue?")) return;
+                                  await fetch(`/api/publish-queue?id=${item.id}`, {
+                                    method: "DELETE",
+                                    headers: { "x-api-secret": secret },
+                                  });
+                                  fetchPublishQueue(secret);
+                                }}>{Icons.trash}</Btn>
                               </div>
                             </td>
                           </tr>

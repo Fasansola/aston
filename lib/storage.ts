@@ -101,14 +101,54 @@ export interface TopicPlan {
   queuedAt: string | null;
 }
 
+// ── Publish Queue types ────────────────────────────────────────
+
+export type PublishQueueStatus = "queued" | "processing" | "published" | "failed" | "paused";
+
+export interface PublishQueueTarget {
+  target: string;
+  config: Record<string, string>;
+}
+
+export interface PublishQueueResult {
+  target: string;
+  ok: boolean;
+  status: "passed" | "warning" | "failed";
+  message: string;
+  externalUrl?: string;
+}
+
+export interface PublishQueueItem {
+  id: string;
+  title: string;
+  slug: string;
+  articleHtml: string;
+  excerpt: string;
+  tags: string[];
+  seoTitle: string;
+  metaDescription: string;
+  canonicalUrl?: string;
+  wordCount?: number;
+  wpPostId?: number;
+  status: PublishQueueStatus;
+  targets: PublishQueueTarget[];
+  scheduledFor: string | null; // ISO — null = publish ASAP
+  createdAt: string;
+  processedAt: string | null;
+  retryCount: number;
+  lastError: string | null;
+  results: PublishQueueResult[];
+}
+
 // ── Redis keys ────────────────────────────────────────────────
 
 const KEYS = {
-  queue:    "aston:queue",
-  settings: "aston:scheduler:settings",
-  runs:     "aston:runs",
-  links:    "aston:links",
-  topics:   "aston:topics",
+  queue:        "aston:queue",
+  settings:     "aston:scheduler:settings",
+  runs:         "aston:runs",
+  links:        "aston:links",
+  topics:       "aston:topics",
+  publishQueue: "aston:publish_queue",
 } as const;
 
 const DEFAULT_SETTINGS: SchedulerSettings = {
@@ -399,6 +439,65 @@ export async function deleteLink(id: string): Promise<boolean> {
   if (next.length === links.length) return false;
   await saveLinks(next);
   return true;
+}
+
+// ── Publish Queue ─────────────────────────────────────────────
+
+export async function getPublishQueue(): Promise<PublishQueueItem[]> {
+  return kget<PublishQueueItem[]>(KEYS.publishQueue, []);
+}
+
+export async function savePublishQueue(items: PublishQueueItem[]): Promise<void> {
+  return kset(KEYS.publishQueue, items);
+}
+
+export async function addPublishQueueItem(
+  data: Omit<PublishQueueItem, "id" | "createdAt" | "processedAt" | "retryCount" | "lastError" | "results" | "status">
+): Promise<PublishQueueItem> {
+  const item: PublishQueueItem = {
+    ...data,
+    id: `pq_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    status: "queued",
+    createdAt: new Date().toISOString(),
+    processedAt: null,
+    retryCount: 0,
+    lastError: null,
+    results: [],
+  };
+  const queue = await getPublishQueue();
+  queue.push(item);
+  await savePublishQueue(queue);
+  return item;
+}
+
+export async function updatePublishQueueItem(
+  id: string,
+  updates: Partial<PublishQueueItem>
+): Promise<PublishQueueItem | null> {
+  const queue = await getPublishQueue();
+  const idx = queue.findIndex((i) => i.id === id);
+  if (idx === -1) return null;
+  queue[idx] = { ...queue[idx], ...updates };
+  await savePublishQueue(queue);
+  return queue[idx];
+}
+
+export async function deletePublishQueueItem(id: string): Promise<boolean> {
+  const queue = await getPublishQueue();
+  const next = queue.filter((i) => i.id !== id);
+  if (next.length === queue.length) return false;
+  await savePublishQueue(next);
+  return true;
+}
+
+/** Returns items that are due (scheduled now or overdue) — highest priority first. */
+export async function getDuePublishItems(limit = 5): Promise<PublishQueueItem[]> {
+  const now = new Date().toISOString();
+  const queue = await getPublishQueue();
+  return queue
+    .filter((i) => i.status === "queued" && (i.scheduledFor === null || i.scheduledFor <= now))
+    .sort((a, b) => (a.scheduledFor ?? "").localeCompare(b.scheduledFor ?? "") || a.createdAt.localeCompare(b.createdAt))
+    .slice(0, limit);
 }
 
 // ── Topic Planner ─────────────────────────────────────────────
