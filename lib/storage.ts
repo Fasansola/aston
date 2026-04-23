@@ -99,6 +99,12 @@ export interface TopicPlan {
   notes: string;
   createdAt: string;
   queuedAt: string | null;
+  // Strategy engine inputs (carried through to queue item on push)
+  audience?: string;
+  primary_country?: string;
+  secondary_countries?: string;
+  priority_service?: string;
+  language?: string;
 }
 
 // ── Publish Queue types ────────────────────────────────────────
