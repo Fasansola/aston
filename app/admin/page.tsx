@@ -1361,12 +1361,25 @@ export default function AdminPage() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-center gap-1">
+                                {(item.status === "queued" || item.status === "failed" || item.status === "paused") && (
+                                  <Btn variant="primary" size="sm" onClick={async () => {
+                                    if (!confirm(`Publish "${item.title}" now to all configured targets?`)) return;
+                                    await fetch("/api/publish-now", {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json", "x-api-secret": secret },
+                                      body: JSON.stringify({ id: item.id }),
+                                    });
+                                    fetchPublishQueue(secret);
+                                  }}>
+                                    {Icons.publish} Publish now
+                                  </Btn>
+                                )}
                                 {(item.status === "queued" || item.status === "failed") && (
                                   <Btn variant="ghost" size="sm" onClick={async () => {
                                     await fetch("/api/publish-queue", {
                                       method: "PATCH",
                                       headers: { "Content-Type": "application/json", "x-api-secret": secret },
-                                      body: JSON.stringify({ id: item.id, status: item.status === "paused" ? "queued" : "paused" }),
+                                      body: JSON.stringify({ id: item.id, status: item.status === "failed" ? "queued" : "paused" }),
                                     });
                                     fetchPublishQueue(secret);
                                   }}>
