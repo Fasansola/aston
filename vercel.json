@@ -1,20 +1,12 @@
 {
   "functions": {
-    "app/api/generate/route.ts": {
-      "maxDuration": 300
-    },
-    "app/api/cron/route.ts": {
-      "maxDuration": 300
-    }
+    "app/api/generate/route.ts":      { "maxDuration": 300 },
+    "app/api/cron/route.ts":          { "maxDuration": 300 },
+    "app/api/cron-publish/route.ts":  { "maxDuration": 60 }
   },
   "crons": [
-    {
-      "path": "/api/cron",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/cron-performance",
-      "schedule": "0 3 * * 1"
-    }
+    { "path": "/api/cron",             "schedule": "0 8 * * *"  },
+    { "path": "/api/cron-performance", "schedule": "0 3 * * 1"  },
+    { "path": "/api/cron-publish",     "schedule": "0 * * * *"  }
   ]
 }

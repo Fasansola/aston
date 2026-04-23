@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { LinkValidationResult, LinkIssue } from "@/lib/linkValidator";
+import type { ReadinessResult, ReadinessSubscore, ReadinessIssue } from "@/lib/readinessValidator";
 
 type Status = "idle" | "loading" | "success" | "error";
 type LinkValidationStatus = "idle" | "checking" | "done" | "error";
@@ -58,6 +59,8 @@ interface GenerateResult {
   articleHtml?: string;
   excerpt?: string;
   tags?: string[];
+  metaDescription?: string;
+  language?: string | null;
   editUrl: string;
   previewUrl: string;
 }
@@ -384,6 +387,233 @@ function LinkValidationPanel({
   );
 }
 
+// ── Readiness Panel ───────────────────────────────────────────
+
+const SUBSCORE_ORDER = ["search_basics", "content_quality", "ai_readiness", "bing_discoverability", "editorial_compliance"];
+
+function ReadinessScoreRing({ score, status }: { score: number; status: ReadinessSubscore["status"] }) {
+  const color = status === "passed" ? "#10b981" : status === "warning" ? "#f59e0b" : "#ef4444";
+  const r = 18;
+  const circ = 2 * Math.PI * r;
+  const dash = (score / 100) * circ;
+  return (
+    <svg width="44" height="44" viewBox="0 0 44 44" className="shrink-0">
+      <circle cx="22" cy="22" r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="3" />
+      <circle
+        cx="22" cy="22" r={r} fill="none"
+        stroke={color} strokeWidth="3"
+        strokeDasharray={`${dash} ${circ - dash}`}
+        strokeLinecap="round"
+        transform="rotate(-90 22 22)"
+      />
+      <text x="22" y="26" textAnchor="middle" fontSize="10" fontWeight="600" fill={color}>{score}</text>
+    </svg>
+  );
+}
+
+function ReadinessIssueItem({ issue }: { issue: ReadinessIssue }) {
+  const color = issue.severity === "failed" ? "text-red-400" : issue.severity === "warning" ? "text-amber-400" : "text-emerald-400";
+  const dot   = issue.severity === "failed" ? "bg-red-400" : issue.severity === "warning" ? "bg-amber-400" : "bg-emerald-400";
+  return (
+    <div className="flex gap-2.5 py-1.5">
+      <div className={`w-1 h-1 rounded-full ${dot} mt-1.5 shrink-0`} />
+      <div className="flex-1 min-w-0">
+        <p className={`text-xs ${color}`}>{issue.message}</p>
+        {issue.suggestedFix && (
+          <p className="text-[10px] text-white/30 mt-0.5">{issue.suggestedFix}</p>
+        )}
+      </div>
+      {issue.blocking && (
+        <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 border border-red-500/20 shrink-0 self-start mt-0.5 uppercase tracking-wide">
+          blocking
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ReadinessSubscoreRow({
+  subscore,
+  expanded,
+  onToggle,
+}: {
+  subscore: ReadinessSubscore;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const statusColor = subscore.status === "passed" ? "text-emerald-400" : subscore.status === "warning" ? "text-amber-400" : "text-red-400";
+  return (
+    <div>
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 py-2.5 group text-left hover:bg-white/[0.02] -mx-1 px-1 rounded transition-colors"
+      >
+        <ReadinessScoreRing score={subscore.score} status={subscore.status} />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-white/70 group-hover:text-white/90 transition-colors">{subscore.label}</p>
+          <p className={`text-[10px] mt-0.5 ${statusColor}`}>{subscore.message}</p>
+        </div>
+        <svg
+          className={`w-3 h-3 text-white/20 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
+          fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {expanded && subscore.issues.length > 0 && (
+        <div className="pl-14 pr-1 pb-2 divide-y divide-white/[0.04]">
+          {subscore.issues.map((issue) => (
+            <ReadinessIssueItem key={issue.id} issue={issue} />
+          ))}
+        </div>
+      )}
+      {expanded && subscore.issues.length === 0 && (
+        <div className="pl-14 pb-2">
+          <p className="text-[10px] text-white/25">No issues found</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReadinessPanel({
+  status,
+  result,
+  onAutoFix,
+  isAutoFixing,
+  appliedFixes,
+}: {
+  status: "idle" | "checking" | "done" | "error";
+  result: ReadinessResult | null;
+  onAutoFix: () => void;
+  isAutoFixing: boolean;
+  appliedFixes: string[];
+}) {
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+
+  if (status === "idle") return null;
+
+  if (status === "checking") {
+    return (
+      <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-4">
+        <div className="flex items-center gap-2.5">
+          <svg className="w-4 h-4 text-[#C9A84C] animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <p className="text-sm text-white/50">Running readiness checks…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div className="rounded-lg border border-red-500/20 bg-red-500/[0.03] px-4 py-3">
+        <p className="text-xs text-red-400">Readiness check failed — skipped</p>
+      </div>
+    );
+  }
+
+  if (!result) return null;
+
+  const publishStateCfg =
+    result.publishState === "ready"
+      ? { label: "Ready to publish", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" }
+      : result.publishState === "ready_with_warnings"
+      ? { label: "Ready with warnings", color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20" }
+      : { label: "Blocked — fix issues before publishing", color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" };
+
+  const hasAutoFixes = result.subscores.some((s) => s.autoFixAvailable);
+  const orderedSubscores = SUBSCORE_ORDER.map((k) => result.subscores.find((s) => s.key === k)).filter(Boolean) as ReadinessSubscore[];
+
+  return (
+    <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+      {/* Header */}
+      <div className={`px-4 py-3 border-b ${publishStateCfg.bg} border-b-white/[0.05] flex items-center justify-between`}>
+        <div className="flex items-center gap-3">
+          <div>
+            <p className={`text-xs font-medium ${publishStateCfg.color}`}>Search & AI Readiness</p>
+            <p className={`text-[10px] mt-0.5 ${publishStateCfg.color} opacity-80`}>{publishStateCfg.label}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="text-right">
+            <p className={`text-xl font-light ${publishStateCfg.color}`}>{result.overallScore}</p>
+            <p className="text-[9px] text-white/25 uppercase tracking-wide">/ 100</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Summary chips */}
+      <div className="px-4 py-2.5 flex items-center gap-3 border-b border-white/[0.05]">
+        {result.blockingErrors > 0 && (
+          <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/15 text-red-400 border border-red-500/20">
+            {result.blockingErrors} blocking
+          </span>
+        )}
+        {result.warnings > 0 && (
+          <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20">
+            {result.warnings} warning{result.warnings > 1 ? "s" : ""}
+          </span>
+        )}
+        {result.blockingErrors === 0 && result.warnings === 0 && (
+          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+            All checks passed
+          </span>
+        )}
+        {hasAutoFixes && appliedFixes.length === 0 && (
+          <button
+            onClick={onAutoFix}
+            disabled={isAutoFixing}
+            className="ml-auto text-[11px] px-3 py-1 rounded border border-[#C9A84C]/30 text-[#C9A84C]/80 hover:text-[#C9A84C] hover:border-[#C9A84C]/60 disabled:opacity-40 transition-colors flex items-center gap-1.5"
+          >
+            {isAutoFixing ? (
+              <>
+                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Applying…
+              </>
+            ) : (
+              <>
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                Auto-fix
+              </>
+            )}
+          </button>
+        )}
+      </div>
+
+      {/* Applied fixes notice */}
+      {appliedFixes.length > 0 && (
+        <div className="px-4 py-2.5 border-b border-white/[0.05] bg-emerald-500/[0.04]">
+          <p className="text-[10px] text-emerald-400 font-medium mb-1">Auto-fixes applied:</p>
+          {appliedFixes.map((fix, i) => (
+            <p key={i} className="text-[10px] text-emerald-400/60">· {fix}</p>
+          ))}
+        </div>
+      )}
+
+      {/* Subscores */}
+      <div className="px-4 py-1 divide-y divide-white/[0.04]">
+        {orderedSubscores.map((subscore) => (
+          <ReadinessSubscoreRow
+            key={subscore.key}
+            subscore={subscore}
+            expanded={expandedKey === subscore.key}
+            onToggle={() => setExpandedKey(expandedKey === subscore.key ? null : subscore.key)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [topic, setTopic]           = useState("");
   const [mode, setMode]             = useState<GenerationMode>("topic_only");
@@ -406,6 +636,17 @@ export default function HomePage() {
   const [linkValidation, setLinkValidation]             = useState<LinkValidationResult | null>(null);
   const [expandedLinkGroup, setExpandedLinkGroup]       = useState<"internal" | "external" | null>(null);
   const [expandedIssues, setExpandedIssues]             = useState<Set<string>>(new Set());
+
+  // Readiness validator
+  const [readinessStatus, setReadinessStatus] = useState<"idle" | "checking" | "done" | "error">("idle");
+  const [readinessResult, setReadinessResult] = useState<ReadinessResult | null>(null);
+  const [isAutoFixing, setIsAutoFixing]       = useState(false);
+  const [appliedFixes, setAppliedFixes]       = useState<string[]>([]);
+
+  // Publish queue scheduling
+  const [showQueuePublish, setShowQueuePublish]       = useState(false);
+  const [queueScheduledFor, setQueueScheduledFor]     = useState("");
+  const [queuePublishStatus, setQueuePublishStatus]   = useState<"idle" | "adding" | "added" | "error">("idle");
 
   // Publishing targets
   const [showPublishingTargets, setShowPublishingTargets] = useState(false);
@@ -471,17 +712,53 @@ export default function HomePage() {
       setResult(data);
       setStatus("success");
 
-      // Auto-run link validation after generation
+      // Auto-run link validation after generation (which then triggers readiness check)
       if (data.linksUsed) {
         runLinkValidation([
           ...data.linksUsed.internal,
           ...data.linksUsed.external,
-        ]);
+        ], data);
       }
     } catch (err: unknown) {
       clearInterval(interval);
       setError(err instanceof Error ? err.message : "Something went wrong.");
       setStatus("error");
+    }
+  };
+
+  const handleQueuePublish = async () => {
+    if (!result?.articleHtml || queuePublishStatus === "adding") return;
+    const selectedTargets = Object.entries(publishingTargets)
+      .filter(([, v]) => v.enabled)
+      .map(([target, v]) => ({ target, config: v.config }));
+    if (selectedTargets.length === 0) return;
+
+    setQueuePublishStatus("adding");
+    try {
+      const res = await fetch("/api/publish-queue", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-secret": process.env.NEXT_PUBLIC_API_SECRET ?? "",
+        },
+        body: JSON.stringify({
+          title:           result.title,
+          slug:            result.slug,
+          articleHtml:     result.articleHtml,
+          excerpt:         result.excerpt ?? "",
+          tags:            result.tags ?? [],
+          seoTitle:        result.seoTitle,
+          metaDescription: result.metaDescription ?? "",
+          canonicalUrl:    result.previewUrl ?? undefined,
+          wordCount:       result.wordCount,
+          targets:         selectedTargets,
+          scheduledFor:    queueScheduledFor ? new Date(queueScheduledFor).toISOString() : null,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to queue");
+      setQueuePublishStatus("added");
+    } catch {
+      setQueuePublishStatus("error");
     }
   };
 
@@ -520,7 +797,73 @@ export default function HomePage() {
     }
   };
 
-  const runLinkValidation = async (links: Array<{ anchor: string; url: string }>) => {
+  const runReadinessCheck = async (
+    currentResult: GenerateResult,
+    hasLinkFailures: boolean,
+  ) => {
+    if (!currentResult.articleHtml) return;
+    setReadinessStatus("checking");
+    setReadinessResult(null);
+    try {
+      const res = await fetch("/api/validate-readiness", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-secret": process.env.NEXT_PUBLIC_API_SECRET ?? "",
+        },
+        body: JSON.stringify({
+          title:                   currentResult.title,
+          seoTitle:                currentResult.seoTitle,
+          metaDescription:         currentResult.metaDescription ?? "",
+          slug:                    currentResult.slug,
+          focusKeyword:            currentResult.focusKeyword,
+          articleHtml:             currentResult.articleHtml,
+          wordCount:               currentResult.wordCount,
+          language:                currentResult.language ?? null,
+          internalLinksCount:      currentResult.linksUsed.internal.length,
+          externalLinksCount:      currentResult.linksUsed.external.length,
+          hasLinkValidationFailures: hasLinkFailures,
+          qaWarnings:              currentResult.qa.warnings,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Readiness check failed");
+      setReadinessResult(data.result);
+      setReadinessStatus("done");
+    } catch {
+      setReadinessStatus("error");
+    }
+  };
+
+  const handleAutoFix = async () => {
+    if (!result?.articleHtml || isAutoFixing) return;
+    setIsAutoFixing(true);
+    try {
+      const res = await fetch("/api/autofix", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-secret": process.env.NEXT_PUBLIC_API_SECRET ?? "",
+        },
+        body: JSON.stringify({ html: result.articleHtml, language: result.language }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Auto-fix failed");
+      // Update result with fixed HTML and re-run readiness
+      const updatedResult = { ...result, articleHtml: data.html };
+      setResult(updatedResult);
+      setAppliedFixes(data.appliedFixes ?? []);
+      // Re-run readiness with fixed HTML
+      const hasLinkFailures = linkValidation ? !linkValidation.canPublish : false;
+      await runReadinessCheck(updatedResult, hasLinkFailures);
+    } catch {
+      // silently fail — user can retry
+    } finally {
+      setIsAutoFixing(false);
+    }
+  };
+
+  const runLinkValidation = async (links: Array<{ anchor: string; url: string }>, currentResult?: GenerateResult) => {
     if (!links.length) return;
     setLinkValidationStatus("checking");
     setLinkValidation(null);
@@ -537,6 +880,12 @@ export default function HomePage() {
       if (!res.ok) throw new Error(data.error || "Validation failed");
       setLinkValidation(data.validation);
       setLinkValidationStatus("done");
+      // Auto-trigger readiness check after link validation
+      const r = currentResult ?? result;
+      if (r) {
+        const hasLinkFailures = !data.validation?.canPublish;
+        runReadinessCheck(r, hasLinkFailures);
+      }
     } catch {
       setLinkValidationStatus("error");
     }
@@ -550,6 +899,12 @@ export default function HomePage() {
     setSourceText("");
     setLinkValidationStatus("idle");
     setLinkValidation(null);
+    setReadinessStatus("idle");
+    setReadinessResult(null);
+    setAppliedFixes([]);
+    setShowQueuePublish(false);
+    setQueueScheduledFor("");
+    setQueuePublishStatus("idle");
     setPublishStatus("idle");
     setPublishResults([]);
     setMode("topic_only");
@@ -1085,9 +1440,20 @@ export default function HomePage() {
                   setExpandedIssues={setExpandedIssues}
                   onRecheck={() => {
                     if (result?.linksUsed) {
-                      runLinkValidation([...result.linksUsed.internal, ...result.linksUsed.external]);
+                      runLinkValidation([...result.linksUsed.internal, ...result.linksUsed.external], result);
                     }
                   }}
+                />
+              )}
+
+              {/* Readiness Scorecard */}
+              {(readinessStatus !== "idle") && (
+                <ReadinessPanel
+                  status={readinessStatus}
+                  result={readinessResult}
+                  onAutoFix={handleAutoFix}
+                  isAutoFixing={isAutoFixing}
+                  appliedFixes={appliedFixes}
                 />
               )}
 
@@ -1141,6 +1507,83 @@ export default function HomePage() {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Queue for publishing */}
+              {Object.values(publishingTargets).some((t) => t.enabled) && (
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+                  <button
+                    onClick={() => setShowQueuePublish((v) => !v)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.03] transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <svg className="w-3.5 h-3.5 text-white/40" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <p className="text-xs font-medium text-white/60">Queue for scheduled publishing</p>
+                    </div>
+                    <svg className={`w-3 h-3 text-white/20 transition-transform ${showQueuePublish ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {showQueuePublish && (
+                    <div className="px-4 pb-4 pt-1 border-t border-white/[0.05] space-y-3">
+                      {queuePublishStatus === "added" ? (
+                        <div className="flex items-center gap-2.5 py-2">
+                          <div className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
+                            <svg className="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          </div>
+                          <p className="text-xs text-emerald-400">
+                            Added to publish queue — the hourly cron will dispatch it{queueScheduledFor ? ` after ${new Date(queueScheduledFor).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : " on the next run"}.
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="text-[10px] text-white/25 leading-relaxed">
+                            The article will be dispatched to the {Object.values(publishingTargets).filter(t => t.enabled).length} selected target{Object.values(publishingTargets).filter(t => t.enabled).length > 1 ? "s" : ""} by the hourly cron. Leave the time blank to publish on the next run.
+                          </p>
+                          <div>
+                            <label className="block text-[10px] text-white/30 mb-1.5">Publish after (optional)</label>
+                            <input
+                              type="datetime-local"
+                              value={queueScheduledFor}
+                              onChange={(e) => setQueueScheduledFor(e.target.value)}
+                              className="bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40 transition-colors w-full sm:w-auto"
+                            />
+                          </div>
+                          {queuePublishStatus === "error" && (
+                            <p className="text-xs text-red-400">Failed to add to queue — please try again.</p>
+                          )}
+                          <button
+                            onClick={handleQueuePublish}
+                            disabled={queuePublishStatus === "adding"}
+                            className="flex items-center gap-2 text-[11px] px-3 py-1.5 rounded border border-[#C9A84C]/30 text-[#C9A84C]/80 hover:text-[#C9A84C] hover:border-[#C9A84C]/60 disabled:opacity-40 transition-colors"
+                          >
+                            {queuePublishStatus === "adding" ? (
+                              <>
+                                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                </svg>
+                                Adding…
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                Add to publish queue
+                              </>
+                            )}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

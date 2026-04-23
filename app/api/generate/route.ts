@@ -262,8 +262,10 @@ export async function POST(req: NextRequest) {
         external: content.external_links_used,
       },
       articleHtml,
-      excerpt: content.excerpt,
-      tags: content.secondary_keywords ?? [],
+      excerpt:         content.excerpt,
+      metaDescription: content.meta_description,
+      tags:            content.secondary_keywords ?? [],
+      language:        language || null,
       editUrl:    `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
       previewUrl: post.link ?? null,
     });
