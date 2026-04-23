@@ -335,6 +335,13 @@ export default function AdminPage() {
 
   useEffect(() => { if (authed && secret) fetchAll(secret); }, [authed, secret, fetchAll]);
 
+  // Refresh publish queue data each time the user switches to that tab
+  useEffect(() => {
+    if (tab === "publish_queue" && authed && secret) {
+      fetchPublishQueue(secret);
+    }
+  }, [tab, authed, secret, fetchPublishQueue]);
+
   // ── Queue actions ──────────────────────────────────────────────
   async function addQueueItem() {
     if (!newTopic.trim() || !newAudience.trim()) return;
