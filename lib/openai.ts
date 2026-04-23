@@ -380,7 +380,7 @@ Short, punchy advice from more_content_4. Max 2 sentences. No em dashes. Differe
 
 key_takeaways:
 HTML <ul><li> list of 4 to 6 items. This section appears directly after the title — before the introduction. ${strategy ? "Use and refine the PRE-PLANNED KEY TAKEAWAYS provided above — adapt them to match the final article content. Each must be a standalone advisory sentence with real decision-useful insight about structure, banking, tax, licensing, regulation, or jurisdiction logic. Not marketing. Not vague summaries." : "Each must contain at least one named figure, regulator, jurisdiction, timeline, or cost. Include the focus keyword in at least one item."}
-Allowed HTML: <ul>, <li>, <strong>
+Allowed HTML: <ul>, <li> only. Do NOT use <strong> or any other tags inside list items — plain text only.
 
 more_content_5:
 Write answers for each of these FAQ questions using the format below.
