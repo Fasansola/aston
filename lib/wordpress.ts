@@ -108,6 +108,46 @@ function validateContent(content: BlogContent, imagePrompts: ImagePrompts): void
   }
 }
 
+// ── Category auto-assignment ───────────────────────────────────
+// Canonical English category IDs from aston.ae/wp-json/wp/v2/categories
+// Each entry maps a WordPress category ID to keyword signals for that topic.
+const CATEGORY_RULES: Array<{ id: number; signals: string[] }> = [
+  { id: 284, signals: ["adgm", "abu dhabi global market"] },
+  { id: 291, signals: ["abu dhabi"] },
+  { id: 447, signals: ["anjouan"] },
+  { id: 287, signals: ["dfsa", "dubai financial services authority"] },
+  { id: 276, signals: ["difc", "dubai international financial centre"] },
+  { id: 278, signals: ["vara", "virtual asset", "vasp"] },
+  { id: 282, signals: ["crypto", "cryptocurrency", "blockchain", "digital asset", "defi", "web3", "token"] },
+  { id: 19,  signals: ["tax", "taxation", "vat", "corporate tax", "withholding tax", "double tax", "tax treaty"] },
+  { id: 17,  signals: ["banking", "bank account", "corporate bank", "payment account", "payment licence", "emi licence", "pi licence", "fintech"] },
+  { id: 20,  signals: ["company formation", "company setup", "incorporate", "company registration", "business setup", "llc formation", "free zone company", "mainland company", "offshore company", "trade licence", "commercial licence"] },
+  { id: 29,  signals: ["startup", "start-up", "entrepreneur", "venture capital", "accelerator"] },
+  { id: 30,  signals: ["economic growth", "economic zone", "free zone economy", "investment zone"] },
+  { id: 280, signals: ["business licence", "business activity", "commercial activity"] },
+  { id: 18,  signals: ["uae", "dubai", "emirates", "united arab emirates"] },
+  { id: 113, signals: ["guide", "how to", "tips", "checklist", "step-by-step"] },
+];
+
+/**
+ * Select up to 2 best-matching category IDs based on keyword signals.
+ * Scores each category by number of signals that appear in the combined
+ * focus keyword + secondary keywords string, then returns the top 2.
+ */
+export function pickCategories(focusKeyword: string, secondaryKeywords: string[]): number[] {
+  const haystack = [focusKeyword, ...secondaryKeywords].join(" ").toLowerCase();
+
+  const scored = CATEGORY_RULES
+    .map(({ id, signals }) => ({
+      id,
+      score: signals.filter((s) => haystack.includes(s)).length,
+    }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return scored.slice(0, 2).map(({ id }) => id);
+}
+
 /**
  * Create a WordPress post with all ACF fields pre-filled.
  * Posts as "draft" so you can review before publishing.
@@ -132,6 +172,9 @@ export async function createWordPressPost(
 ) {
   validateContent(content, imagePrompts);
 
+  const categoryIds = pickCategories(content.focus_keyword, content.secondary_keywords ?? []);
+  console.log(`[wordpress] Auto-assigned categories: [${categoryIds.join(", ")}] for keyword "${content.focus_keyword}"`);
+
   let response;
   try {
     response = await axios.post(
@@ -144,6 +187,7 @@ export async function createWordPressPost(
         featured_media: imageIds.featuredImg,
         slug: content.slug,
         excerpt: content.excerpt,
+        ...(categoryIds.length > 0 && { categories: categoryIds }),
 
         // ── SEO and Yoast ──────────────────────────────────
         meta: {
