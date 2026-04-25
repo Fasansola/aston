@@ -128,6 +128,7 @@ export interface PublishQueueItem {
   id: string;
   title: string;
   slug: string;
+  focusKeyword: string;
   articleHtml: string;
   excerpt: string;
   tags: string[];

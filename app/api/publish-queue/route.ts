@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
-      title, slug, articleHtml, excerpt = "", tags = [],
+      title, slug, focusKeyword = "", articleHtml, excerpt = "", tags = [],
       seoTitle = "", metaDescription = "", canonicalUrl, wordCount, wpPostId,
       targets, scheduledFor = null,
     } = body;
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     if (!Array.isArray(targets) || targets.length === 0) return NextResponse.json({ error: "at least one target is required" }, { status: 400 });
 
     const item = await addPublishQueueItem({
-      title, slug: slug ?? "", articleHtml, excerpt, tags,
+      title, slug: slug ?? "", focusKeyword, articleHtml, excerpt, tags,
       seoTitle, metaDescription, canonicalUrl, wordCount, wpPostId,
       targets, scheduledFor,
     });

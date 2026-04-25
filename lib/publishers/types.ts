@@ -18,6 +18,8 @@ export interface PublishRequest {
   html: string;
   markdown: string;
   tags: string[];
+  slug?: string;
+  focusKeyword?: string;
   seoTitle?: string;
   seoDescription?: string;
   featuredImageUrl?: string;

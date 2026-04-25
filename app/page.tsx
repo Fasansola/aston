@@ -744,6 +744,7 @@ export default function HomePage() {
         body: JSON.stringify({
           title:           result.title,
           slug:            result.slug,
+          focusKeyword:    result.focusKeyword ?? "",
           articleHtml:     result.articleHtml,
           excerpt:         result.excerpt ?? "",
           tags:            result.tags ?? [],
