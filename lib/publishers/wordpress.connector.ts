@@ -33,7 +33,7 @@ export default class WordPressConnector implements PublisherConnector {
   }
 
   async publish(input: PublishRequest): Promise<PublishResult> {
-    const { targetConfig: cfg, title, html, excerpt, tags, seoTitle, seoDescription } = input;
+    const { targetConfig: cfg, title, html, excerpt, tags, slug, focusKeyword, seoTitle, seoDescription } = input;
     const siteUrl  = cfg.siteUrl  || process.env.WP_URL        || "";
     const username = cfg.username || process.env.WP_USERNAME   || "";
     const password = cfg.password || process.env.WP_APP_PASSWORD || "";
@@ -48,14 +48,19 @@ export default class WordPressConnector implements PublisherConnector {
         excerpt,
         status,
         tags,
+        ...(slug ? { slug } : {}),
       };
 
-      if (seoTitle || seoDescription) {
-        body.meta = {
-          ...(seoTitle       ? { _yoast_wpseo_title:    seoTitle }       : {}),
-          ...(seoDescription ? { _yoast_wpseo_metadesc: seoDescription } : {}),
-        };
-      }
+      const yoastMeta: Record<string, string> = {};
+      if (focusKeyword)   yoastMeta._yoast_wpseo_focuskw                = focusKeyword;
+      if (seoTitle)       yoastMeta._yoast_wpseo_title                  = seoTitle;
+      if (seoDescription) yoastMeta._yoast_wpseo_metadesc               = seoDescription;
+      if (seoTitle)       yoastMeta["_yoast_wpseo_opengraph-title"]      = seoTitle;
+      if (seoDescription) yoastMeta["_yoast_wpseo_opengraph-description"] = seoDescription;
+      if (seoTitle)       yoastMeta["_yoast_wpseo_twitter-title"]        = seoTitle;
+      if (seoDescription) yoastMeta["_yoast_wpseo_twitter-description"]  = seoDescription;
+
+      if (Object.keys(yoastMeta).length > 0) body.meta = yoastMeta;
 
       const res = await fetch(`${siteUrl}/wp-json/wp/v2/posts`, {
         method: "POST",

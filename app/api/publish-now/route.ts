@@ -65,6 +65,8 @@ export async function POST(req: NextRequest) {
           html:             item.articleHtml,
           markdown,
           tags:             item.tags,
+          slug:             item.slug,
+          focusKeyword:     item.focusKeyword,
           seoTitle:         item.seoTitle,
           seoDescription:   item.metaDescription,
           canonicalUrl:     item.canonicalUrl,

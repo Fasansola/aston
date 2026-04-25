@@ -69,17 +69,19 @@ export async function GET(req: NextRequest) {
           }
 
           const request: PublishRequest = {
-            title:          item.title,
-            excerpt:        item.excerpt,
-            html:           item.articleHtml,
+            title:           item.title,
+            excerpt:         item.excerpt,
+            html:            item.articleHtml,
             markdown,
-            tags:           item.tags,
-            seoTitle:       item.seoTitle,
-            seoDescription: item.metaDescription,
-            canonicalUrl:   item.canonicalUrl,
+            tags:            item.tags,
+            slug:            item.slug,
+            focusKeyword:    item.focusKeyword,
+            seoTitle:        item.seoTitle,
+            seoDescription:  item.metaDescription,
+            canonicalUrl:    item.canonicalUrl,
             featuredImageUrl: undefined,
-            target:         target as PublishRequest["target"],
-            targetConfig:   config,
+            target:          target as PublishRequest["target"],
+            targetConfig:    config,
           };
 
           const result = await connector.publish(request);
