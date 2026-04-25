@@ -147,9 +147,13 @@ export async function createWordPressPost(
 
         // ── SEO and Yoast ──────────────────────────────────
         meta: {
-          yoast_wpseo_focuskw:    content.focus_keyword,
-          _yoast_wpseo_title:     content.seo_title,
-          _yoast_wpseo_metadesc:  content.meta_description,
+          _yoast_wpseo_focuskw:                content.focus_keyword,
+          _yoast_wpseo_title:                  content.seo_title,
+          _yoast_wpseo_metadesc:               content.meta_description,
+          "_yoast_wpseo_opengraph-title":       content.seo_title,
+          "_yoast_wpseo_opengraph-description": content.meta_description,
+          "_yoast_wpseo_twitter-title":         content.seo_title,
+          "_yoast_wpseo_twitter-description":   content.meta_description,
         },
 
         // ── ACF custom fields ──────────────────────────────
