@@ -410,7 +410,8 @@ quote_2:
 Short, punchy advice from more_content_4. Max 2 sentences. No em dashes. Different from quote_1.
 
 key_takeaways:
-HTML <ul><li> list of 4 to 6 items. This section appears directly after the title — before the introduction. ${strategy ? "Use and refine the PRE-PLANNED KEY TAKEAWAYS provided above — adapt them to match the final article content. Each must be a standalone advisory sentence with real decision-useful insight about structure, banking, tax, licensing, regulation, or jurisdiction logic. Not marketing. Not vague summaries." : "Each must contain at least one named figure, regulator, jurisdiction, timeline, or cost. Include the focus keyword in at least one item."}
+HTML <ul><li> list of 4 to 6 items. This section appears directly after the title — before the introduction. ${strategy ? "Use and refine the PRE-PLANNED KEY TAKEAWAYS provided above — adapt them to match the final article content. Each must be a standalone advisory point with real decision-useful insight about structure, banking, tax, licensing, regulation, or jurisdiction logic. Not marketing. Not vague summaries." : "Each must contain at least one named figure, regulator, jurisdiction, timeline, or cost. Include the focus keyword in at least one item."}
+LENGTH RULE: each list item must be 8–14 words maximum — short enough to scan in under 3 seconds. Cut any item that runs longer. Lead with the specific fact or number, not a preamble. Example format: "DIFC company formation costs from AED 15,000 in fees." or "UAE corporate tax is 9% on profits above AED 375,000."
 Allowed HTML: <ul>, <li> only. Do NOT use <strong> or any other tags inside list items — plain text only.
 
 more_content_5:
@@ -522,7 +523,13 @@ Return as a single valid JSON object. No markdown, no code fences:
   "featured_img_alt": "string"
 }
 
-Alt text rules: describe what is literally shown using specific nouns, include one relevant keyword naturally, max 125 characters, no keyword stuffing.`;
+Alt text rules (SEO-optimised — all must be met):
+1. Describe exactly what is visually shown — specific scene, setting, and subject (e.g. "Two professionals reviewing documents in a DIFC glass office" not "business meeting")
+2. Include the article's focus keyword "${content.focus_keyword}" naturally in at least 2 of the 4 alt texts — weave it in as part of the description, never as a standalone tag at the end
+3. For the featured image alt text, always include the focus keyword
+4. 8–12 words per alt text — long enough to be descriptive, short enough to avoid stuffing
+5. No full stops, no quotes, no HTML
+6. Never start with "image of" or "photo of" — start directly with the subject`;
 
   const response = await openai.chat.completions.create({
     model: "gpt-5.1",
