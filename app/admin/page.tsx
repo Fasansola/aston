@@ -275,6 +275,8 @@ export default function AdminPage() {
   const [addingLink, setAddingLink] = useState(false);
   const [editingLink, setEditingLink] = useState<LinkEntry | null>(null);
   const [confirmLinkId, setConfirmLinkId] = useState<string | null>(null);
+  const [wpSyncing, setWpSyncing]     = useState(false);
+  const [wpSyncResult, setWpSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const [perfRecords, setPerfRecords] = useState<PostPerformance[]>([]);
   const [syncing, setSyncing]     = useState(false);
@@ -464,6 +466,18 @@ export default function AdminPage() {
     setConfirmLinkId(null);
     await fetchLinks(secret);
     showToast("Link deleted");
+  }
+
+  async function syncWpLinks() {
+    setWpSyncing(true); setWpSyncResult(null);
+    try {
+      const res  = await fetch("/api/links/sync-wp", { method: "POST", headers: { "x-api-secret": secret } });
+      const data = await res.json();
+      if (!res.ok) { setWpSyncResult({ ok: false, msg: data.error ?? "Sync failed" }); return; }
+      setWpSyncResult({ ok: true, msg: `${data.added} new posts added · ${data.skipped} already present · ${data.total} total links` });
+      await fetchLinks(secret);
+    } catch { setWpSyncResult({ ok: false, msg: "Network error — try again" }); }
+    finally { setWpSyncing(false); }
   }
 
   async function syncPerformance(action: "sync_all" | "sync_post", postId?: string) {
@@ -1150,6 +1164,14 @@ export default function AdminPage() {
             <>
               <div className="flex items-center justify-between">
                 <h1 className="text-xl font-bold text-gray-900">Link Manager</h1>
+                <div className="flex items-center gap-3">
+                  {wpSyncResult && (
+                    <p className={`text-xs font-medium ${wpSyncResult.ok ? "text-emerald-600" : "text-red-500"}`}>{wpSyncResult.msg}</p>
+                  )}
+                  <Btn variant="secondary" onClick={syncWpLinks} disabled={wpSyncing}>
+                    {wpSyncing ? <><Spinner /> Syncing…</> : "Sync from WordPress"}
+                  </Btn>
+                </div>
               </div>
 
               <Card>
