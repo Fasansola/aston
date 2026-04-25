@@ -185,10 +185,31 @@ Plan the structure of this blog post and return it as a single valid JSON object
 }
 
 BLUEPRINT RULES:
-- focus_keyword: ${strategy ? `use exactly "${strategy.keyword_model.primary_keyword}" — this has been determined by the strategy engine` : "the single phrase this article should rank for in Google"}
-- seo_title: 50-60 characters, must contain the exact focus keyword, no site name, no dashes, write as one clean natural sentence
-- meta_description: 145-155 characters, must contain the exact focus keyword once, written to earn the click — state the concrete benefit clearly
-- slug: lowercase hyphenated, 3-6 words, MUST begin with or contain the exact focus keyword hyphenated (e.g. focus keyword "UAE trade licence" → slug "uae-trade-licence-guide")
+- focus_keyword: ${strategy ? `use exactly "${strategy.keyword_model.primary_keyword}" — this has been determined by the strategy engine` : "the single phrase this article should rank for in Google — 2 to 4 words, as a reader would actually type it into Google"}
+
+- seo_title: STRICT RULES — all must be met simultaneously:
+  1. Begin with the exact focus keyword as the first words (e.g. "UAE trade licence: complete guide" starts with "UAE trade licence")
+  2. Exactly 50–60 characters including spaces — count precisely before returning
+  3. After the focus keyword, add a power phrase that earns the click: "complete guide", "requirements and costs", "step-by-step guide", "what you need to know", "how it works", "explained" — pick the one that best matches search intent
+  4. Sentence case only — capitalise only the first word and proper nouns
+  5. No site name, no pipes, no dashes, no question marks
+  6. The title must read as one natural, direct phrase — not a list, not a sentence with a verb
+
+- meta_description: STRICT RULES — all must be met simultaneously:
+  1. Exactly 145–155 characters including spaces — count precisely before returning
+  2. Place the exact focus keyword within the first 60 characters
+  3. State clearly what the reader gets from this article — a specific benefit (cost, timeline, process, comparison, or decision framework)
+  4. End with a soft CTA: "Learn how Aston VIP can help." or "Speak to our advisers today." or "Find out what applies to you."
+  5. Active voice, present tense, no passive constructions
+  6. Must not repeat the seo_title verbatim — complement it, do not duplicate it
+  7. Never use banned phrases: seamless, hassle-free, comprehensive, robust, tailored, one-stop
+
+- slug: lowercase hyphenated only — STRICT RULES:
+  1. Start with the exact focus keyword hyphenated (e.g. "UAE trade licence" → starts with "uae-trade-licence")
+  2. Strip ALL stop words after the keyword (the, a, an, of, for, with, to, in, on, at, by, and, or, your, our)
+  3. Total length: 3–5 words maximum — shorter is better for Google
+  4. Only add 1 extra word after the focus keyword if it meaningfully disambiguates (e.g. "-guide", "-requirements", "-2025") — otherwise stop at the keyword itself
+  5. No numbers, no years, unless they are part of the focus keyword itself
 - intro_angle: one sentence describing what the intro should establish — the business problem or opportunity
 - sections[].h3_heading: the exact H3 heading for that section, sentence case, max 8 words
 - sections[].angle: one sentence describing what that section covers and what the reader should understand after reading it
