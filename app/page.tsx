@@ -846,7 +846,11 @@ export default function HomePage() {
           "Content-Type": "application/json",
           "x-api-secret": process.env.NEXT_PUBLIC_API_SECRET ?? "",
         },
-        body: JSON.stringify({ html: result.articleHtml, language: result.language }),
+        body: JSON.stringify({
+          html: result.articleHtml,
+          language: result.language,
+          issues: readinessResult?.issues ?? [],
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Auto-fix failed");
