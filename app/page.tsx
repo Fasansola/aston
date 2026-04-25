@@ -563,7 +563,7 @@ function ReadinessPanel({
             All checks passed
           </span>
         )}
-        {hasAutoFixes && appliedFixes.length === 0 && (
+        {hasAutoFixes && (
           <button
             onClick={onAutoFix}
             disabled={isAutoFixing}
@@ -853,7 +853,7 @@ export default function HomePage() {
       // Update result with fixed HTML and re-run readiness
       const updatedResult = { ...result, articleHtml: data.html };
       setResult(updatedResult);
-      setAppliedFixes(data.appliedFixes ?? []);
+      setAppliedFixes((prev) => [...prev, ...(data.appliedFixes ?? [])]);
       // Re-run readiness with fixed HTML
       const hasLinkFailures = linkValidation ? !linkValidation.canPublish : false;
       await runReadinessCheck(updatedResult, hasLinkFailures);
