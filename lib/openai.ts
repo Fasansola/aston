@@ -26,11 +26,20 @@ Aston VIP is not a registration agent. They are a proper advisory firm — clien
 
 Your writing is authoritative, specific, and human. You write like a practitioner who has guided hundreds of real clients — not like a content farm. Every section must contain concrete details: real jurisdiction names, actual fee ranges, named regulators, realistic timelines, and practical distinctions a reader cannot find in a generic article.
 
-SEO KEYWORD RULES:
-- When given a focus keyword, weave it naturally into the first 50 words of main_content, at least one H3 heading, and the key_takeaways section
-- Distribute secondary keywords across more_content_1 through more_content_4 without forcing them
-- Never repeat the same phrase more than 3 times across the entire article
-- Never stuff keywords into a sentence where they feel unnatural
+SEO KEYWORD RULES (Yoast green target — every rule below is mandatory):
+- Place the exact focus keyword in: the first sentence of the introduction (main_content), the SEO title, the meta description, at least 2 H3 or H4 headings, and at least one key_takeaways item
+- Keyphrase density: use the focus keyword naturally approximately once every 100–150 words across the full article (roughly 1–2% density). Spread it evenly — intro, body sections, FAQ — never front-load it
+- The slug must contain the exact focus keyword in hyphenated form (e.g. focus keyword "UAE trade licence" → slug begins "uae-trade-licence-...")
+- Distribute secondary keywords across more_content_1 through more_content_6 without forcing them
+- Never stuff a keyword — if a sentence reads awkwardly, rephrase it or use a natural variation
+
+READABILITY RULES (Yoast readability green target — every rule below is mandatory):
+- Transition words: at least one in every three sentences must open with or include a transition (however, therefore, because, this means, as a result, for example, in addition, which means, in practice, by contrast, that said, more importantly, in most cases, as a rule)
+- Sentence length: aim for 15–20 words per sentence. Never exceed 25 words in a single sentence. If a sentence is running long, split it in two
+- Passive voice: use active voice in at least 9 of every 10 sentences. Write "Aston VIP handles the filing" not "the filing is handled by Aston VIP"
+- Paragraph length: maximum 4 sentences per paragraph. Never exceed 100 words in a single paragraph
+- Consecutive sentences: never start 3 or more sentences in a row with the same word
+- Subheading distribution: place an H3 or H4 at least every 300 words so readers and Yoast never see a wall of text
 
 TONE AND STYLE RULES:
 - UK English only: organisation, optimisation, licence (noun), authorised, centre, travelling, adviser
@@ -177,9 +186,9 @@ Plan the structure of this blog post and return it as a single valid JSON object
 
 BLUEPRINT RULES:
 - focus_keyword: ${strategy ? `use exactly "${strategy.keyword_model.primary_keyword}" — this has been determined by the strategy engine` : "the single phrase this article should rank for in Google"}
-- seo_title: 50-60 characters, include focus keyword, no site name, no dashes, write as one clean natural sentence
-- meta_description: 145-155 characters, include focus keyword once, written for click-through
-- slug: lowercase hyphenated, 3-6 words, based on focus keyword
+- seo_title: 50-60 characters, must contain the exact focus keyword, no site name, no dashes, write as one clean natural sentence
+- meta_description: 145-155 characters, must contain the exact focus keyword once, written to earn the click — state the concrete benefit clearly
+- slug: lowercase hyphenated, 3-6 words, MUST begin with or contain the exact focus keyword hyphenated (e.g. focus keyword "UAE trade licence" → slug "uae-trade-licence-guide")
 - intro_angle: one sentence describing what the intro should establish — the business problem or opportunity
 - sections[].h3_heading: the exact H3 heading for that section, sentence case, max 8 words
 - sections[].angle: one sentence describing what that section covers and what the reader should understand after reading it
@@ -323,7 +332,8 @@ excerpt:
 
 main_content (180-220 words):
 - Open with the business problem or opportunity described in the intro angle: "${blueprint.intro_angle}"
-- Include the focus keyword naturally within the first 50 words
+- The focus keyword must appear in the first sentence of the first paragraph — not the second, not the third
+- Use the focus keyword 2–3 times naturally across the full intro (spread across different paragraphs)
 - Do NOT open with an H3. Start with a <p> tag
 - After the opening paragraph you may use H3/H4 for any subsections if needed
 - Heading hierarchy: every H4 must sit under an H3. Never skip levels
