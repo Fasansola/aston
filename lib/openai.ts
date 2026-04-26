@@ -270,11 +270,12 @@ export async function generateBlogContent(
   selectedLinks: SelectedLinks,
   sourceBrief?: SourceBrief,
   strategy?: StrategyBrief | null,
-  customPrompt?: string
+  customPrompt?: string,
+  language?: string
 ): Promise<BlogContent> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-  const linksBlock = formatLinksForPrompt(selectedLinks);
+  const linksBlock = formatLinksForPrompt(selectedLinks, language);
   const sourceBriefBlock = sourceBrief ? formatBriefForPrompt(sourceBrief) : "";
 
   const strategyContentBlock = strategy ? `

@@ -88,8 +88,8 @@ async function processOneItem(
 
   const selectedLinks = await selectLinks(resolvedTopic, strategyInputs?.language);
   const blueprint = await generateBlueprint(resolvedTopic, selectedLinks, sourceBrief, strategy, customInstruction);
-  const content = await generateBlogContent(resolvedTopic, blueprint, selectedLinks, sourceBrief, strategy, customInstruction);
-  const imagePrompts = await generateImagePrompts(topic, content);
+  const content = await generateBlogContent(resolvedTopic, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language);
+  const imagePrompts = await generateImagePrompts(resolvedTopic, content);
 
   const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
     generateImage(imagePrompts.keypoint_one_img_prompt),
@@ -113,7 +113,7 @@ async function processOneItem(
     featuredImg:    featuredMedia.id,
   };
 
-  const qa = runQA(content, imagePrompts, imageIds, topic);
+  const qa = runQA(content, imagePrompts, imageIds, resolvedTopic);
   if (qa.status === "fail") {
     throw new Error(`QA failed: ${qa.blocking_issues.join("; ")}`);
   }
@@ -129,7 +129,7 @@ async function processOneItem(
     more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
   };
 
-  const post = await createWordPressPost(resolvedTopic, content, imagePrompts, assembled, imageIds);
+  const post = await createWordPressPost(content.seo_title || resolvedTopic, content, imagePrompts, assembled, imageIds);
 
   await updateQueueItem(itemId, {
     status: "completed",

@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
     );
 
     // ── 6. Generate blog content from blueprint ───────────
-    const content = await generateBlogContent(title, blueprint, selectedLinks, sourceBrief, strategy, customInstruction);
+    const content = await generateBlogContent(title, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined);
     console.log(
       `[generate] Content ready. Slug: "${content.slug}", read: ${content.read_mins} min`
     );
@@ -249,7 +249,7 @@ export async function POST(req: NextRequest) {
 
     // ── 12. Create the WordPress post ────────────────────
     console.log("[generate] Creating WordPress post...");
-    const post = await createWordPressPost(title, content, imagePrompts, assembled, imageIds);
+    const post = await createWordPressPost(content.seo_title || title, content, imagePrompts, assembled, imageIds);
     console.log(`[generate] Post created! ID: ${post.id}, slug: "${content.slug}"`);
 
     // ── 13. Return success ────────────────────────────────

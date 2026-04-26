@@ -106,14 +106,22 @@ export async function selectLinks(topic: string, language?: string): Promise<Sel
 
 /**
  * Format selected links into the block injected into the GPT prompt.
+ * When a non-English language is provided, the model is instructed to write
+ * its own anchor text in that language rather than using the English suggestions.
  */
-export function formatLinksForPrompt(links: SelectedLinks): string {
+export function formatLinksForPrompt(links: SelectedLinks, language?: string): string {
+  const isNonEnglish = !!language && !["en", "en-gb", "en-us"].includes(language.toLowerCase());
+
+  const anchorNote = isNonEnglish
+    ? `  (anchor suggestions are in English — write your own natural anchor text in ${language} instead)`
+    : "";
+
   const internalLines = links.internal
-    .map((l) => `- ${l.url}\n  Anchor options: ${l.anchors.join(" | ")}`)
+    .map((l) => `- ${l.url}\n  Anchor options: ${l.anchors.join(" | ")}${anchorNote}`)
     .join("\n");
 
   const externalLines = links.external
-    .map((l) => `- ${l.url}\n  Anchor options: ${l.anchors.join(" | ")}`)
+    .map((l) => `- ${l.url}\n  Anchor options: ${l.anchors.join(" | ")}${anchorNote}`)
     .join("\n");
 
   const externalBlock =
