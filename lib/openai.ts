@@ -91,7 +91,8 @@ export async function generateBlueprint(
   title: string,
   selectedLinks: SelectedLinks,
   sourceBrief?: SourceBrief,
-  strategy?: StrategyBrief | null
+  strategy?: StrategyBrief | null,
+  customPrompt?: string
 ): Promise<Blueprint> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -114,9 +115,13 @@ STRATEGY BRIEF (use as source of truth for this blueprint):
 - Content risks to avoid: ${strategy.content_risks.slice(0, 5).join("; ")}
 ` : "";
 
+  const customPromptBlock = customPrompt?.trim()
+    ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the blueprint):\n${customPrompt.trim()}\n`
+    : "";
+
   const userPrompt = `Blog title: "${title}"
 Available link topics for context: ${linkCategories}
-${strategyBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
+${strategyBlock}${customPromptBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
 
 Plan the structure of this blog post and return it as a single valid JSON object. No markdown, no code fences:
 
@@ -264,7 +269,8 @@ export async function generateBlogContent(
   blueprint: Blueprint,
   selectedLinks: SelectedLinks,
   sourceBrief?: SourceBrief,
-  strategy?: StrategyBrief | null
+  strategy?: StrategyBrief | null,
+  customPrompt?: string
 ): Promise<BlogContent> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -303,8 +309,12 @@ ${subs}`;
     .map((q, i) => `  Q${i + 1}: ${q}`)
     .join("\n");
 
+  const customPromptContentBlock = customPrompt?.trim()
+    ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the entire article):\n${customPrompt.trim()}\n`
+    : "";
+
   const userPrompt = `Blog title: "${title}"
-${strategyContentBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
+${strategyContentBlock}${customPromptContentBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
 You have already planned the structure. Now write the full article following the blueprint exactly.
 The headings, section angles, and word targets below are fixed — do not change them.
 

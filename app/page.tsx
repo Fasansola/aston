@@ -623,6 +623,8 @@ export default function HomePage() {
   const [result, setResult]         = useState<GenerateResult | null>(null);
   const [error, setError]           = useState("");
 
+  const [customPrompt, setCustomPrompt] = useState("");
+
   // Strategy inputs
   const [showStrategy, setShowStrategy]             = useState(false);
   const [audience, setAudience]                     = useState("");
@@ -699,6 +701,7 @@ export default function HomePage() {
           secondary_countries: secondaryCountries.trim() || undefined,
           priority_service:    priorityService.trim() || undefined,
           language:            language.trim() || undefined,
+          customPrompt:        customPrompt.trim() || undefined,
         }),
       });
 
@@ -919,6 +922,7 @@ export default function HomePage() {
     setSecondaryCountries("");
     setPriorityService("");
     setLanguage("");
+    setCustomPrompt("");
   };
 
   return (
@@ -986,6 +990,19 @@ export default function HomePage() {
                   onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
                 />
                 <p className="text-white/20 text-xs mt-2">Press ⌘ + Enter to generate</p>
+              </div>
+
+              {/* Custom prompt */}
+              <div>
+                <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">Custom instructions <span className="text-white/20 normal-case tracking-normal">(optional)</span></label>
+                <textarea
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  placeholder="e.g. Focus on founders moving from the UK to Dubai. Emphasise nominee director services. Keep the tone advisory, not salesy."
+                  rows={3}
+                  className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
+                />
+                <p className="text-white/20 text-xs mt-2">Injected as high-priority guidance into the research, strategy, and writing steps</p>
               </div>
 
               {/* Audience — required */}

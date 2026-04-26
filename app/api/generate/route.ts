@@ -31,9 +31,10 @@ import {
   processSourceInput,
 } from "@/lib/source";
 import { generateStrategy, StrategyBrief } from "@/lib/strategy";
+import { researchTopic, ResearchBrief } from "@/lib/research";
 
-// Strategy step adds ~30-45s. Full pipeline now ~150-200s.
-export const maxDuration = 240;
+// Research (~15s) + strategy (~40s) + content (~120s) + images (~60s).
+export const maxDuration = 300;
 
 
 export async function POST(req: NextRequest) {
@@ -50,6 +51,7 @@ export async function POST(req: NextRequest) {
       secondary_countries = "",
       priority_service = "",
       language = "",
+      customPrompt = "",
     }: {
       topic: string;
       secret: string;
@@ -60,6 +62,7 @@ export async function POST(req: NextRequest) {
       secondary_countries: string;
       priority_service: string;
       language: string;
+      customPrompt: string;
     } = body;
 
     if (!topic || typeof topic !== "string" || topic.trim().length < 5) {
@@ -100,20 +103,33 @@ export async function POST(req: NextRequest) {
     }
 
     const title = topic.trim();
+    const customInstruction = customPrompt.trim() || undefined;
 
-    // ── 2. Run strategy engine ───────────────────────────
+    // ── 2. Deep SEO research ─────────────────────────────
+    console.log(`[generate] Running SEO research for: "${title}"`);
+    let research: ResearchBrief | undefined;
+    try {
+      research = await researchTopic(title, primary_country || undefined, customInstruction);
+      console.log(`[generate] Research ready. Dominant keywords: ${research.dominant_keywords.slice(0, 4).join(", ")}`);
+    } catch (err) {
+      console.warn("[generate] Research step failed — continuing without SERP data:", err);
+    }
+
+    // ── 3. Run strategy engine ───────────────────────────
     console.log(`[generate] Running strategy engine for: "${title}"`);
     const strategy: StrategyBrief = await generateStrategy({
       topic: title,
-      audience:           audience || undefined,
-      primary_country:    primary_country || undefined,
+      audience:            audience || undefined,
+      primary_country:     primary_country || undefined,
       secondary_countries: secondary_countries || undefined,
-      priority_service:   priority_service || undefined,
-      language:           language || undefined,
+      priority_service:    priority_service || undefined,
+      language:            language || undefined,
+      customPrompt:        customInstruction,
+      research:            research,
     });
     console.log(`[generate] Strategy ready. Primary keyword: "${strategy.keyword_model.primary_keyword}", intent: ${strategy.search_intent_type}`);
 
-    // ── 3. Process source input (Modes B / C / D) ────────
+    // ── 4. Process source input (Modes B / C / D) ────────
     let sourceBrief: SourceBrief;
     if (mode === "topic_only") {
       sourceBrief = emptyBrief();
@@ -132,13 +148,13 @@ export async function POST(req: NextRequest) {
 
     // ── 5. Generate structure blueprint ──────────────────
     console.log("[generate] Generating blueprint...");
-    const blueprint = await generateBlueprint(title, selectedLinks, sourceBrief, strategy);
+    const blueprint = await generateBlueprint(title, selectedLinks, sourceBrief, strategy, customInstruction);
     console.log(
       `[generate] Blueprint ready. Focus keyword: "${blueprint.focus_keyword}", ~${blueprint.estimated_word_count} words`
     );
 
     // ── 6. Generate blog content from blueprint ───────────
-    const content = await generateBlogContent(title, blueprint, selectedLinks, sourceBrief, strategy);
+    const content = await generateBlogContent(title, blueprint, selectedLinks, sourceBrief, strategy, customInstruction);
     console.log(
       `[generate] Content ready. Slug: "${content.slug}", read: ${content.read_mins} min`
     );

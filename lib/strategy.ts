@@ -7,6 +7,7 @@
  */
 
 import OpenAI from "openai";
+import { ResearchBrief } from "./research";
 
 export interface StrategyInputs {
   topic: string;        // required
@@ -15,6 +16,8 @@ export interface StrategyInputs {
   secondary_countries?: string;
   priority_service?: string;
   language?: string;
+  customPrompt?: string;  // freeform user instruction injected before strategy analysis
+  research?: ResearchBrief; // live SERP data from the research step
 }
 
 export type StrategyContext = Omit<StrategyInputs, "topic">;
@@ -100,14 +103,22 @@ export async function generateStrategy(inputs: StrategyInputs): Promise<Strategy
 
   const inputLines = [
     `TOPIC: ${inputs.topic}`,
-    inputs.audience        ? `TARGET_AUDIENCE: ${inputs.audience}`               : "",
-    inputs.primary_country      ? `PRIMARY_COUNTRY: ${inputs.primary_country}`           : "",
-    inputs.secondary_countries  ? `SECONDARY_COUNTRIES: ${inputs.secondary_countries}`   : "",
-    inputs.priority_service     ? `PRIORITY_SERVICE: ${inputs.priority_service}`         : "",
-    inputs.language             ? `LANGUAGE: ${inputs.language}`                         : "",
+    inputs.audience             ? `TARGET_AUDIENCE: ${inputs.audience}`             : "",
+    inputs.primary_country      ? `PRIMARY_COUNTRY: ${inputs.primary_country}`      : "",
+    inputs.secondary_countries  ? `SECONDARY_COUNTRIES: ${inputs.secondary_countries}` : "",
+    inputs.priority_service     ? `PRIORITY_SERVICE: ${inputs.priority_service}`    : "",
+    inputs.language             ? `LANGUAGE: ${inputs.language}`                    : "",
   ].filter(Boolean).join("\n");
 
-  const userPrompt = `${inputLines}
+  const customPromptBlock = inputs.customPrompt?.trim()
+    ? `\nCUSTOM INSTRUCTIONS (highest priority — follow these precisely throughout the entire analysis):\n${inputs.customPrompt.trim()}\n`
+    : "";
+
+  const researchBlock = inputs.research
+    ? `\nSERP RESEARCH (live data — use this as ground truth for keyword choices and content gaps):\nSERP summary: ${inputs.research.serp_summary}\nDominant keywords found in top results: ${inputs.research.dominant_keywords.join(", ")}\nCommon questions in SERPs: ${inputs.research.common_questions.slice(0, 10).join(" | ")}\nContent gaps in current top results: ${inputs.research.content_gaps}\nCompetitor angles to be aware of: ${inputs.research.competitor_angles.join("; ")}\nSEO recommendations from research: ${inputs.research.seo_recommendations}\n`
+    : "";
+
+  const userPrompt = `${inputLines}${customPromptBlock}${researchBlock}
 
 Run the full 12-step strategy analysis for this topic and return the result as a single valid JSON object. No markdown, no code fences.
 
