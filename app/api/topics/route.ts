@@ -94,6 +94,7 @@ export async function PATCH(req: NextRequest) {
         secondary_countries: plan.secondary_countries,
         priority_service:    plan.priority_service,
         language:            plan.language,
+        customPrompt:        plan.customPrompt,
       });
       const updated = await updateTopicPlan(id, {
         status: "queued",
@@ -103,7 +104,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ plan: updated, queueItem });
     }
 
-    const allowed = ["topic", "focusKeyword", "cluster", "intent", "priority", "status", "notes", "audience", "primary_country", "secondary_countries", "priority_service", "language"];
+    const allowed = ["topic", "focusKeyword", "cluster", "intent", "priority", "status", "notes", "audience", "primary_country", "secondary_countries", "priority_service", "language", "customPrompt"];
     const safeUpdates = Object.fromEntries(
       Object.entries(updates).filter(([k]) => allowed.includes(k))
     );

@@ -264,9 +264,10 @@ export default function AdminPage() {
   const [newSecondaryCountries, setNewSecondaryCountries] = useState("");
   const [newPriorityService, setNewPriorityService] = useState("");
   const [newLanguage, setNewLanguage]           = useState("");
+  const [newCustomPrompt, setNewCustomPrompt]   = useState("");
 
   const [topics, setTopics]       = useState<TopicPlan[]>([]);
-  const [tForm, setTForm]         = useState({ topic: "", focusKeyword: "", cluster: "", intent: "informational", priority: 3, notes: "", audience: "", primary_country: "", secondary_countries: "", priority_service: "", language: "" });
+  const [tForm, setTForm]         = useState({ topic: "", focusKeyword: "", cluster: "", intent: "informational", priority: 3, notes: "", audience: "", primary_country: "", secondary_countries: "", priority_service: "", language: "", customPrompt: "" });
   const [addingTopic, setAddingTopic] = useState(false);
   const [confirmTopicId, setConfirmTopicId] = useState<string | null>(null);
 
@@ -369,7 +370,9 @@ export default function AdminPage() {
 
   // ── Queue actions ──────────────────────────────────────────────
   async function addQueueItem() {
-    if (!newTopic.trim() || !newAudience.trim()) return;
+    const hasTopic = !!newTopic.trim();
+    const hasPrompt = newCustomPrompt.trim().length >= 10;
+    if ((!hasTopic && !hasPrompt) || !newAudience.trim()) return;
     setAdding(true);
     try {
       await fetch("/api/queue", {
@@ -382,10 +385,11 @@ export default function AdminPage() {
           secondary_countries: newSecondaryCountries.trim() || undefined,
           priority_service: newPriorityService.trim() || undefined,
           language: newLanguage.trim() || undefined,
+          customPrompt: newCustomPrompt.trim() || undefined,
         }),
       });
       setNewTopic(""); setNewPriority(3);
-      setNewAudience(""); setNewPrimaryCountry(""); setNewSecondaryCountries(""); setNewPriorityService(""); setNewLanguage("");
+      setNewAudience(""); setNewPrimaryCountry(""); setNewSecondaryCountries(""); setNewPriorityService(""); setNewLanguage(""); setNewCustomPrompt("");
       await fetchDashboard(secret);
       showToast("Topic added to queue");
     } finally { setAdding(false); }
@@ -418,7 +422,7 @@ export default function AdminPage() {
     setAddingTopic(true);
     try {
       await fetch("/api/topics", { method: "POST", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify(tForm) });
-      setTForm({ topic: "", focusKeyword: "", cluster: "", intent: "informational", priority: 3, notes: "", audience: "", primary_country: "", secondary_countries: "", priority_service: "", language: "" });
+      setTForm({ topic: "", focusKeyword: "", cluster: "", intent: "informational", priority: 3, notes: "", audience: "", primary_country: "", secondary_countries: "", priority_service: "", language: "", customPrompt: "" });
       await fetchTopics(secret);
       showToast("Topic plan created");
     } finally { setAddingTopic(false); }
@@ -751,9 +755,19 @@ export default function AdminPage() {
               <Card>
                 <CardHeader title="Add to Queue" subtitle="Topics are picked up by the scheduler, or processed manually." />
                 <div className="p-6 space-y-4">
+                  <div>
+                    <Label>Custom prompt <span className="text-gray-400 font-normal">(optional if topic set — AI will derive title)</span></Label>
+                    <textarea
+                      value={newCustomPrompt}
+                      onChange={(e) => setNewCustomPrompt(e.target.value)}
+                      placeholder="e.g. I need a post about the German crypto market, what is legal and what is not, and how Aston VIP can help"
+                      rows={2}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 resize-none"
+                    />
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <Label required>Topic title</Label>
+                      <Label>Topic title <span className="text-gray-400 font-normal">(optional if custom prompt set)</span></Label>
                       <Input value={newTopic} onChange={(e) => setNewTopic(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addQueueItem()} placeholder="e.g. How to open a company in DIFC" />
                     </div>
                     <div>
@@ -781,7 +795,7 @@ export default function AdminPage() {
                         <option value={1}>1 — Low</option>
                       </Select>
                     </div>
-                    <Btn variant="primary" onClick={addQueueItem} disabled={adding || !newTopic.trim() || !newAudience.trim()}>
+                    <Btn variant="primary" onClick={addQueueItem} disabled={adding || (!newTopic.trim() && newCustomPrompt.trim().length < 10) || !newAudience.trim()}>
                       {adding ? <><Spinner /> Adding…</> : <>{I.plus} Add to queue</>}
                     </Btn>
                   </div>
@@ -1066,6 +1080,16 @@ export default function AdminPage() {
                   <div className="border-t border-gray-100 pt-4">
                     <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Strategy inputs — carried to generation</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      <div className="sm:col-span-2 lg:col-span-3">
+                        <Label>Custom prompt <span className="text-gray-400 font-normal">(optional — injected into research, strategy and writing)</span></Label>
+                        <textarea
+                          value={tForm.customPrompt}
+                          onChange={(e) => setTForm({ ...tForm, customPrompt: e.target.value })}
+                          placeholder="e.g. Focus on founders relocating from Germany. Emphasise VARA licensing and nominee structures."
+                          rows={2}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 resize-none"
+                        />
+                      </div>
                       <div>
                         <Label>Audience</Label>
                         <Input value={tForm.audience} onChange={(e) => setTForm({ ...tForm, audience: e.target.value })} placeholder="e.g. crypto investors in UAE" />

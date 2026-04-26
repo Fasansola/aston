@@ -44,6 +44,7 @@ export interface QueueItem {
   secondary_countries?: string;
   priority_service?: string;
   language?: string;
+  customPrompt?: string;
 }
 
 export interface SchedulerSettings {
@@ -105,6 +106,7 @@ export interface TopicPlan {
   secondary_countries?: string;
   priority_service?: string;
   language?: string;
+  customPrompt?: string;
 }
 
 // ── Publish Queue types ────────────────────────────────────────
@@ -248,6 +250,7 @@ export async function addQueueItem(
     secondary_countries?: string;
     priority_service?: string;
     language?: string;
+    customPrompt?: string;
   }
 ): Promise<QueueItem> {
   const item: QueueItem = {

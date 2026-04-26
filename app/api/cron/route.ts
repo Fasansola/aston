@@ -29,6 +29,7 @@ import { uploadImageToWordPress, createWordPressPost } from "@/lib/wordpress";
 import { runQA } from "@/lib/qa";
 import { emptyBrief, processSourceInput, SourceBrief } from "@/lib/source";
 import { generateStrategy, StrategyBrief, StrategyContext } from "@/lib/strategy";
+import { researchTopic, deriveTitle, ResearchBrief } from "@/lib/research";
 
 export const maxDuration = 300;
 
@@ -42,17 +43,39 @@ async function processOneItem(
   mode: string,
   sourceText: string,
   settings: Awaited<ReturnType<typeof getSettings>>,
-  strategyInputs?: StrategyContext
+  strategyInputs?: StrategyContext & { customPrompt?: string }
 ) {
-  // Step 0 — strategy engine
-  console.log(`[cron:item] Running strategy engine for "${topic}"`);
+  const customInstruction = strategyInputs?.customPrompt?.trim() || undefined;
+
+  // Step 0 — derive title from custom prompt if no topic provided
+  let resolvedTopic = topic.trim();
+  if (!resolvedTopic && customInstruction) {
+    console.log(`[cron:item] No topic — deriving title from custom prompt`);
+    const derived = await deriveTitle(customInstruction, strategyInputs?.primary_country);
+    resolvedTopic = derived.title;
+    console.log(`[cron:item] Derived title: "${resolvedTopic}"`);
+  }
+
+  // Step 1 — SEO research
+  let research: ResearchBrief | undefined;
+  try {
+    research = await researchTopic(resolvedTopic, strategyInputs?.primary_country, customInstruction);
+    console.log(`[cron:item] Research ready. Keywords: ${research.dominant_keywords.slice(0, 3).join(", ")}`);
+  } catch (err) {
+    console.warn("[cron:item] Research step failed — continuing without SERP data:", err);
+  }
+
+  // Step 2 — strategy engine
+  console.log(`[cron:item] Running strategy engine for "${resolvedTopic}"`);
   const strategy: StrategyBrief = await generateStrategy({
-    topic,
-    audience:           strategyInputs?.audience,
-    primary_country:    strategyInputs?.primary_country,
+    topic:               resolvedTopic,
+    audience:            strategyInputs?.audience,
+    primary_country:     strategyInputs?.primary_country,
     secondary_countries: strategyInputs?.secondary_countries,
-    priority_service:   strategyInputs?.priority_service,
-    language:           strategyInputs?.language,
+    priority_service:    strategyInputs?.priority_service,
+    language:            strategyInputs?.language,
+    customPrompt:        customInstruction,
+    research,
   });
   console.log(`[cron:item] Strategy ready. Keyword: "${strategy.keyword_model.primary_keyword}", intent: ${strategy.search_intent_type}`);
 
@@ -60,12 +83,12 @@ async function processOneItem(
   if (mode === "topic_only" || !sourceText?.trim()) {
     sourceBrief = emptyBrief();
   } else {
-    sourceBrief = await processSourceInput(mode as Parameters<typeof processSourceInput>[0], topic, sourceText);
+    sourceBrief = await processSourceInput(mode as Parameters<typeof processSourceInput>[0], resolvedTopic, sourceText);
   }
 
-  const selectedLinks = await selectLinks(topic);
-  const blueprint = await generateBlueprint(topic, selectedLinks, sourceBrief, strategy);
-  const content = await generateBlogContent(topic, blueprint, selectedLinks, sourceBrief, strategy);
+  const selectedLinks = await selectLinks(resolvedTopic);
+  const blueprint = await generateBlueprint(resolvedTopic, selectedLinks, sourceBrief, strategy, customInstruction);
+  const content = await generateBlogContent(resolvedTopic, blueprint, selectedLinks, sourceBrief, strategy, customInstruction);
   const imagePrompts = await generateImagePrompts(topic, content);
 
   const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
@@ -75,7 +98,7 @@ async function processOneItem(
     generateImage(imagePrompts.featured_img_prompt),
   ]);
 
-  const fileSlug = topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
+  const fileSlug = resolvedTopic.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
   const [kp1Media, kp2Media, splitMedia, featuredMedia] = await Promise.all([
     uploadImageToWordPress(kp1Buffer, `${fileSlug}-kp1.png`, imagePrompts.keypoint_one_img_alt),
     uploadImageToWordPress(kp2Buffer, `${fileSlug}-kp2.png`, imagePrompts.keypoint_two_img_alt),
@@ -106,7 +129,7 @@ async function processOneItem(
     more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
   };
 
-  const post = await createWordPressPost(topic, content, imagePrompts, assembled, imageIds);
+  const post = await createWordPressPost(resolvedTopic, content, imagePrompts, assembled, imageIds);
 
   await updateQueueItem(itemId, {
     status: "completed",
@@ -178,11 +201,12 @@ export async function GET(req: NextRequest) {
 
       try {
         const result = await processOneItem(item.id, item.topic, item.mode, item.sourceText, settings, {
-          audience:           item.audience,
-          primary_country:    item.primary_country,
+          audience:            item.audience,
+          primary_country:     item.primary_country,
           secondary_countries: item.secondary_countries,
-          priority_service:   item.priority_service,
-          language:           item.language,
+          priority_service:    item.priority_service,
+          language:            item.language,
+          customPrompt:        item.customPrompt,
         });
         run.topicsCompleted++;
         console.log(`[cron] Item ${item.id} completed — WP post ${result.postId}, QA ${result.qaScore}/100`);

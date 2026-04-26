@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
       secondary_countries = "",
       priority_service = "",
       language = "",
+      customPrompt = "",
     }: {
       topic: string;
       mode: GenerationMode;
@@ -86,10 +87,13 @@ export async function POST(req: NextRequest) {
       secondary_countries: string;
       priority_service: string;
       language: string;
+      customPrompt: string;
     } = body;
 
-    if (!topic?.trim()) {
-      return NextResponse.json({ error: "topic is required" }, { status: 400 });
+    const hasTopic = !!topic?.trim();
+    const hasCustomPrompt = customPrompt?.trim().length >= 10;
+    if (!hasTopic && !hasCustomPrompt) {
+      return NextResponse.json({ error: "topic or customPrompt (min 10 chars) is required" }, { status: 400 });
     }
     if (!audience?.trim()) {
       return NextResponse.json({ error: "audience is required" }, { status: 400 });
@@ -102,11 +106,12 @@ export async function POST(req: NextRequest) {
     }
 
     const item = await addQueueItem(topic.trim(), mode, sourceText, priority, {
-      audience: audience || undefined,
-      primary_country: primary_country || undefined,
+      audience:            audience || undefined,
+      primary_country:     primary_country || undefined,
       secondary_countries: secondary_countries || undefined,
-      priority_service: priority_service || undefined,
-      language: language || undefined,
+      priority_service:    priority_service || undefined,
+      language:            language || undefined,
+      customPrompt:        customPrompt.trim() || undefined,
     });
     console.log(`[queue:POST] Added item ${item.id}: "${item.topic}" (mode: ${mode}, priority: ${priority})`);
     return NextResponse.json({ item }, { status: 201 });
