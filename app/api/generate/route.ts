@@ -158,7 +158,7 @@ export async function POST(req: NextRequest) {
 
     // ── 4. Select relevant links ─────────────────────────
     console.log(`[generate] Starting for title: "${title}"`);
-    const selectedLinks = await selectLinks(title);
+    const selectedLinks = await selectLinks(title, language || undefined);
     console.log(
       `[generate] Selected ${selectedLinks.internal.length} internal + ${selectedLinks.external.length} external links`
     );

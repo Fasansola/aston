@@ -44,12 +44,21 @@ function scoreLinkForTopic(link: LinkEntry, topic: string): number {
 
 /**
  * Select the most relevant internal and external links for a topic.
- * Returns structured link objects ready to be injected into the prompt.
+ * When a language code is provided, internal links are filtered to only
+ * include links tagged with that language OR with no language tag (legacy/untagged).
+ * External links are never filtered by language.
  */
-export async function selectLinks(topic: string): Promise<SelectedLinks> {
+export async function selectLinks(topic: string, language?: string): Promise<SelectedLinks> {
   const all = await getLinks();
 
-  const activeInternal = all.filter((l) => l.type === "internal" && l.status === "active");
+  const lang = language?.trim().toLowerCase() || undefined;
+
+  const allInternal = all.filter((l) => l.type === "internal" && l.status === "active");
+  // If a language is specified, prefer links that match it or have no language tag.
+  const activeInternal = lang
+    ? allInternal.filter((l) => !l.language || l.language.toLowerCase() === lang)
+    : allInternal;
+
   const activeExternal = all.filter((l) => l.type === "external" && l.status === "active");
 
   // Score every internal link

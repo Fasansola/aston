@@ -111,6 +111,32 @@ interface WpPost {
   title: { rendered: string };
   categories: number[];
   meta: { _yoast_wpseo_focuskw?: string };
+  lang?: string; // Polylang adds this field — ISO 639-1 code e.g. "en", "fr"
+}
+
+/**
+ * Detect the language code for a post.
+ * 1. Use Polylang's `lang` field if present on the post object.
+ * 2. Fall back to URL pattern: /language/{code}/ or /{code}/ prefix.
+ * 3. If nothing matches, return undefined (treated as default/all languages).
+ */
+function detectLanguage(post: WpPost): string | undefined {
+  if (post.lang?.trim()) return post.lang.trim().toLowerCase();
+
+  // URL-based detection — Polylang directory method variants
+  const url = post.link;
+  const langDirMatch = url.match(/\/language\/([a-z]{2,5})\//i);
+  if (langDirMatch) return langDirMatch[1].toLowerCase();
+
+  const prefixMatch = url.match(/https?:\/\/[^/]+\/([a-z]{2,5})\//i);
+  if (prefixMatch) {
+    const candidate = prefixMatch[1].toLowerCase();
+    // Exclude common path segments that are not language codes
+    const NOT_LANG = new Set(["wp", "api", "wp-json", "wp-admin", "wp-content", "category", "tag", "page"]);
+    if (!NOT_LANG.has(candidate) && candidate.length <= 5) return candidate;
+  }
+
+  return undefined;
 }
 
 export async function POST(req: NextRequest) {
@@ -158,6 +184,8 @@ export async function POST(req: NextRequest) {
         anchors.push(focusKw);
       }
 
+      const language = detectLanguage(post);
+
       newLinks.push({
         id:       `wp_${post.id}`,
         url:      post.link, // keep trailing slash consistent with WP
@@ -167,6 +195,7 @@ export async function POST(req: NextRequest) {
         keywords,
         anchors,
         status:   "active",
+        ...(language ? { language } : {}),
       });
 
       existingUrls.add(normalised);

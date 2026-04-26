@@ -86,7 +86,7 @@ async function processOneItem(
     sourceBrief = await processSourceInput(mode as Parameters<typeof processSourceInput>[0], resolvedTopic, sourceText);
   }
 
-  const selectedLinks = await selectLinks(resolvedTopic);
+  const selectedLinks = await selectLinks(resolvedTopic, strategyInputs?.language);
   const blueprint = await generateBlueprint(resolvedTopic, selectedLinks, sourceBrief, strategy, customInstruction);
   const content = await generateBlogContent(resolvedTopic, blueprint, selectedLinks, sourceBrief, strategy, customInstruction);
   const imagePrompts = await generateImagePrompts(topic, content);

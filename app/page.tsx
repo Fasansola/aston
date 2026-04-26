@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { LinkValidationResult, LinkIssue } from "@/lib/linkValidator";
 import type { ReadinessResult, ReadinessSubscore, ReadinessIssue } from "@/lib/readinessValidator";
 
@@ -632,6 +632,14 @@ export default function HomePage() {
   const [secondaryCountries, setSecondaryCountries] = useState("");
   const [priorityService, setPriorityService]       = useState("");
   const [language, setLanguage]                     = useState("");
+  const [siteLanguages, setSiteLanguages]           = useState<{ code: string; name: string }[]>([]);
+
+  useEffect(() => {
+    fetch(`/api/links/languages?secret=${encodeURIComponent(process.env.NEXT_PUBLIC_API_SECRET ?? "")}`)
+      .then(r => r.json())
+      .then(d => { if (d.languages) setSiteLanguages(d.languages); })
+      .catch(() => {});
+  }, []);
 
   // Link validation
   const [linkValidationStatus, setLinkValidationStatus] = useState<LinkValidationStatus>("idle");
@@ -1081,13 +1089,16 @@ export default function HomePage() {
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs text-white/35 mb-1.5">Language</label>
-                        <input
-                          type="text"
+                        <select
                           value={language}
                           onChange={(e) => setLanguage(e.target.value)}
-                          placeholder="Leave blank for British English — or enter e.g. German, Spanish"
-                          className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/40 transition-colors"
-                        />
+                          className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40 transition-colors appearance-none"
+                        >
+                          <option value="" className="bg-[#1a1a1a]">Default (British English)</option>
+                          {siteLanguages.map(l => (
+                            <option key={l.code} value={l.code} className="bg-[#1a1a1a]">{l.name} ({l.code})</option>
+                          ))}
+                        </select>
                       </div>
                     </div>
                   </div>

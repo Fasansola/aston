@@ -78,6 +78,7 @@ export interface LinkEntry {
   keywords: string[];
   anchors: string[];
   status: "active" | "inactive";
+  language?: string; // ISO 639-1 code e.g. "en", "fr", "de" — blank means usable for all languages
 }
 
 // ── Topic Planner types ───────────────────────────────────────

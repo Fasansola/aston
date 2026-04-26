@@ -33,6 +33,7 @@ interface RunLog {
 interface LinkEntry {
   id: string; url: string; title: string; type: "internal" | "external";
   category: string; keywords: string[]; anchors: string[]; status: "active" | "inactive";
+  language?: string;
 }
 interface TopicPlan {
   id: string; topic: string; focusKeyword: string; cluster: string;
@@ -272,7 +273,8 @@ export default function AdminPage() {
   const [confirmTopicId, setConfirmTopicId] = useState<string | null>(null);
 
   const [links, setLinks]         = useState<LinkEntry[]>([]);
-  const [lForm, setLForm]         = useState({ url: "", title: "", type: "internal" as "internal"|"external", category: "", keywords: "", anchors: "", status: "active" as "active"|"inactive" });
+  const [lForm, setLForm]         = useState({ url: "", title: "", type: "internal" as "internal"|"external", category: "", keywords: "", anchors: "", status: "active" as "active"|"inactive", language: "" });
+  const [siteLanguages, setSiteLanguages] = useState<{ code: string; name: string; isDefault: boolean }[]>([]);
   const [addingLink, setAddingLink] = useState(false);
   const [editingLink, setEditingLink] = useState<LinkEntry | null>(null);
   const [confirmLinkId, setConfirmLinkId] = useState<string | null>(null);
@@ -351,6 +353,10 @@ export default function AdminPage() {
         fetchLinks(s).catch(console.error),
         fetchPerformance(s).catch(console.error),
         fetchPublishQueue(s),
+        fetch(`/api/links/languages?secret=${encodeURIComponent(s)}`)
+          .then(r => r.json())
+          .then(d => { if (d.languages) setSiteLanguages(d.languages); })
+          .catch(console.error),
       ]);
     } finally { setLoading(false); }
   }, [fetchDashboard, fetchTopics, fetchLinks, fetchPerformance, fetchPublishQueue]);
@@ -446,7 +452,7 @@ export default function AdminPage() {
     setAddingLink(true);
     try {
       await fetch("/api/links", { method: "POST", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify({ ...lForm, keywords: lForm.keywords.split(",").map(s => s.trim()).filter(Boolean), anchors: lForm.anchors.split(",").map(s => s.trim()).filter(Boolean) }) });
-      setLForm({ url: "", title: "", type: "internal", category: "", keywords: "", anchors: "", status: "active" });
+      setLForm({ url: "", title: "", type: "internal", category: "", keywords: "", anchors: "", status: "active", language: "" });
       await fetchLinks(secret);
       showToast("Link added");
     } finally { setAddingLink(false); }
@@ -822,7 +828,10 @@ export default function AdminPage() {
                         </div>
                         <div>
                           <Label>Language</Label>
-                          <Input value={newLanguage} onChange={(e) => setNewLanguage(e.target.value)} placeholder="e.g. German" />
+                          <Select value={newLanguage} onChange={(e) => setNewLanguage(e.target.value)} className="w-full">
+                            <option value="">Default (British English)</option>
+                            {siteLanguages.map(l => <option key={l.code} value={l.code}>{l.name} ({l.code})</option>)}
+                          </Select>
                         </div>
                       </div>
                     )}
@@ -1108,7 +1117,10 @@ export default function AdminPage() {
                       </div>
                       <div>
                         <Label>Language</Label>
-                        <Input value={tForm.language} onChange={(e) => setTForm({ ...tForm, language: e.target.value })} placeholder="e.g. English" />
+                        <Select value={tForm.language} onChange={(e) => setTForm({ ...tForm, language: e.target.value })} className="w-full">
+                          <option value="">Default (British English)</option>
+                          {siteLanguages.map(l => <option key={l.code} value={l.code}>{l.name} ({l.code})</option>)}
+                        </Select>
                       </div>
                     </div>
                   </div>
@@ -1232,6 +1244,13 @@ export default function AdminPage() {
                           </Select>
                         </div>
                         <div>
+                          <Label>Language</Label>
+                          <Select value={editingLink.language ?? ""} onChange={(e) => setEditingLink({ ...editingLink, language: e.target.value || undefined })} className="w-full">
+                            <option value="">All languages</option>
+                            {siteLanguages.map(l => <option key={l.code} value={l.code}>{l.name} ({l.code})</option>)}
+                          </Select>
+                        </div>
+                        <div>
                           <Label>Status</Label>
                           <Select value={editingLink.status} onChange={(e) => setEditingLink({ ...editingLink, status: e.target.value as "active"|"inactive" })} className="w-full">
                             <option value="active">Active</option>
@@ -1274,6 +1293,13 @@ export default function AdminPage() {
                             <option value="external">External</option>
                           </Select>
                         </div>
+                        <div>
+                          <Label>Language</Label>
+                          <Select value={lForm.language} onChange={(e) => setLForm({ ...lForm, language: e.target.value })} className="w-full">
+                            <option value="">All languages</option>
+                            {siteLanguages.map(l => <option key={l.code} value={l.code}>{l.name} ({l.code})</option>)}
+                          </Select>
+                        </div>
                       </div>
                       <Btn variant="primary" onClick={addLink} disabled={addingLink || !lForm.url.trim() || !lForm.title.trim()}>
                         {addingLink ? <><Spinner /> Adding…</> : <>{I.plus} Add link</>}
@@ -1295,6 +1321,7 @@ export default function AdminPage() {
                           <th className="px-5 py-3 text-left">Title</th>
                           <th className="px-5 py-3 text-left">URL</th>
                           <th className="px-5 py-3 text-left">Type</th>
+                          <th className="px-5 py-3 text-left">Language</th>
                           <th className="px-5 py-3 text-left">Category</th>
                           <th className="px-5 py-3 text-left">Keywords</th>
                           <th className="px-5 py-3 text-center">Status</th>
@@ -1312,6 +1339,11 @@ export default function AdminPage() {
                             </td>
                             <td className="px-5 py-4">
                               <Badge className={l.type === "internal" ? "bg-blue-50 text-blue-700 ring-blue-600/20" : "bg-violet-50 text-violet-700 ring-violet-600/20"}>{l.type}</Badge>
+                            </td>
+                            <td className="px-5 py-4 text-xs text-gray-600 font-medium uppercase tracking-wide">
+                              {l.language
+                                ? <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded font-semibold">{l.language}</span>
+                                : <span className="text-gray-300">—</span>}
                             </td>
                             <td className="px-5 py-4 text-xs text-gray-500">{l.category || <span className="text-gray-300">—</span>}</td>
                             <td className="px-5 py-4 text-xs text-gray-500 max-w-[160px] truncate" title={l.keywords.join(", ")}>{l.keywords.join(", ") || <span className="text-gray-300">—</span>}</td>

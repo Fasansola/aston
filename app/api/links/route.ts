@@ -64,7 +64,7 @@ export async function PATCH(req: NextRequest) {
     const { id, ...updates } = body;
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
-    const allowed = ["url", "title", "type", "category", "keywords", "anchors", "status"];
+    const allowed = ["url", "title", "type", "category", "keywords", "anchors", "status", "language"];
     const safeUpdates = Object.fromEntries(
       Object.entries(updates).filter(([k]) => allowed.includes(k))
     );
