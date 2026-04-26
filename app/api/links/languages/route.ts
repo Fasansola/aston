@@ -6,20 +6,15 @@
  * REST API (/wp-json/pll/v1/languages). Used to populate language dropdowns
  * in the UI without hardcoding language options.
  *
+ * No auth required — language names/codes are not sensitive.
+ *
  * Returns: { languages: Array<{ code: string; name: string; locale: string }> }
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import axios from "axios";
 
 export const revalidate = 3600; // cache for 1 hour at the CDN layer
-
-function authOk(req: NextRequest): boolean {
-  const secret =
-    req.headers.get("x-api-secret") ??
-    new URL(req.url).searchParams.get("secret");
-  return secret === process.env.API_SECRET;
-}
 
 export interface SiteLanguage {
   code: string;   // ISO 639-1 e.g. "en", "fr", "de"
@@ -28,11 +23,7 @@ export interface SiteLanguage {
   isDefault: boolean;
 }
 
-export async function GET(req: NextRequest) {
-  if (!authOk(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export async function GET() {
   const WP_URL      = process.env.WP_URL!;
   const WP_USERNAME = process.env.WP_USERNAME!;
   const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD!;

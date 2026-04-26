@@ -635,7 +635,7 @@ export default function HomePage() {
   const [siteLanguages, setSiteLanguages]           = useState<{ code: string; name: string }[]>([]);
 
   useEffect(() => {
-    fetch(`/api/links/languages?secret=${encodeURIComponent(process.env.NEXT_PUBLIC_API_SECRET ?? "")}`)
+    fetch("/api/links/languages")
       .then(r => r.json())
       .then(d => { if (d.languages) setSiteLanguages(d.languages); })
       .catch(() => {});
