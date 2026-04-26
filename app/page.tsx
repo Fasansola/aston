@@ -678,7 +678,7 @@ export default function HomePage() {
 
   const selectedMode = MODES.find((m) => m.id === mode)!;
   const needsSource  = mode !== "topic_only";
-  const canGenerate  = !!topic.trim() && !!audience.trim() && (!needsSource || !!sourceText.trim());
+  const canGenerate  = (!!topic.trim() || !!customPrompt.trim()) && !!audience.trim() && (!needsSource || !!sourceText.trim());
 
   const handleGenerate = async () => {
     if (!canGenerate || status === "loading") return;
@@ -978,9 +978,26 @@ export default function HomePage() {
                 </div>
               </div>
 
+              {/* Custom prompt */}
+              <div>
+                <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
+                  Custom prompt <span className="text-white/20 normal-case tracking-normal">(optional if topic set)</span>
+                </label>
+                <textarea
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  placeholder="e.g. I need a post about the German crypto market, what is legal and what is not, and how Aston VIP can help"
+                  rows={3}
+                  className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
+                />
+                <p className="text-white/20 text-xs mt-2">Use alone to let AI derive the title, or alongside a topic for extra guidance</p>
+              </div>
+
               {/* Topic */}
               <div>
-                <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">Blog Topic</label>
+                <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
+                  Blog topic <span className="text-white/20 normal-case tracking-normal">(optional if custom prompt set)</span>
+                </label>
                 <textarea
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
@@ -990,19 +1007,6 @@ export default function HomePage() {
                   onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
                 />
                 <p className="text-white/20 text-xs mt-2">Press ⌘ + Enter to generate</p>
-              </div>
-
-              {/* Custom prompt */}
-              <div>
-                <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">Custom instructions <span className="text-white/20 normal-case tracking-normal">(optional)</span></label>
-                <textarea
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                  placeholder="e.g. Focus on founders moving from the UK to Dubai. Emphasise nominee director services. Keep the tone advisory, not salesy."
-                  rows={3}
-                  className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
-                />
-                <p className="text-white/20 text-xs mt-2">Injected as high-priority guidance into the research, strategy, and writing steps</p>
               </div>
 
               {/* Audience — required */}

@@ -18,6 +18,57 @@ export interface ResearchBrief {
   seo_recommendations: string;
 }
 
+/**
+ * Given a freeform user prompt (no title provided), derive a single
+ * SEO-optimised article title and a clean topic string to drive the pipeline.
+ */
+export async function deriveTitle(
+  customPrompt: string,
+  primaryCountry?: string
+): Promise<{ title: string; topic: string }> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const contextLines = [
+    `User prompt: ${customPrompt}`,
+    primaryCountry ? `Primary jurisdiction: ${primaryCountry}` : "",
+  ].filter(Boolean).join("\n");
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      {
+        role: "system",
+        content: `You are an SEO strategist for Aston VIP, a high-end international corporate advisory firm. Given a freeform content request, derive the best possible SEO-optimised blog title and a clean topic phrase for the article. British English. No dashes in the title. Sentence case only.`,
+      },
+      {
+        role: "user",
+        content: `${contextLines}
+
+Return a JSON object. No markdown, no code fences.
+
+{
+  "title": "The exact article title — natural, clear, no dashes, sentence case, 6-12 words, SEO-optimised for the core subject",
+  "topic": "A short 3-6 word phrase summarising the core topic — used as input to the strategy engine"
+}`,
+      },
+    ],
+    temperature: 0.3,
+    max_completion_tokens: 200,
+  });
+
+  const raw = response.choices[0].message.content?.trim() ?? "";
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error(`No JSON found in deriveTitle response. Raw: ${raw.slice(0, 200)}`);
+  }
+
+  try {
+    return JSON.parse(jsonMatch[0]) as { title: string; topic: string };
+  } catch {
+    throw new Error(`deriveTitle returned invalid JSON. Raw: ${raw.slice(0, 200)}`);
+  }
+}
+
 export async function researchTopic(
   topic: string,
   primaryCountry?: string,

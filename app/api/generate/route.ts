@@ -31,7 +31,7 @@ import {
   processSourceInput,
 } from "@/lib/source";
 import { generateStrategy, StrategyBrief } from "@/lib/strategy";
-import { researchTopic, ResearchBrief } from "@/lib/research";
+import { researchTopic, deriveTitle, ResearchBrief } from "@/lib/research";
 
 // Research (~15s) + strategy (~40s) + content (~120s) + images (~60s).
 export const maxDuration = 300;
@@ -65,9 +65,12 @@ export async function POST(req: NextRequest) {
       customPrompt: string;
     } = body;
 
-    if (!topic || typeof topic !== "string" || topic.trim().length < 5) {
+    const hasTopic = topic && typeof topic === "string" && topic.trim().length >= 5;
+    const hasCustomPrompt = customPrompt && typeof customPrompt === "string" && customPrompt.trim().length >= 10;
+
+    if (!hasTopic && !hasCustomPrompt) {
       return NextResponse.json(
-        { error: "Please provide a valid topic (at least 5 characters)." },
+        { error: "Please provide a blog topic or a custom prompt (at least 10 characters)." },
         { status: 400 }
       );
     }
@@ -102,10 +105,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const title = topic.trim();
     const customInstruction = customPrompt.trim() || undefined;
 
-    // ── 2. Deep SEO research ─────────────────────────────
+    // ── 2. Derive title from custom prompt if no topic given ──
+    let title: string;
+    let strategyTopic: string;
+
+    if (hasTopic) {
+      title = topic.trim();
+      strategyTopic = title;
+    } else {
+      console.log("[generate] No topic provided — deriving SEO title from custom prompt...");
+      const derived = await deriveTitle(customInstruction!, primary_country || undefined);
+      title = derived.title;
+      strategyTopic = derived.topic;
+      console.log(`[generate] Derived title: "${title}" (topic: "${strategyTopic}")`);
+    }
+
+    // ── 3. Deep SEO research ─────────────────────────────
     console.log(`[generate] Running SEO research for: "${title}"`);
     let research: ResearchBrief | undefined;
     try {
@@ -115,10 +132,10 @@ export async function POST(req: NextRequest) {
       console.warn("[generate] Research step failed — continuing without SERP data:", err);
     }
 
-    // ── 3. Run strategy engine ───────────────────────────
-    console.log(`[generate] Running strategy engine for: "${title}"`);
+    // ── 4. Run strategy engine ───────────────────────────
+    console.log(`[generate] Running strategy engine for: "${strategyTopic}"`);
     const strategy: StrategyBrief = await generateStrategy({
-      topic: title,
+      topic: strategyTopic,
       audience:            audience || undefined,
       primary_country:     primary_country || undefined,
       secondary_countries: secondary_countries || undefined,
