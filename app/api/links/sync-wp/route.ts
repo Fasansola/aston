@@ -160,35 +160,43 @@ export async function POST(req: NextRequest) {
 
     console.log(`[sync-wp] Fetched ${allPosts.length} published posts across ${totalPages} pages`);
 
-    // ── Load existing links and build URL index ───────────────
+    // ── Load existing links and build indexes ────────────────
     const existing = await getLinks();
-    const existingUrls = new Set(existing.map((l) => l.url.replace(/\/$/, "").toLowerCase()));
+    const existingByUrl = new Map(
+      existing.map((l) => [l.url.replace(/\/$/, "").toLowerCase(), l])
+    );
 
-    // ── Convert WP posts → LinkEntry, skip duplicates ─────────
     const newLinks: LinkEntry[] = [];
+    let languagePatched = 0;
 
     for (const post of allPosts) {
-      // Normalise URL: use relative path to match existing link format
-      const fullUrl = post.link.replace(/\/$/, "");
+      const fullUrl   = post.link.replace(/\/$/, "");
       const normalised = fullUrl.toLowerCase();
+      const language  = detectLanguage(post);
 
-      if (existingUrls.has(normalised)) continue;
+      const existing_entry = existingByUrl.get(normalised);
 
-      const title       = post.title.rendered.replace(/<[^>]+>/g, "").trim();
-      const focusKw     = post.meta?._yoast_wpseo_focuskw?.trim() ?? "";
-      const keywords    = deriveKeywords(title, focusKw);
-      const category    = deriveCategory(post.categories ?? []);
-      // Anchors: cleaned title + focus keyword (if different)
-      const anchors = [title];
+      if (existing_entry) {
+        // Backfill language on existing links that were synced before this feature
+        if (language && !existing_entry.language) {
+          existing_entry.language = language;
+          languagePatched++;
+        }
+        continue;
+      }
+
+      const title    = post.title.rendered.replace(/<[^>]+>/g, "").trim();
+      const focusKw  = post.meta?._yoast_wpseo_focuskw?.trim() ?? "";
+      const keywords = deriveKeywords(title, focusKw);
+      const category = deriveCategory(post.categories ?? []);
+      const anchors  = [title];
       if (focusKw && focusKw.toLowerCase() !== title.toLowerCase()) {
         anchors.push(focusKw);
       }
 
-      const language = detectLanguage(post);
-
       newLinks.push({
         id:       `wp_${post.id}`,
-        url:      post.link, // keep trailing slash consistent with WP
+        url:      post.link,
         title,
         type:     "internal",
         category,
@@ -198,19 +206,20 @@ export async function POST(req: NextRequest) {
         ...(language ? { language } : {}),
       });
 
-      existingUrls.add(normalised);
+      existingByUrl.set(normalised, newLinks[newLinks.length - 1]);
     }
 
-    if (newLinks.length > 0) {
+    if (newLinks.length > 0 || languagePatched > 0) {
       await saveLinks([...existing, ...newLinks]);
     }
 
-    console.log(`[sync-wp] Added ${newLinks.length} new links (${allPosts.length - newLinks.length} already existed)`);
+    console.log(`[sync-wp] Added ${newLinks.length} new links, patched language on ${languagePatched} existing (${allPosts.length - newLinks.length} already existed)`);
 
     return NextResponse.json({
-      added:    newLinks.length,
-      skipped:  allPosts.length - newLinks.length,
-      total:    existing.length + newLinks.length,
+      added:           newLinks.length,
+      languagePatched,
+      skipped:         allPosts.length - newLinks.length - languagePatched,
+      total:           existing.length + newLinks.length,
     });
 
   } catch (err: unknown) {
