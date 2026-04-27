@@ -373,7 +373,7 @@ main_content (180-220 words):
 - Allowed HTML: <h3>, <h4>, <p>, <strong>, <em>
 
 keypoint_one:
-A single compelling sentence (max 25 words) from the key insight of main_content. Bold editorial statement. No em dashes. No question marks.
+A single compelling sentence (max 25 words) from the key insight of main_content. Plain text only — no markdown, no asterisks, no bold tags. No em dashes. No question marks.
 
 more_content_1:
 - Use EXACTLY this H3: "${blueprint.sections[0]?.h3_heading ?? ""}"
@@ -406,7 +406,7 @@ more_content_3:
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>
 
 keypoint_two:
-A single compelling sentence (max 25 words) from the key insight of more_content_3. Bold editorial statement. No em dashes. No question marks. Different from keypoint_one.
+A single compelling sentence (max 25 words) from the key insight of more_content_3. Plain text only — no markdown, no asterisks, no bold tags. No em dashes. No question marks. Different from keypoint_one.
 
 more_content_4:
 - Use EXACTLY this H3: "${blueprint.sections[3]?.h3_heading ?? "Aston VIP's role in your process"}"
