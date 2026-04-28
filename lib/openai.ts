@@ -513,28 +513,54 @@ export async function generateImagePrompts(
 ): Promise<ImagePrompts> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-  const strip = (html: string) =>
-    html.slice(0, 300).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  const strip = (html: string, len = 400) =>
+    html.slice(0, len).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
-  const userPrompt = `You have just written a blog post titled: "${title}"
+  const keywords = [content.focus_keyword, ...(content.secondary_keywords ?? [])].join(", ");
 
-Here is a summary of the four content sections that need images:
+  const userPrompt = `You are creating 4 distinct, topic-specific image prompts for a blog post.
 
-SECTION 1 (keypoint_one image — covers: ${strip(content.main_content)}...)
+ARTICLE TITLE: "${title}"
+FOCUS KEYWORD: "${content.focus_keyword}"
+KEY TOPICS: ${keywords}
 
-SECTION 2 (keypoint_two image — covers: ${strip(content.more_content_3)}...)
+SECTION CONTENT (use these to determine what each image should show):
 
-SECTION 3 (post split image — wide-angle architectural or setting image for the overall topic jurisdiction)
+IMAGE 1 — keypoint_one (illustrates the article introduction):
+"${strip(content.main_content)}"
 
-SECTION 4 (featured hero image — represents the entire article, wide-angle editorial feel with professionals)
+IMAGE 2 — keypoint_two (illustrates the mid-article insight):
+"${strip(content.more_content_3)}"
 
-Write 4 DALL·E image prompts. Each must:
-- Directly reference a scene from that section's actual content — no generic office photos
-- Apply Aston VIP visual style: clean corporate photography, bright and airy, natural daylight or soft indoor lighting, suited professionals (where included), modern glass buildings or high-end offices, neutral whites/warm greys/soft golds, no oversaturated colours
-- Never include: text, logos, watermarks, flags, clocks, screens with visible content
-- End with: "shot on Canon EOS R5, 35mm lens, sharp focus, high resolution, professional corporate photography, no text, no logos"
-- Location: UAE/DIFC/ADGM topics use Dubai settings. Non-UAE use relevant city. Mixed use neutral international office
-- 2-3 sentences maximum
+IMAGE 3 — post_split (illustrates the Aston VIP advisory/process section):
+"${strip(content.more_content_4)}"
+
+IMAGE 4 — featured hero (represents the full article topic — this must be the most specific and striking image, directly visualising "${content.focus_keyword}")
+
+TOPIC-TO-SCENE GUIDE — use this to pick the right setting for each image:
+- DIFC / DFSA → DIFC Gate building exterior, glass towers, financial district walkway
+- ADGM / Abu Dhabi → Al Maryah Island skyline, ADGM square glass towers, waterfront
+- VARA / crypto / virtual assets → clean minimalist tech office, abstract digital network nodes, server room with cool blue lighting — NO coins or currency symbols
+- UAE mainland / trade licence → modern Dubai business district, government service centre, document signing
+- Tax / corporate tax / VAT → financial documents spread on a desk, calculator, structured corporate paperwork
+- Banking / EMI / payment licence → modern private bank interior, vault corridor, payment terminal close-up
+- Company formation / incorporation → corporate seal, certificate of incorporation on a desk, handshake in a modern lobby
+- Offshore / Seychelles / BVI → tropical island aerial with clean blue water, corporate office contrast with island backdrop
+- Cyprus / EU jurisdiction → Limassol or Nicosia modern skyline, Mediterranean light, EU-style corporate building
+- Germany / Frankfurt / EU → Frankfurt banking district skyline, Commerzbank Tower area, glass and steel architecture
+- Holding company / structuring → layered corporate org chart visualised as glass building floors, abstract structure
+- Startups / founders → bright co-working space, whiteboard, young professionals collaborating
+- Golden Visa / residency → luxury Dubai apartment view, residence document, passport on a desk
+- General / mixed → neutral modern international office, floor-to-ceiling windows, city view below
+
+RULES FOR EVERY PROMPT:
+- Each image must visualise a DIFFERENT aspect of the topic — no two prompts should describe the same scene
+- Featured image must show the most striking, instantly recognisable visual for "${content.focus_keyword}"
+- Apply Aston VIP visual style: clean corporate photography, bright and airy, natural daylight or soft indoor lighting, neutral whites/warm greys/soft golds, no oversaturated colours
+- Suited professionals may be included but are not required — let the setting carry the topic where appropriate
+- Never include: text, logos, watermarks, flags, clocks, screens with visible content, coins, currency symbols
+- End every prompt with: "shot on Canon EOS R5, 35mm lens, sharp focus, high resolution, professional corporate photography, no text, no logos"
+- 2–3 sentences per prompt
 
 Return as a single valid JSON object. No markdown, no code fences:
 
@@ -550,10 +576,10 @@ Return as a single valid JSON object. No markdown, no code fences:
 }
 
 Alt text rules (SEO-optimised — all must be met):
-1. Describe exactly what is visually shown — specific scene, setting, and subject (e.g. "Two professionals reviewing documents in a DIFC glass office" not "business meeting")
-2. Include the article's focus keyword "${content.focus_keyword}" naturally in at least 2 of the 4 alt texts — weave it in as part of the description, never as a standalone tag at the end
-3. For the featured image alt text, always include the focus keyword
-4. 8–12 words per alt text — long enough to be descriptive, short enough to avoid stuffing
+1. Describe exactly what is visually shown — specific scene, setting, and subject (e.g. "DIFC Gate building entrance with suited adviser walking through glass doors" not "business meeting")
+2. Include the focus keyword "${content.focus_keyword}" naturally in at least 2 of the 4 alt texts
+3. Featured image alt text must always include the focus keyword
+4. 8–12 words per alt text — descriptive but not stuffed
 5. No full stops, no quotes, no HTML
 6. Never start with "image of" or "photo of" — start directly with the subject`;
 
