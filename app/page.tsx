@@ -1561,14 +1561,14 @@ export default function HomePage() {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
-                      Publishing…
+                      Sending to platforms…
                     </>
                   ) : (
                     <>
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
                       </svg>
-                      Publish to {Object.values(publishingTargets).filter((t) => t.enabled).length} target{Object.values(publishingTargets).filter((t) => t.enabled).length > 1 ? "s" : ""}
+                      Send to {Object.values(publishingTargets).filter((t) => t.enabled).length} platform{Object.values(publishingTargets).filter((t) => t.enabled).length > 1 ? "s" : ""} now
                     </>
                   )}
                 </button>
@@ -1578,21 +1578,28 @@ export default function HomePage() {
               {publishStatus === "done" && publishResults.length > 0 && (
                 <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden">
                   <div className="px-4 py-3 border-b border-white/[0.05]">
-                    <p className="text-xs font-medium text-white/60 uppercase tracking-wide">Publishing results</p>
+                    <p className="text-xs font-medium text-white/60 uppercase tracking-wide">Where your post was sent</p>
+                    <p className="text-[10px] text-white/25 mt-0.5">Results from sending the article to each selected platform</p>
                   </div>
                   <div className="divide-y divide-white/[0.04]">
                     {publishResults.map((r) => (
                       <div key={r.target} className="px-4 py-3 flex items-center gap-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-medium uppercase tracking-wide shrink-0 ${r.status === "passed" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" : r.status === "warning" ? "bg-amber-500/15 text-amber-400 border-amber-500/20" : "bg-red-500/15 text-red-400 border-red-500/20"}`}>
-                          {r.status}
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-medium shrink-0 ${r.status === "passed" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" : r.status === "warning" ? "bg-amber-500/15 text-amber-400 border-amber-500/20" : "bg-red-500/15 text-red-400 border-red-500/20"}`}>
+                          {r.status === "passed" ? "✓ Published" : r.status === "warning" ? "⚠ Published with warnings" : "✕ Failed"}
                         </span>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-white/70 font-medium capitalize">{r.target}</p>
-                          <p className="text-[10px] text-white/35 truncate">{r.message}</p>
+                          <p className="text-[10px] text-white/35 truncate">
+                            {r.status === "passed"
+                              ? r.message || "Post published successfully"
+                              : r.status === "warning"
+                              ? r.message || "Published but some settings may need attention"
+                              : r.message || "Something went wrong — check your platform credentials and try again"}
+                          </p>
                         </div>
                         {r.externalUrl && (
                           <a href={r.externalUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#C9A84C]/70 hover:text-[#C9A84C] transition-colors shrink-0">
-                            View →
+                            View post →
                           </a>
                         )}
                       </div>
@@ -1612,7 +1619,10 @@ export default function HomePage() {
                       <svg className="w-3.5 h-3.5 text-white/40" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      <p className="text-xs font-medium text-white/60">Queue for scheduled publishing</p>
+                      <div className="text-left">
+                        <p className="text-xs font-medium text-white/60">Schedule for later</p>
+                        <p className="text-[10px] text-white/25">Send to platforms at a specific time instead of right now</p>
+                      </div>
                     </div>
                     <svg className={`w-3 h-3 text-white/20 transition-transform ${showQueuePublish ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -1623,22 +1633,25 @@ export default function HomePage() {
                     <div className="px-4 pb-4 pt-1 border-t border-white/[0.05] space-y-3">
                       {queuePublishStatus === "added" ? (
                         <div className="flex items-center gap-2.5 py-2">
-                          <div className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
+                          <div className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
                             <svg className="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                             </svg>
                           </div>
-                          <p className="text-xs text-emerald-400">
-                            Added to publish queue — the hourly cron will dispatch it{queueScheduledFor ? ` after ${new Date(queueScheduledFor).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : " on the next run"}.
-                          </p>
+                          <div>
+                            <p className="text-xs text-emerald-400 font-medium">Scheduled successfully</p>
+                            <p className="text-[10px] text-white/30 mt-0.5">
+                              Your post will be sent to the selected platforms{queueScheduledFor ? ` on ${new Date(queueScheduledFor).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : " within the next hour"}.
+                            </p>
+                          </div>
                         </div>
                       ) : (
                         <>
                           <p className="text-[10px] text-white/25 leading-relaxed">
-                            The article will be dispatched to the {Object.values(publishingTargets).filter(t => t.enabled).length} selected target{Object.values(publishingTargets).filter(t => t.enabled).length > 1 ? "s" : ""} by the hourly cron. Leave the time blank to publish on the next run.
+                            Choose a date and time below, then click the button to schedule. Your post will automatically be sent to the {Object.values(publishingTargets).filter(t => t.enabled).length} selected platform{Object.values(publishingTargets).filter(t => t.enabled).length > 1 ? "s" : ""} at that time. Leave the time blank to send on the next automated run (within the hour).
                           </p>
                           <div>
-                            <label className="block text-[10px] text-white/30 mb-1.5">Publish after (optional)</label>
+                            <label className="block text-[10px] text-white/30 mb-1.5">Send at (optional)</label>
                             <input
                               type="datetime-local"
                               value={queueScheduledFor}
@@ -1647,7 +1660,12 @@ export default function HomePage() {
                             />
                           </div>
                           {queuePublishStatus === "error" && (
-                            <p className="text-xs text-red-400">Failed to add to queue — please try again.</p>
+                            <div className="flex items-center gap-2 rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2">
+                              <svg className="w-3.5 h-3.5 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                              </svg>
+                              <p className="text-xs text-red-400">Could not schedule — please check your connection and try again.</p>
+                            </div>
                           )}
                           <button
                             onClick={handleQueuePublish}
@@ -1660,14 +1678,14 @@ export default function HomePage() {
                                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                                 </svg>
-                                Adding…
+                                Scheduling…
                               </>
                             ) : (
                               <>
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
-                                Add to publish queue
+                                Schedule this post
                               </>
                             )}
                           </button>
