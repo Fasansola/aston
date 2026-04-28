@@ -87,12 +87,19 @@ seamless, hassle-free, empower, unlock the power of, cutting-edge, innovative so
  * The blueprint enforces consistent layout, correct word targets per section,
  * and specific headings/angles that the content generator must follow exactly.
  */
+const ENGLISH_LANG_CODES = new Set(["en", "en-gb", "en-us"]);
+
+function isNonEnglish(language?: string): boolean {
+  return !!language && !ENGLISH_LANG_CODES.has(language.toLowerCase());
+}
+
 export async function generateBlueprint(
   title: string,
   selectedLinks: SelectedLinks,
   sourceBrief?: SourceBrief,
   strategy?: StrategyBrief | null,
-  customPrompt?: string
+  customPrompt?: string,
+  language?: string
 ): Promise<Blueprint> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -119,9 +126,13 @@ STRATEGY BRIEF (use as source of truth for this blueprint):
     ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the blueprint):\n${customPrompt.trim()}\n`
     : "";
 
+  const languageBlock = isNonEnglish(language)
+    ? `\nTARGET LANGUAGE: ${language!.toUpperCase()} — MANDATORY OVERRIDE\nEvery field in this blueprint — seo_title, meta_description, focus_keyword, secondary_keywords, intro_angle, all h3_heading and h4_heading values, all angle descriptions, all faq_questions — MUST be written entirely in ${language}. No English words or phrases anywhere. The "UK English only" rule in the system prompt does NOT apply here. Write everything in ${language}.\n`
+    : "";
+
   const userPrompt = `Blog title: "${title}"
 Available link topics for context: ${linkCategories}
-${strategyBlock}${customPromptBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
+${languageBlock}${strategyBlock}${customPromptBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
 
 Plan the structure of this blog post and return it as a single valid JSON object. No markdown, no code fences:
 
@@ -314,8 +325,12 @@ ${subs}`;
     ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the entire article):\n${customPrompt.trim()}\n`
     : "";
 
+  const languageContentBlock = isNonEnglish(language)
+    ? `\nTARGET LANGUAGE: ${language!.toUpperCase()} — MANDATORY OVERRIDE\nThe ENTIRE article — every paragraph, every heading, every key takeaway, the excerpt, all quotes, and all SEO fields (seo_title, meta_description, focus_keyword) — MUST be written entirely in ${language}. No English words or phrases anywhere. The "UK English only" rule in the system prompt does NOT apply. Write everything in ${language}.\n`
+    : "";
+
   const userPrompt = `Blog title: "${title}"
-${strategyContentBlock}${customPromptContentBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
+${languageContentBlock}${strategyContentBlock}${customPromptContentBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
 You have already planned the structure. Now write the full article following the blueprint exactly.
 The headings, section angles, and word targets below are fixed — do not change them.
 

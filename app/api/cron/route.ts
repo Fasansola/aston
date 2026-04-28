@@ -87,7 +87,7 @@ async function processOneItem(
   }
 
   const selectedLinks = await selectLinks(resolvedTopic, strategyInputs?.language);
-  const blueprint = await generateBlueprint(resolvedTopic, selectedLinks, sourceBrief, strategy, customInstruction);
+  const blueprint = await generateBlueprint(resolvedTopic, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language);
 
   const MAX_ATTEMPTS = 3;
   const fileSlug = resolvedTopic.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);

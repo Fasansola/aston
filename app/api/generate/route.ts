@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
 
         // ── Links + blueprint (reused across QA retries) ──────
         const selectedLinks = await selectLinks(title, language || undefined);
-        const blueprint = await generateBlueprint(title, selectedLinks, sourceBrief, strategy, customInstruction);
+        const blueprint = await generateBlueprint(title, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined);
         console.log(`[generate] Blueprint ready. Keyword: "${blueprint.focus_keyword}"`);
 
         // ── QA retry loop ─────────────────────────────────────
