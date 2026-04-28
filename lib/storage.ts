@@ -47,6 +47,8 @@ export interface QueueItem {
   customPrompt?: string;
 }
 
+export type ImageModel = "imagen-4" | "gpt-image-1";
+
 export interface SchedulerSettings {
   enabled: boolean;
   blogsPerDay: number;
@@ -55,6 +57,7 @@ export interface SchedulerSettings {
   blockOnQaWarning: boolean;
   maxPerRun: number;
   runHour: number; // 0–23 UTC — cron fires hourly, only processes at this hour
+  imageModel: ImageModel;
 }
 
 export interface RunLog {
@@ -169,6 +172,7 @@ const DEFAULT_SETTINGS: SchedulerSettings = {
   blockOnQaWarning: false,
   maxPerRun: 1,
   runHour: 8,
+  imageModel: "imagen-4",
 };
 
 // ── Storage adapter ───────────────────────────────────────────

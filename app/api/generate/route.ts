@@ -17,7 +17,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { generateBlueprint, generateBlogContent, generateImagePrompts, generateImage } from "@/lib/openai";
+import { generateBlueprint, generateBlogContent, generateImagePrompts, generateImage, type ImageModel } from "@/lib/openai";
+import { getSettings } from "@/lib/storage";
 import { uploadImageToWordPress, createWordPressPost } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 import { runQA } from "@/lib/qa";
@@ -89,6 +90,8 @@ export async function POST(req: NextRequest) {
   }
 
   const customInstruction = (customPrompt as string).trim() || undefined;
+  const settings = await getSettings();
+  const imageModel: ImageModel = settings.imageModel ?? "imagen-4";
 
   // ── 2. Open SSE stream ────────────────────────────────────────
   const encoder = new TextEncoder();
@@ -172,12 +175,12 @@ export async function POST(req: NextRequest) {
           );
           const imagePrompts = await generateImagePrompts(title, content);
 
-          console.log("[generate] Generating images...");
+          console.log(`[generate] Generating images with ${imageModel}...`);
           const [kp1Buf, kp2Buf, splitBuf, featBuf] = await Promise.all([
-            generateImage(imagePrompts.keypoint_one_img_prompt),
-            generateImage(imagePrompts.keypoint_two_img_prompt),
-            generateImage(imagePrompts.post_split_img_prompt),
-            generateImage(imagePrompts.featured_img_prompt),
+            generateImage(imagePrompts.keypoint_one_img_prompt, imageModel),
+            generateImage(imagePrompts.keypoint_two_img_prompt, imageModel),
+            generateImage(imagePrompts.post_split_img_prompt, imageModel),
+            generateImage(imagePrompts.featured_img_prompt, imageModel),
           ]);
 
           const [kp1, kp2, split, feat] = await Promise.all([

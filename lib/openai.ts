@@ -616,13 +616,37 @@ Alt text rules (SEO-optimised — all must be met):
   }
 }
 
-// ── DALL·E 3 image generation ─────────────────────────────────
+// ── Image generation ──────────────────────────────────────────
+
+export type ImageModel = "imagen-4" | "gpt-image-1";
 
 /**
- * Generate an Imagen 3 image via Google AI Studio and return it as a Buffer.
- * Buffer avoids writing to disk — clean for serverless environments.
+ * Generate an image and return it as a Buffer.
+ * Supports Imagen 4 (Google AI Studio) and GPT-image-1 (OpenAI).
  */
-export async function generateImage(prompt: string): Promise<Buffer> {
+export async function generateImage(prompt: string, model: ImageModel = "imagen-4"): Promise<Buffer> {
+  if (model === "gpt-image-1") {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const response = await openai.images.generate({
+      model: "gpt-image-1",
+      prompt,
+      n: 1,
+      size: "1536x1024",
+    });
+
+    const b64 = response.data?.[0]?.b64_json;
+    if (b64) return Buffer.from(b64, "base64");
+
+    const url = response.data?.[0]?.url;
+    if (url) {
+      const res = await fetch(url);
+      return Buffer.from(await res.arrayBuffer());
+    }
+
+    throw new Error("GPT-image-1 returned no image data");
+  }
+
+  // Default: Imagen 4
   const { GoogleGenAI } = await import("@google/genai");
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -637,7 +661,7 @@ export async function generateImage(prompt: string): Promise<Buffer> {
   });
 
   const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
-  if (!imageBytes) throw new Error("Imagen 3 returned no image data");
+  if (!imageBytes) throw new Error("Imagen 4 returned no image data");
 
   return Buffer.from(imageBytes, "base64");
 }

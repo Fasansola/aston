@@ -24,7 +24,7 @@ import {
   updateRunLog,
 } from "@/lib/storage";
 import { selectLinks } from "@/lib/links";
-import { generateBlueprint, generateBlogContent, generateImagePrompts, generateImage } from "@/lib/openai";
+import { generateBlueprint, generateBlogContent, generateImagePrompts, generateImage, type ImageModel } from "@/lib/openai";
 import { uploadImageToWordPress, createWordPressPost } from "@/lib/wordpress";
 import { runQA } from "@/lib/qa";
 import { emptyBrief, processSourceInput, SourceBrief } from "@/lib/source";
@@ -43,7 +43,8 @@ async function processOneItem(
   mode: string,
   sourceText: string,
   settings: Awaited<ReturnType<typeof getSettings>>,
-  strategyInputs?: StrategyContext & { customPrompt?: string }
+  strategyInputs?: StrategyContext & { customPrompt?: string },
+  imageModel: ImageModel = "imagen-4"
 ) {
   const customInstruction = strategyInputs?.customPrompt?.trim() || undefined;
 
@@ -101,10 +102,10 @@ async function processOneItem(
     const imagePrompts = await generateImagePrompts(resolvedTopic, content);
 
     const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
-      generateImage(imagePrompts.keypoint_one_img_prompt),
-      generateImage(imagePrompts.keypoint_two_img_prompt),
-      generateImage(imagePrompts.post_split_img_prompt),
-      generateImage(imagePrompts.featured_img_prompt),
+      generateImage(imagePrompts.keypoint_one_img_prompt, imageModel),
+      generateImage(imagePrompts.keypoint_two_img_prompt, imageModel),
+      generateImage(imagePrompts.post_split_img_prompt, imageModel),
+      generateImage(imagePrompts.featured_img_prompt, imageModel),
     ]);
 
     const [kp1Media, kp2Media, splitMedia, featuredMedia] = await Promise.all([
@@ -229,7 +230,7 @@ export async function GET(req: NextRequest) {
             priority_service:    item.priority_service,
             language:            item.language,
             customPrompt:        item.customPrompt,
-          });
+          }, settings.imageModel ?? "imagen-4");
           run.topicsCompleted++;
           console.log(`[cron] Item ${item.id} completed — WP post ${result.postId}, QA ${result.qaScore}/100`);
           itemDone = true;
