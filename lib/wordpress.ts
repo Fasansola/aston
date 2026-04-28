@@ -172,6 +172,10 @@ export async function createWordPressPost(
 ) {
   validateContent(content, imagePrompts);
 
+  const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  const postTitle  = cap(title);
+  const seoTitle   = cap(content.seo_title);
+
   const categoryIds = pickCategories(content.focus_keyword, content.secondary_keywords ?? []);
   console.log(`[wordpress] Auto-assigned categories: [${categoryIds.join(", ")}] for keyword "${content.focus_keyword}"`);
 
@@ -181,7 +185,7 @@ export async function createWordPressPost(
       `${WP_URL}/wp-json/wp/v2/posts`,
       {
         // ── Standard WordPress fields ──────────────────────
-        title,
+        title:           postTitle,
         content: assembled.main_content,
         status: "draft",
         featured_media: imageIds.featuredImg,
@@ -192,11 +196,11 @@ export async function createWordPressPost(
         // ── SEO and Yoast ──────────────────────────────────
         meta: {
           _yoast_wpseo_focuskw:                content.focus_keyword,
-          _yoast_wpseo_title:                  content.seo_title,
+          _yoast_wpseo_title:                  seoTitle,
           _yoast_wpseo_metadesc:               content.meta_description,
-          "_yoast_wpseo_opengraph-title":       content.seo_title,
+          "_yoast_wpseo_opengraph-title":       seoTitle,
           "_yoast_wpseo_opengraph-description": content.meta_description,
-          "_yoast_wpseo_twitter-title":         content.seo_title,
+          "_yoast_wpseo_twitter-title":         seoTitle,
           "_yoast_wpseo_twitter-description":   content.meta_description,
         },
 
