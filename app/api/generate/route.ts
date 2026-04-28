@@ -170,138 +170,131 @@ export async function POST(req: NextRequest) {
       `[generate] Blueprint ready. Focus keyword: "${blueprint.focus_keyword}", ~${blueprint.estimated_word_count} words`
     );
 
-    // ── 6. Generate blog content from blueprint ───────────
-    const content = await generateBlogContent(title, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined);
-    console.log(
-      `[generate] Content ready. Slug: "${content.slug}", read: ${content.read_mins} min`
-    );
+    // ── 6–12. Content → images → QA → post (up to 3 attempts) ──
+    const MAX_ATTEMPTS = 3;
+    const fileSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
 
-    // ── 7. Generate content-aware image prompts ──────────
-    console.log("[generate] Generating image prompts from content...");
-    const imagePrompts = await generateImagePrompts(title, content);
-    console.log("[generate] Image prompts ready.");
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      if (attempt > 1) {
+        console.log(`[generate] Retrying content generation (attempt ${attempt}/${MAX_ATTEMPTS})...`);
+      }
 
-    // ── 8. Generate all 4 images in parallel ─────────────
-    console.log("[generate] Generating images with Imagen 3...");
-    const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
-      generateImage(imagePrompts.keypoint_one_img_prompt),
-      generateImage(imagePrompts.keypoint_two_img_prompt),
-      generateImage(imagePrompts.post_split_img_prompt),
-      generateImage(imagePrompts.featured_img_prompt),
-    ]);
-    console.log("[generate] Images generated.");
+      // ── 6. Generate blog content from blueprint ─────────
+      const content = await generateBlogContent(title, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined);
+      console.log(`[generate] Content ready (attempt ${attempt}). Slug: "${content.slug}", read: ${content.read_mins} min`);
 
-    // Build a URL-safe slug for media filenames
-    const fileSlug = title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .slice(0, 50);
+      // ── 7. Generate content-aware image prompts ──────────
+      const imagePrompts = await generateImagePrompts(title, content);
 
-    // ── 9. Upload images to WordPress ────────────────────
-    console.log("[generate] Uploading images to WordPress...");
-    const [kp1Media, kp2Media, splitMedia, featuredMedia] = await Promise.all([
-      uploadImageToWordPress(kp1Buffer, `${fileSlug}-kp1.png`, imagePrompts.keypoint_one_img_alt),
-      uploadImageToWordPress(kp2Buffer, `${fileSlug}-kp2.png`, imagePrompts.keypoint_two_img_alt),
-      uploadImageToWordPress(splitBuffer, `${fileSlug}-split.png`, imagePrompts.post_split_img_alt),
-      uploadImageToWordPress(featuredBuffer, `${fileSlug}-featured.png`, imagePrompts.featured_img_alt),
-    ]);
-    console.log(
-      `[generate] Images uploaded: ${kp1Media.id}, ${kp2Media.id}, ${splitMedia.id}, ${featuredMedia.id}`
-    );
+      // ── 8. Generate all 4 images in parallel ─────────────
+      console.log("[generate] Generating images with Imagen 3...");
+      const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
+        generateImage(imagePrompts.keypoint_one_img_prompt),
+        generateImage(imagePrompts.keypoint_two_img_prompt),
+        generateImage(imagePrompts.post_split_img_prompt),
+        generateImage(imagePrompts.featured_img_prompt),
+      ]);
 
-    const imageIds = {
-      keypointOneImg: kp1Media.id,
-      keypointTwoImg: kp2Media.id,
-      postSplitImg:   splitMedia.id,
-      featuredImg:    featuredMedia.id,
-    };
+      // ── 9. Upload images to WordPress ────────────────────
+      const [kp1Media, kp2Media, splitMedia, featuredMedia] = await Promise.all([
+        uploadImageToWordPress(kp1Buffer, `${fileSlug}-kp1.png`, imagePrompts.keypoint_one_img_alt),
+        uploadImageToWordPress(kp2Buffer, `${fileSlug}-kp2.png`, imagePrompts.keypoint_two_img_alt),
+        uploadImageToWordPress(splitBuffer, `${fileSlug}-split.png`, imagePrompts.post_split_img_alt),
+        uploadImageToWordPress(featuredBuffer, `${fileSlug}-featured.png`, imagePrompts.featured_img_alt),
+      ]);
+      console.log(`[generate] Images uploaded: ${kp1Media.id}, ${kp2Media.id}, ${splitMedia.id}, ${featuredMedia.id}`);
 
-    // ── 10. Run QA ────────────────────────────────────────
-    console.log("[generate] Running QA checks...");
-    const qa = runQA(content, imagePrompts, imageIds, title);
-    console.log(
-      `[generate] QA: ${qa.status.toUpperCase()} (score ${qa.score}/100, ${qa.wordCount} words)`
-    );
+      const imageIds = {
+        keypointOneImg: kp1Media.id,
+        keypointTwoImg: kp2Media.id,
+        postSplitImg:   splitMedia.id,
+        featuredImg:    featuredMedia.id,
+      };
 
-    if (qa.status === "fail") {
-      const issues = qa.blocking_issues.join("; ");
-      console.error(`[generate] QA FAIL — blocking issues: ${issues}`);
-      return NextResponse.json(
-        {
-          error: `Post failed QA checks. Blocking issues: ${issues}`,
-          qa,
+      // ── 10. Run QA ────────────────────────────────────────
+      const qa = runQA(content, imagePrompts, imageIds, title);
+      console.log(`[generate] QA attempt ${attempt}: ${qa.status.toUpperCase()} (score ${qa.score}/100, ${qa.wordCount} words)`);
+
+      if (qa.status === "fail") {
+        const issues = qa.blocking_issues.join("; ");
+        console.warn(`[generate] QA FAIL (attempt ${attempt}/${MAX_ATTEMPTS}) — ${issues}`);
+        if (attempt < MAX_ATTEMPTS) continue;
+        return NextResponse.json(
+          { error: `Post failed QA after ${MAX_ATTEMPTS} attempts. Blocking issues: ${issues}`, qa },
+          { status: 422 }
+        );
+      }
+
+      if (qa.warnings.length > 0) {
+        console.warn(`[generate] QA warnings: ${qa.warnings.join(" | ")}`);
+      }
+
+      // ── 11. Strip IMGSLOT placeholders (images handled by ACF) ─
+      const assembled = {
+        main_content:   content.main_content.replace("IMGSLOT_MAIN", ""),
+        more_content_1: content.more_content_1.replace("IMGSLOT_ONE", ""),
+        more_content_3: content.more_content_3.replace("IMGSLOT_TWO", ""),
+        more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
+      };
+
+      // ── 12. Create the WordPress post ────────────────────
+      console.log("[generate] Creating WordPress post...");
+      const post = await createWordPressPost(content.seo_title || title, content, imagePrompts, assembled, imageIds);
+      console.log(`[generate] Post created! ID: ${post.id}, slug: "${content.slug}"`);
+
+      // ── 13. Return success ────────────────────────────────
+      const articleHtml = [
+        content.key_takeaways,
+        assembled.main_content,
+        content.keypoint_one,
+        assembled.more_content_1,
+        content.more_content_2,
+        content.quote_1,
+        assembled.more_content_3,
+        content.keypoint_two,
+        assembled.more_content_4,
+        content.quote_2,
+        content.more_content_5,
+        content.more_content_6,
+        content.final_points,
+      ].filter(Boolean).join("\n");
+
+      return NextResponse.json({
+        success: true,
+        postId: post.id,
+        mode,
+        title,
+        slug: content.slug,
+        focusKeyword: content.focus_keyword,
+        seoTitle: content.seo_title,
+        readMins: content.read_mins,
+        wordCount: qa.wordCount,
+        qaAttempts: attempt,
+        strategy: {
+          searchIntentType: strategy.search_intent_type,
+          primaryKeyword: strategy.keyword_model.primary_keyword,
+          articleAngle: strategy.article_angle.slice(0, 200),
         },
-        { status: 422 }
-      );
+        qa: {
+          status: qa.status,
+          score: qa.score,
+          warnings: qa.warnings,
+        },
+        linksUsed: {
+          internal: content.internal_links_used,
+          external: content.external_links_used,
+        },
+        articleHtml,
+        excerpt:         content.excerpt,
+        metaDescription: content.meta_description,
+        tags:            content.secondary_keywords ?? [],
+        language:        language || null,
+        editUrl:    `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
+        previewUrl: post.link ?? null,
+      });
     }
 
-    if (qa.warnings.length > 0) {
-      console.warn(`[generate] QA warnings: ${qa.warnings.join(" | ")}`);
-    }
-
-    // ── 11. Strip IMGSLOT placeholders (images handled by ACF) ─
-    const assembled = {
-      main_content:   content.main_content.replace("IMGSLOT_MAIN", ""),
-      more_content_1: content.more_content_1.replace("IMGSLOT_ONE", ""),
-      more_content_3: content.more_content_3.replace("IMGSLOT_TWO", ""),
-      more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
-    };
-
-    // ── 12. Create the WordPress post ────────────────────
-    console.log("[generate] Creating WordPress post...");
-    const post = await createWordPressPost(content.seo_title || title, content, imagePrompts, assembled, imageIds);
-    console.log(`[generate] Post created! ID: ${post.id}, slug: "${content.slug}"`);
-
-    // ── 13. Return success ────────────────────────────────
-    // Assemble full article HTML for external platform publishing
-    const articleHtml = [
-      content.key_takeaways,
-      assembled.main_content,
-      content.keypoint_one,
-      assembled.more_content_1,
-      content.more_content_2,
-      content.quote_1,
-      assembled.more_content_3,
-      content.keypoint_two,
-      assembled.more_content_4,
-      content.quote_2,
-      content.more_content_5,
-      content.more_content_6,
-      content.final_points,
-    ].filter(Boolean).join("\n");
-
-    return NextResponse.json({
-      success: true,
-      postId: post.id,
-      mode,
-      title,
-      slug: content.slug,
-      focusKeyword: content.focus_keyword,
-      seoTitle: content.seo_title,
-      readMins: content.read_mins,
-      wordCount: qa.wordCount,
-      strategy: {
-        searchIntentType: strategy.search_intent_type,
-        primaryKeyword: strategy.keyword_model.primary_keyword,
-        articleAngle: strategy.article_angle.slice(0, 200),
-      },
-      qa: {
-        status: qa.status,
-        score: qa.score,
-        warnings: qa.warnings,
-      },
-      linksUsed: {
-        internal: content.internal_links_used,
-        external: content.external_links_used,
-      },
-      articleHtml,
-      excerpt:         content.excerpt,
-      metaDescription: content.meta_description,
-      tags:            content.secondary_keywords ?? [],
-      language:        language || null,
-      editUrl:    `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
-      previewUrl: post.link ?? null,
-    });
+    return NextResponse.json({ error: "Unexpected state after retry loop" }, { status: 500 });
 
   } catch (error: unknown) {
     console.error("[generate] Error:", error);

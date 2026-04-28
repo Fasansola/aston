@@ -88,61 +88,76 @@ async function processOneItem(
 
   const selectedLinks = await selectLinks(resolvedTopic, strategyInputs?.language);
   const blueprint = await generateBlueprint(resolvedTopic, selectedLinks, sourceBrief, strategy, customInstruction);
-  const content = await generateBlogContent(resolvedTopic, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language);
-  const imagePrompts = await generateImagePrompts(resolvedTopic, content);
 
-  const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
-    generateImage(imagePrompts.keypoint_one_img_prompt),
-    generateImage(imagePrompts.keypoint_two_img_prompt),
-    generateImage(imagePrompts.post_split_img_prompt),
-    generateImage(imagePrompts.featured_img_prompt),
-  ]);
-
+  const MAX_ATTEMPTS = 3;
   const fileSlug = resolvedTopic.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
-  const [kp1Media, kp2Media, splitMedia, featuredMedia] = await Promise.all([
-    uploadImageToWordPress(kp1Buffer, `${fileSlug}-kp1.png`, imagePrompts.keypoint_one_img_alt),
-    uploadImageToWordPress(kp2Buffer, `${fileSlug}-kp2.png`, imagePrompts.keypoint_two_img_alt),
-    uploadImageToWordPress(splitBuffer, `${fileSlug}-split.png`, imagePrompts.post_split_img_alt),
-    uploadImageToWordPress(featuredBuffer, `${fileSlug}-featured.png`, imagePrompts.featured_img_alt),
-  ]);
 
-  const imageIds = {
-    keypointOneImg: kp1Media.id,
-    keypointTwoImg: kp2Media.id,
-    postSplitImg:   splitMedia.id,
-    featuredImg:    featuredMedia.id,
-  };
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (attempt > 1) {
+      console.log(`[cron:item] QA failed — retrying content generation (attempt ${attempt}/${MAX_ATTEMPTS})...`);
+    }
 
-  const qa = runQA(content, imagePrompts, imageIds, resolvedTopic);
-  if (qa.status === "fail") {
-    throw new Error(`QA failed: ${qa.blocking_issues.join("; ")}`);
+    const content = await generateBlogContent(resolvedTopic, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language);
+    const imagePrompts = await generateImagePrompts(resolvedTopic, content);
+
+    const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
+      generateImage(imagePrompts.keypoint_one_img_prompt),
+      generateImage(imagePrompts.keypoint_two_img_prompt),
+      generateImage(imagePrompts.post_split_img_prompt),
+      generateImage(imagePrompts.featured_img_prompt),
+    ]);
+
+    const [kp1Media, kp2Media, splitMedia, featuredMedia] = await Promise.all([
+      uploadImageToWordPress(kp1Buffer, `${fileSlug}-kp1.png`, imagePrompts.keypoint_one_img_alt),
+      uploadImageToWordPress(kp2Buffer, `${fileSlug}-kp2.png`, imagePrompts.keypoint_two_img_alt),
+      uploadImageToWordPress(splitBuffer, `${fileSlug}-split.png`, imagePrompts.post_split_img_alt),
+      uploadImageToWordPress(featuredBuffer, `${fileSlug}-featured.png`, imagePrompts.featured_img_alt),
+    ]);
+
+    const imageIds = {
+      keypointOneImg: kp1Media.id,
+      keypointTwoImg: kp2Media.id,
+      postSplitImg:   splitMedia.id,
+      featuredImg:    featuredMedia.id,
+    };
+
+    const qa = runQA(content, imagePrompts, imageIds, resolvedTopic);
+    console.log(`[cron:item] QA attempt ${attempt}: ${qa.status.toUpperCase()} (score ${qa.score}/100)`);
+
+    if (qa.status === "fail") {
+      console.warn(`[cron:item] QA FAIL (attempt ${attempt}/${MAX_ATTEMPTS}) — ${qa.blocking_issues.join("; ")}`);
+      if (attempt < MAX_ATTEMPTS) continue;
+      throw new Error(`QA failed after ${MAX_ATTEMPTS} attempts: ${qa.blocking_issues.join("; ")}`);
+    }
+
+    if (settings.blockOnQaWarning && qa.status === "warn") {
+      throw new Error(`QA warnings blocked publish: ${qa.warnings.join("; ")}`);
+    }
+
+    const assembled = {
+      main_content:   content.main_content.replace("IMGSLOT_MAIN", ""),
+      more_content_1: content.more_content_1.replace("IMGSLOT_ONE", ""),
+      more_content_3: content.more_content_3.replace("IMGSLOT_TWO", ""),
+      more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
+    };
+
+    const post = await createWordPressPost(content.seo_title || resolvedTopic, content, imagePrompts, assembled, imageIds);
+
+    await updateQueueItem(itemId, {
+      status: "completed",
+      completedAt: new Date().toISOString(),
+      wpPostId: post.id,
+      wpEditUrl: `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
+      wpPostUrl: post.link ?? null,
+      qaScore: qa.score,
+      qaWarnings: qa.warnings,
+      lastError: null,
+    });
+
+    return { postId: post.id, qaScore: qa.score };
   }
 
-  if (settings.blockOnQaWarning && qa.status === "warn") {
-    throw new Error(`QA warnings blocked publish: ${qa.warnings.join("; ")}`);
-  }
-
-  const assembled = {
-    main_content:   content.main_content.replace("IMGSLOT_MAIN", ""),
-    more_content_1: content.more_content_1.replace("IMGSLOT_ONE", ""),
-    more_content_3: content.more_content_3.replace("IMGSLOT_TWO", ""),
-    more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
-  };
-
-  const post = await createWordPressPost(content.seo_title || resolvedTopic, content, imagePrompts, assembled, imageIds);
-
-  await updateQueueItem(itemId, {
-    status: "completed",
-    completedAt: new Date().toISOString(),
-    wpPostId: post.id,
-    wpEditUrl: `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
-    wpPostUrl: post.link ?? null,
-    qaScore: qa.score,
-    qaWarnings: qa.warnings,
-    lastError: null,
-  });
-
-  return { postId: post.id, qaScore: qa.score };
+  throw new Error("Unexpected state after QA retry loop");
 }
 
 export async function GET(req: NextRequest) {
