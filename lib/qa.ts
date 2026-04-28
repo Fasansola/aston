@@ -222,11 +222,11 @@ export function runQA(
   if (!checks.seo_title_length_ok)
     warnings.push(`SEO title is ${titleLen} chars (target 50–60)`);
 
-  // Meta description length (138–141 chars)
+  // Meta description length (130–141 chars)
   const metaLen = (content.meta_description ?? "").length;
-  checks.meta_description_length_ok = metaLen >= 138 && metaLen <= 141;
+  checks.meta_description_length_ok = metaLen >= 130 && metaLen <= 141;
   if (!checks.meta_description_length_ok)
-    warnings.push(`Meta description is ${metaLen} chars (target 138–141)`);
+    warnings.push(`Meta description is ${metaLen} chars (target 130–141, ideal 138–141)`);
 
   // Keypoints and quotes populated
   checks.keypoints_exist =

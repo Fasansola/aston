@@ -211,14 +211,14 @@ BLUEPRINT RULES:
   5. No site name, no pipes, no dashes, no question marks
   6. The title must read as one natural, direct phrase — not a list, not a sentence with a verb
 
-- meta_description: STRICT RULES — all must be met simultaneously:
-  1. Between 138 and 141 characters including spaces — count precisely before returning; you must hit this range exactly
+- meta_description: This appears verbatim on Google — it must be complete, punchy, and entice the reader to click. STRICT RULES — all must be met simultaneously:
+  1. Target 138–141 characters including spaces. Write a COMPLETE sentence or two that ends naturally — never mid-thought. Count characters before finalising and adjust wording (not truncate) until you land in range. If you cannot hit 138 without padding, 130–137 is acceptable. Never exceed 141.
   2. Place the exact focus keyword within the first 60 characters
-  3. State clearly what the reader gets from this article — a specific benefit (cost, timeline, process, comparison, or decision framework)
-  4. End with a soft CTA: "Learn how Aston VIP can help." or "Speak to our advisers today." or "Find out what applies to you."
-  5. Active voice, present tense, no passive constructions
+  3. Lead with the specific outcome or insight the reader gets — name a real number, jurisdiction, timeline, or comparison; no vague claims
+  4. End with a punchy, direct CTA that creates urgency or curiosity: "Aston VIP walks you through every step.", "Find out exactly what applies to your situation.", "Speak to our advisers before you commit." — vary it; do not repeat the same CTA across articles
+  5. Active voice, present tense — write as if talking to the reader directly
   6. Must not repeat the seo_title verbatim — complement it, do not duplicate it
-  7. Never use banned phrases: seamless, hassle-free, comprehensive, robust, tailored, one-stop
+  7. Never use: seamless, hassle-free, comprehensive, robust, tailored, one-stop, navigate, landscape, unlock, dive
 
 - slug: lowercase hyphenated only — STRICT RULES:
   1. Start with the exact focus keyword hyphenated (e.g. "UAE trade licence" → starts with "uae-trade-licence")
@@ -261,9 +261,6 @@ BLUEPRINT RULES:
 
   try {
     const parsed = JSON.parse(jsonMatch[0]) as Blueprint;
-    if (parsed.meta_description && parsed.meta_description.length > 128) {
-      parsed.meta_description = parsed.meta_description.slice(0, 141).replace(/\s+\S*$/, "");
-    }
     return parsed;
   } catch {
     throw new Error(
@@ -499,9 +496,6 @@ ${linksBlock}`;
 
   try {
     const parsed = JSON.parse(jsonMatch[0]) as BlogContent;
-    if (parsed.meta_description && parsed.meta_description.length > 128) {
-      parsed.meta_description = parsed.meta_description.slice(0, 141).replace(/\s+\S*$/, "");
-    }
     return parsed;
   } catch {
     throw new Error(`GPT returned invalid JSON. Raw: ${raw.slice(0, 200)}`);
