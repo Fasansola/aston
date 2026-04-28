@@ -212,7 +212,7 @@ BLUEPRINT RULES:
   6. The title must read as one natural, direct phrase — not a list, not a sentence with a verb
 
 - meta_description: STRICT RULES — all must be met simultaneously:
-  1. Maximum 128 characters including spaces — count precisely before returning; shorter is fine, longer is not
+  1. Maximum 141 characters including spaces — count precisely before returning; shorter is fine, longer is not
   2. Place the exact focus keyword within the first 60 characters
   3. State clearly what the reader gets from this article — a specific benefit (cost, timeline, process, comparison, or decision framework)
   4. End with a soft CTA: "Learn how Aston VIP can help." or "Speak to our advisers today." or "Find out what applies to you."
@@ -262,7 +262,7 @@ BLUEPRINT RULES:
   try {
     const parsed = JSON.parse(jsonMatch[0]) as Blueprint;
     if (parsed.meta_description && parsed.meta_description.length > 128) {
-      parsed.meta_description = parsed.meta_description.slice(0, 128).replace(/\s+\S*$/, "");
+      parsed.meta_description = parsed.meta_description.slice(0, 141).replace(/\s+\S*$/, "");
     }
     return parsed;
   } catch {
@@ -500,7 +500,7 @@ ${linksBlock}`;
   try {
     const parsed = JSON.parse(jsonMatch[0]) as BlogContent;
     if (parsed.meta_description && parsed.meta_description.length > 128) {
-      parsed.meta_description = parsed.meta_description.slice(0, 128).replace(/\s+\S*$/, "");
+      parsed.meta_description = parsed.meta_description.slice(0, 141).replace(/\s+\S*$/, "");
     }
     return parsed;
   } catch {
