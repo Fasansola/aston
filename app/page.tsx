@@ -634,6 +634,7 @@ export default function HomePage() {
   const [priorityService, setPriorityService]       = useState("");
   const [language, setLanguage]                     = useState("");
   const [siteLanguages, setSiteLanguages]           = useState<{ code: string; name: string }[]>([]);
+  const [imageModel, setImageModel]                 = useState<"imagen-4" | "gpt-image-1">("imagen-4");
 
   useEffect(() => {
     fetch("/api/links/languages")
@@ -712,6 +713,7 @@ export default function HomePage() {
           priority_service:    priorityService.trim() || undefined,
           language:            language.trim() || undefined,
           customPrompt:        customPrompt.trim() || undefined,
+          imageModel,
         }),
       });
 
@@ -1122,7 +1124,7 @@ export default function HomePage() {
                           className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/40 transition-colors"
                         />
                       </div>
-                      <div className="col-span-2">
+                      <div>
                         <label className="block text-xs text-white/35 mb-1.5">Language</label>
                         <select
                           value={language}
@@ -1133,6 +1135,17 @@ export default function HomePage() {
                           {siteLanguages.map(l => (
                             <option key={l.code} value={l.code} className="bg-[#1a1a1a]">{l.name} ({l.code})</option>
                           ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-white/35 mb-1.5">Image model</label>
+                        <select
+                          value={imageModel}
+                          onChange={(e) => setImageModel(e.target.value as "imagen-4" | "gpt-image-1")}
+                          className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40 transition-colors appearance-none"
+                        >
+                          <option value="imagen-4" className="bg-[#1a1a1a]">Imagen 4 (Google)</option>
+                          <option value="gpt-image-1" className="bg-[#1a1a1a]">GPT-image-1 (OpenAI)</option>
                         </select>
                       </div>
                     </div>

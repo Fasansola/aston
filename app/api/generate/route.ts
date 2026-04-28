@@ -53,11 +53,12 @@ export async function POST(req: NextRequest) {
     priority_service    = "",
     language     = "",
     customPrompt = "",
+    imageModel: bodyImageModel = "",
   } = body as {
     topic?: string; secret?: string; mode?: GenerationMode;
     sourceText?: string; audience?: string; primary_country?: string;
     secondary_countries?: string; priority_service?: string;
-    language?: string; customPrompt?: string;
+    language?: string; customPrompt?: string; imageModel?: string;
   };
 
   const hasTopic        = typeof topic === "string" && topic.trim().length >= 5;
@@ -91,7 +92,10 @@ export async function POST(req: NextRequest) {
 
   const customInstruction = (customPrompt as string).trim() || undefined;
   const settings = await getSettings();
-  const imageModel: ImageModel = settings.imageModel ?? "imagen-4";
+  const imageModel: ImageModel =
+    bodyImageModel === "gpt-image-1" ? "gpt-image-1" :
+    bodyImageModel === "imagen-4"    ? "imagen-4"    :
+    settings.imageModel ?? "imagen-4";
 
   // ── 2. Open SSE stream ────────────────────────────────────────
   const encoder = new TextEncoder();
