@@ -620,6 +620,7 @@ export default function HomePage() {
   const [sourceText, setSourceText] = useState("");
   const [status, setStatus]         = useState<Status>("idle");
   const [stepIndex, setStepIndex]   = useState(0);
+  const [retryMessage, setRetryMessage] = useState<string | null>(null);
   const [result, setResult]         = useState<GenerateResult | null>(null);
   const [error, setError]           = useState("");
 
@@ -693,6 +694,7 @@ export default function HomePage() {
     setStatus("loading");
     setResult(null);
     setError("");
+    setRetryMessage(null);
     const interval = startStepCycle();
 
     try {
@@ -713,25 +715,58 @@ export default function HomePage() {
         }),
       });
 
-      const data = await res.json();
-      clearInterval(interval);
-
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Generation failed. Please try again.");
+      // Validation errors (400/401) come back as plain JSON before the stream starts
+      if (!res.ok) {
+        let errMsg = "Generation failed. Please try again.";
+        try { errMsg = (await res.json()).error || errMsg; } catch { errMsg = await res.text().catch(() => errMsg); }
+        throw new Error(errMsg);
       }
 
-      setResult(data);
-      setStatus("success");
+      // Read SSE stream
+      const reader  = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let   buffer  = "";
 
-      // Auto-run link validation after generation (which then triggers readiness check)
-      if (data.linksUsed) {
-        runLinkValidation([
-          ...data.linksUsed.internal,
-          ...data.linksUsed.external,
-        ], data);
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+
+        for (const part of parts) {
+          const dataLine = part.split("\n").find(l => l.startsWith("data: "));
+          if (!dataLine) continue;
+          let event: Record<string, unknown>;
+          try { event = JSON.parse(dataLine.slice(6)); } catch { continue; }
+
+          if (event.type === "qa_retry") {
+            setRetryMessage(`QA check didn't pass — rewriting content (attempt ${event.attempt}/${event.max})...`);
+          } else if (event.type === "tech_retry") {
+            setRetryMessage(`Technical issue — retrying (attempt ${event.attempt}/${event.max})...`);
+          } else if (event.type === "done") {
+            clearInterval(interval);
+            setRetryMessage(null);
+            const data = event as unknown as GenerateResult;
+            setResult(data);
+            setStatus("success");
+            if ((event.linksUsed as GenerateResult["linksUsed"])) {
+              runLinkValidation([
+                ...(event.linksUsed as GenerateResult["linksUsed"]).internal,
+                ...(event.linksUsed as GenerateResult["linksUsed"]).external,
+              ], data);
+            }
+            return;
+          } else if (event.type === "error") {
+            throw new Error(String(event.message) || "Generation failed. Please try again.");
+          }
+        }
       }
     } catch (err: unknown) {
       clearInterval(interval);
+      setRetryMessage(null);
       setError(err instanceof Error ? err.message : "Something went wrong.");
       setStatus("error");
     }
@@ -1379,6 +1414,12 @@ export default function HomePage() {
                   </div>
                 ))}
               </div>
+              {retryMessage && (
+                <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg bg-[#C9A84C]/10 border border-[#C9A84C]/20">
+                  <div className="w-1.5 h-1.5 rounded-full bg-[#C9A84C] animate-pulse flex-shrink-0" />
+                  <p className="text-xs text-[#C9A84C]/80">{retryMessage}</p>
+                </div>
+              )}
               <p className="text-center text-white/20 text-xs">This takes about 3–4 minutes</p>
             </div>
           )}
