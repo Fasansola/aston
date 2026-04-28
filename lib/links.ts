@@ -48,52 +48,69 @@ function scoreLinkForTopic(link: LinkEntry, topic: string): number {
  * include links tagged with that language OR with no language tag (legacy/untagged).
  * External links are never filtered by language.
  */
+const ENGLISH_CODES = new Set(["en", "en-gb", "en-us"]);
+
 export async function selectLinks(topic: string, language?: string): Promise<SelectedLinks> {
   const all = await getLinks();
 
   const lang = language?.trim().toLowerCase() || undefined;
 
   const allInternal = all.filter((l) => l.type === "internal" && l.status === "active");
-  // If a language is specified, prefer links that match it or have no language tag.
-  const activeInternal = lang
-    ? allInternal.filter((l) => !l.language || l.language.toLowerCase() === lang)
-    : allInternal;
 
-  const activeExternal = all.filter((l) => l.type === "external" && l.status === "active");
+  // When a language is requested: primary pool = that language only.
+  // Fallback pool = English-tagged + untagged (legacy) links, used only if
+  // the primary pool can't fill the minimum slot count.
+  // When no language is requested: use all links with no separation.
+  let primaryPool: LinkEntry[];
+  let fallbackPool: LinkEntry[];
 
-  // Score every internal link
-  const scoredInternal = activeInternal
-    .map((link) => ({ link, score: scoreLinkForTopic(link, topic) }))
-    .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score);
+  if (lang) {
+    primaryPool  = allInternal.filter((l) => l.language?.toLowerCase() === lang);
+    const primaryUrls = new Set(primaryPool.map((l) => l.url));
+    fallbackPool = allInternal.filter(
+      (l) => !primaryUrls.has(l.url) && (!l.language || ENGLISH_CODES.has(l.language.toLowerCase()))
+    );
+  } else {
+    primaryPool  = allInternal;
+    fallbackPool = [];
+  }
 
-  // Pick top-scoring internal links — max 2 per category, up to 15 total
   const categoryCount = new Map<string, number>();
   const selectedInternal: SelectedLink[] = [];
 
-  for (const { link } of scoredInternal) {
-    if (selectedInternal.length >= 15) break;
-    const count = categoryCount.get(link.category) ?? 0;
-    if (count >= 2) continue;
+  function pickFromPool(pool: LinkEntry[], limit: number) {
+    const scored = pool
+      .map((link) => ({ link, score: scoreLinkForTopic(link, topic) }))
+      .sort((a, b) => b.score - a.score);
 
-    categoryCount.set(link.category, count + 1);
-    selectedInternal.push({ url: link.url, title: link.title, anchors: link.anchors });
-  }
+    // Scored first, then unscored, so relevance is preserved within the pool
+    const ordered = [
+      ...scored.filter(({ score }) => score > 0),
+      ...scored.filter(({ score }) => score === 0),
+    ];
 
-  // Backfill to 8 from unscored links, max 2 per category
-  if (selectedInternal.length < 8) {
     const usedUrls = new Set(selectedInternal.map((l) => l.url));
-    const unscored = activeInternal.filter((l) => !usedUrls.has(l.url));
-    for (const link of unscored) {
-      if (selectedInternal.length >= 8) break;
+    for (const { link } of ordered) {
+      if (selectedInternal.length >= limit) break;
+      if (usedUrls.has(link.url)) continue;
       const count = categoryCount.get(link.category) ?? 0;
       if (count >= 2) continue;
       categoryCount.set(link.category, count + 1);
       selectedInternal.push({ url: link.url, title: link.title, anchors: link.anchors });
+      usedUrls.add(link.url);
     }
   }
 
+  // Fill from primary language pool up to 15
+  pickFromPool(primaryPool, 15);
+
+  // If below 8, backfill from English/untagged fallback
+  if (selectedInternal.length < 8 && fallbackPool.length > 0) {
+    pickFromPool(fallbackPool, 8);
+  }
+
   // Score every external link — cap at 2
+  const activeExternal = all.filter((l) => l.type === "external" && l.status === "active");
   const selectedExternal: SelectedLink[] = activeExternal
     .map((link) => ({ link, score: scoreLinkForTopic(link, topic) }))
     .filter(({ score }) => score > 0)
