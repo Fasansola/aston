@@ -214,29 +214,46 @@ export async function GET(req: NextRequest) {
       await updateQueueItem(item.id, { status: "processing" });
       run.topicsAttempted++;
 
-      try {
-        const result = await processOneItem(item.id, item.topic, item.mode, item.sourceText, settings, {
-          audience:            item.audience,
-          primary_country:     item.primary_country,
-          secondary_countries: item.secondary_countries,
-          priority_service:    item.priority_service,
-          language:            item.language,
-          customPrompt:        item.customPrompt,
-        });
-        run.topicsCompleted++;
-        console.log(`[cron] Item ${item.id} completed — WP post ${result.postId}, QA ${result.qaScore}/100`);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Unknown error";
-        console.error(`[cron] Item ${item.id} failed: ${message}`);
+      const MAX_TECH_RETRIES = 3;
+      let itemDone = false;
 
-        const nextRetry = (item.retryCount ?? 0) + 1;
-        const maxRetries = settings.maxRetries ?? 2;
-        await updateQueueItem(item.id, {
-          status: nextRetry <= maxRetries ? "queued" : "failed",
-          retryCount: nextRetry,
-          lastError: message,
-        });
-        run.topicsFailed++;
+      for (let techAttempt = 1; techAttempt <= MAX_TECH_RETRIES; techAttempt++) {
+        if (techAttempt > 1) {
+          console.log(`[cron] Item ${item.id} — technical retry ${techAttempt}/${MAX_TECH_RETRIES}...`);
+        }
+        try {
+          const result = await processOneItem(item.id, item.topic, item.mode, item.sourceText, settings, {
+            audience:            item.audience,
+            primary_country:     item.primary_country,
+            secondary_countries: item.secondary_countries,
+            priority_service:    item.priority_service,
+            language:            item.language,
+            customPrompt:        item.customPrompt,
+          });
+          run.topicsCompleted++;
+          console.log(`[cron] Item ${item.id} completed — WP post ${result.postId}, QA ${result.qaScore}/100`);
+          itemDone = true;
+          break;
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : "Unknown error";
+          if (techAttempt < MAX_TECH_RETRIES) {
+            console.warn(`[cron] Item ${item.id} error (attempt ${techAttempt}/${MAX_TECH_RETRIES}), retrying: ${message}`);
+          } else {
+            console.error(`[cron] Item ${item.id} failed after ${MAX_TECH_RETRIES} attempts: ${message}`);
+            const nextRetry = (item.retryCount ?? 0) + 1;
+            const maxRetries = settings.maxRetries ?? 2;
+            await updateQueueItem(item.id, {
+              status: nextRetry <= maxRetries ? "queued" : "failed",
+              retryCount: nextRetry,
+              lastError: message,
+            });
+            run.topicsFailed++;
+          }
+        }
+      }
+
+      if (!itemDone) {
+        // already handled above — just ensures the outer loop variable is used
       }
     }
 

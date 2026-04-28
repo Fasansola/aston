@@ -38,74 +38,72 @@ export const maxDuration = 300;
 
 
 export async function POST(req: NextRequest) {
+  // ── 1. Parse + validate (never retried) ─────────────────
+  let body: Record<string, unknown>;
   try {
-    // ── 1. Validate request ──────────────────────────────
-    const body = await req.json();
-    const {
-      topic,
-      secret,
-      mode = "topic_only",
-      sourceText = "",
-      audience = "",
-      primary_country = "",
-      secondary_countries = "",
-      priority_service = "",
-      language = "",
-      customPrompt = "",
-    }: {
-      topic: string;
-      secret: string;
-      mode: GenerationMode;
-      sourceText: string;
-      audience: string;
-      primary_country: string;
-      secondary_countries: string;
-      priority_service: string;
-      language: string;
-      customPrompt: string;
-    } = body;
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
 
-    const hasTopic = topic && typeof topic === "string" && topic.trim().length >= 5;
-    const hasCustomPrompt = customPrompt && typeof customPrompt === "string" && customPrompt.trim().length >= 10;
+  const {
+    topic       = "",
+    secret      = "",
+    mode        = "topic_only",
+    sourceText  = "",
+    audience    = "",
+    primary_country     = "",
+    secondary_countries = "",
+    priority_service    = "",
+    language    = "",
+    customPrompt = "",
+  } = body as {
+    topic?: string; secret?: string; mode?: GenerationMode;
+    sourceText?: string; audience?: string; primary_country?: string;
+    secondary_countries?: string; priority_service?: string;
+    language?: string; customPrompt?: string;
+  };
 
-    if (!hasTopic && !hasCustomPrompt) {
-      return NextResponse.json(
-        { error: "Please provide a blog topic or a custom prompt (at least 10 characters)." },
-        { status: 400 }
-      );
+  const hasTopic       = typeof topic === "string" && topic.trim().length >= 5;
+  const hasCustomPrompt = typeof customPrompt === "string" && customPrompt.trim().length >= 10;
+
+  if (!hasTopic && !hasCustomPrompt) {
+    return NextResponse.json(
+      { error: "Please provide a blog topic or a custom prompt (at least 10 characters)." },
+      { status: 400 }
+    );
+  }
+  if (!audience?.trim()) {
+    return NextResponse.json({ error: "Please provide a target audience." }, { status: 400 });
+  }
+  if (secret !== process.env.API_SECRET) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  const validModes: GenerationMode[] = [
+    "topic_only", "source_assisted", "improve_existing", "notes_to_article",
+  ];
+  if (!validModes.includes(mode as GenerationMode)) {
+    return NextResponse.json({ error: "Invalid generation mode." }, { status: 400 });
+  }
+  if (mode !== "topic_only" && !sourceText?.trim()) {
+    return NextResponse.json(
+      { error: "Source text is required for this generation mode." },
+      { status: 400 }
+    );
+  }
+
+  const customInstruction = (customPrompt as string).trim() || undefined;
+
+  // ── 2–12. Pipeline — retried up to 3× on technical error ─
+  const MAX_TECH_RETRIES = 3;
+  let lastError: unknown;
+
+  for (let techAttempt = 1; techAttempt <= MAX_TECH_RETRIES; techAttempt++) {
+    if (techAttempt > 1) {
+      console.log(`[generate] Technical retry ${techAttempt}/${MAX_TECH_RETRIES}...`);
     }
-    if (!audience?.trim()) {
-      return NextResponse.json(
-        { error: "Please provide a target audience." },
-        { status: 400 }
-      );
-    }
-
-    if (secret !== process.env.API_SECRET) {
-      return NextResponse.json(
-        { error: "Unauthorized." },
-        { status: 401 }
-      );
-    }
-
-    const validModes: GenerationMode[] = [
-      "topic_only",
-      "source_assisted",
-      "improve_existing",
-      "notes_to_article",
-    ];
-    if (!validModes.includes(mode)) {
-      return NextResponse.json({ error: "Invalid generation mode." }, { status: 400 });
-    }
-
-    if (mode !== "topic_only" && !sourceText?.trim()) {
-      return NextResponse.json(
-        { error: "Source text is required for this generation mode." },
-        { status: 400 }
-      );
-    }
-
-    const customInstruction = customPrompt.trim() || undefined;
+  try {
 
     // ── 2. Derive title from custom prompt if no topic given ──
     let title: string;
@@ -294,19 +292,19 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ error: "Unexpected state after retry loop" }, { status: 500 });
+    return NextResponse.json({ error: "Unexpected state after QA retry loop" }, { status: 500 });
 
   } catch (error: unknown) {
-    console.error("[generate] Error:", error);
-
-    const message =
-      error instanceof Error ? error.message : "An unexpected error occurred.";
-
-    console.error(
-      "[generate] Full error:",
-      JSON.stringify(error, Object.getOwnPropertyNames(error))
-    );
-
-    return NextResponse.json({ error: message }, { status: 500 });
+    lastError = error;
+    const msg = error instanceof Error ? error.message : String(error);
+    if (techAttempt < MAX_TECH_RETRIES) {
+      console.warn(`[generate] Technical error (attempt ${techAttempt}/${MAX_TECH_RETRIES}), retrying: ${msg}`);
+    } else {
+      console.error(`[generate] All ${MAX_TECH_RETRIES} attempts failed: ${msg}`);
+    }
   }
+  } // end techAttempt loop
+
+  const message = lastError instanceof Error ? lastError.message : "An unexpected error occurred.";
+  return NextResponse.json({ error: message }, { status: 500 });
 }
