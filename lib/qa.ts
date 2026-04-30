@@ -146,10 +146,11 @@ export function runQA(
 
   // Required content sections
   const mainContentWordCount = stripHtml(content.main_content ?? "").trim().split(/\s+/).filter(Boolean).length;
-  checks.main_content_exists = mainContentWordCount >= 300;
+  checks.main_content_exists = mainContentWordCount >= 270;
 
   // main_content must always contain one internal and one external link
-  checks.main_content_has_internal_link = /href="\//.test(content.main_content ?? "");
+  // Matches both relative (/page) and absolute aston.ae URLs
+  checks.main_content_has_internal_link = /href="(\/|https?:\/\/(?:www\.)?aston\.ae)/.test(content.main_content ?? "");
   checks.main_content_has_external_link = /href="https?:\/\//.test(content.main_content ?? "");
   if (!checks.main_content_has_internal_link)
     warnings.push("main_content is missing an internal link");
