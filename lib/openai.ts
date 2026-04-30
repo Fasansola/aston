@@ -390,10 +390,11 @@ main_content (300-340 words — MINIMUM 300, count before submitting):
 - The focus keyword must appear in the first sentence of the first paragraph — not the second, not the third
 - Use the focus keyword 2–3 times naturally across the full intro (spread across different paragraphs)
 - Do NOT open with an H3. Start with a <p> tag
-- After the opening paragraph you may use H3/H4 for any subsections if needed
+- After the opening paragraph, you MUST include at least 2 H3 subheadings to break the text into scannable sections — do not write 300 words of unbroken paragraphs
 - Heading hierarchy: every H4 must sit under an H3. Never skip levels
 - End with a sentence that pulls the reader into what follows
 - LINKS (mandatory): embed exactly 1 internal link and exactly 1 external link naturally within the text — both must sit inside a sentence and support the point being made
+- SENTENCE LENGTH (mandatory): no sentence may exceed 20 words. If a sentence is running long, split it into two. This applies to every paragraph in this section
 - Allowed HTML: <h3>, <h4>, <p>, <strong>, <em>, <a>
 
 keypoint_one:
