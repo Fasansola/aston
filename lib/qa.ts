@@ -145,7 +145,16 @@ export function runQA(
   checks.excerpt_exists = !!content.excerpt?.trim();
 
   // Required content sections
-  checks.main_content_exists = (content.main_content?.length ?? 0) > 80;
+  const mainContentWordCount = stripHtml(content.main_content ?? "").trim().split(/\s+/).filter(Boolean).length;
+  checks.main_content_exists = mainContentWordCount >= 300;
+
+  // main_content must always contain one internal and one external link
+  checks.main_content_has_internal_link = /href="\//.test(content.main_content ?? "");
+  checks.main_content_has_external_link = /href="https?:\/\//.test(content.main_content ?? "");
+  if (!checks.main_content_has_internal_link)
+    warnings.push("main_content is missing an internal link");
+  if (!checks.main_content_has_external_link)
+    warnings.push("main_content is missing an external link");
   checks.key_takeaways_exists = !!content.key_takeaways?.trim();
   checks.more_content_5_exists = !!content.more_content_5?.trim();
   checks.final_points_exists = !!content.final_points?.trim();
@@ -284,6 +293,8 @@ export function runQA(
     "slug_exists",
     "excerpt_exists",
     "main_content_exists",
+    "main_content_has_internal_link",
+    "main_content_has_external_link",
     "key_takeaways_exists",
     "more_content_5_exists",
     "final_points_exists",

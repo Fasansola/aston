@@ -385,7 +385,7 @@ FIELD INSTRUCTIONS:
 excerpt:
 2-3 sentence plain-text excerpt for WordPress archive pages. No HTML. 40-60 words.
 
-main_content (180-220 words):
+main_content (300-340 words):
 - Open with the business problem or opportunity described in the intro angle: "${blueprint.intro_angle}"
 - The focus keyword must appear in the first sentence of the first paragraph — not the second, not the third
 - Use the focus keyword 2–3 times naturally across the full intro (spread across different paragraphs)
@@ -393,7 +393,8 @@ main_content (180-220 words):
 - After the opening paragraph you may use H3/H4 for any subsections if needed
 - Heading hierarchy: every H4 must sit under an H3. Never skip levels
 - End with a sentence that pulls the reader into what follows
-- Allowed HTML: <h3>, <h4>, <p>, <strong>, <em>
+- LINKS (mandatory): embed exactly 1 internal link and exactly 1 external link naturally within the text — both must sit inside a sentence and support the point being made
+- Allowed HTML: <h3>, <h4>, <p>, <strong>, <em>, <a>
 
 keypoint_one:
 A single compelling sentence (max 25 words) from the key insight of main_content. Plain text only — no markdown, no asterisks, no bold tags. No em dashes. No question marks.
