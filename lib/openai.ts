@@ -487,7 +487,7 @@ ${linksBlock}`;
       { role: "user", content: userPrompt },
     ],
     temperature: 0.6,
-    max_completion_tokens: 16000,
+    max_completion_tokens: 32000,
   });
 
   const choice = response.choices[0];
