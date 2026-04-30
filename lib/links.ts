@@ -154,6 +154,6 @@ LINK RULES:
 - Each link must sit naturally inside a sentence and support the point being made
 - Do not force irrelevant links into the text; relevance matters
 - Do not link the same URL more than twice across the full article
-- Write every internal link as HTML: <a href="/url">anchor text</a>
+- Write every internal link as HTML using the exact URL provided: <a href="https://aston.ae/page-slug/">anchor text</a>
 - In your JSON response, report every link used in "internal_links_used" and "external_links_used" arrays`;
 }
