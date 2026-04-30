@@ -898,6 +898,9 @@ export default function HomePage() {
           html: result.articleHtml,
           language: result.language,
           issues: readinessResult?.issues ?? [],
+          focusKeyword: result.focusKeyword,
+          title: result.title,
+          seoTitle: result.seoTitle,
         }),
       });
       const data = await res.json();
