@@ -639,6 +639,13 @@ export const IMAGE_QA_CHECKS = ["featured_image_exists", "section_images_exist",
 
 // Maps each QA check key → the BlogContent field(s) responsible
 const CHECK_TO_FIELDS: Record<string, string[]> = {
+  // Blocking — structural metadata
+  focus_keyword_exists:             ["focus_keyword"],
+  seo_title_exists:                 ["seo_title"],
+  meta_description_exists:          ["meta_description"],
+  slug_exists:                      ["slug"],
+  excerpt_exists:                   ["excerpt"],
+  // Blocking — content body
   main_content_exists:              ["main_content"],
   main_content_has_internal_link:   ["main_content"],
   main_content_has_external_link:   ["main_content"],
@@ -647,14 +654,32 @@ const CHECK_TO_FIELDS: Record<string, string[]> = {
   final_points_exists:              ["final_points"],
   cta_exists:                       ["more_content_4"],
   internal_links_sufficient:        ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_6"],
-  focus_keyword_in_intro:           ["main_content"],
-  meta_description_exists:          ["meta_description"],
   focus_keyword_in_title:           ["seo_title"],
+  // Non-blocking — keyword/SEO
+  focus_keyword_in_intro:           ["main_content"],
+  focus_keyword_in_heading:         ["main_content", "more_content_1"],
+  seo_title_length_ok:              ["seo_title"],
+  meta_description_length_ok:       ["meta_description"],
+  no_dashes_in_title:               ["seo_title"],
+  // Non-blocking — structure
+  word_count_in_range:              ["main_content", "more_content_1", "more_content_2", "more_content_3"],
+  h3_count_sufficient:              ["main_content", "more_content_1", "more_content_2", "more_content_3"],
+  h4_count_sufficient:              ["more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5"],
+  keypoints_exist:                  ["keypoint_one", "keypoint_two"],
+  quotes_exist:                     ["quote_1", "quote_2"],
+  external_links_present:           ["main_content", "more_content_1", "more_content_2"],
   no_banned_phrases:                ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
   no_colons_in_headings:            ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
 };
 
 const CHECK_DESCRIPTIONS: Record<string, string> = {
+  // Structural metadata
+  focus_keyword_exists:             "focus_keyword is empty — write a short, specific keyword phrase (3–5 words) that this article targets",
+  seo_title_exists:                 "seo_title is empty — write an SEO-optimised title (45–65 chars) containing the focus keyword",
+  meta_description_exists:          "meta_description is empty — write it (130–141 chars, contain focus keyword, end with a call to action)",
+  slug_exists:                      "slug is empty or invalid — write a lowercase hyphenated URL slug (only a-z, 0-9, hyphens; no spaces)",
+  excerpt_exists:                   "excerpt is empty — write a 1–2 sentence plain-text summary of the article (no HTML)",
+  // Content body
   main_content_exists:              "main_content is under 270 words — rewrite it to at least 300 words",
   main_content_has_internal_link:   "main_content has no internal link — embed exactly 1 internal link from the provided list",
   main_content_has_external_link:   "main_content has no external link — embed exactly 1 external link",
@@ -663,9 +688,20 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   final_points_exists:              "final_points is empty — write exactly 4 practical next steps",
   cta_exists:                       `more_content_4 is missing the contact CTA — end it with: <p>To discuss your situation, <a href="https://aston.ae/contact-us/">speak with our team</a>.</p>`,
   internal_links_sufficient:        "fewer than 7 internal links across the article — add more internal links from the provided list, spread across the listed sections",
-  focus_keyword_in_intro:           "focus keyword missing from the first paragraph of main_content — include it in the first sentence",
-  meta_description_exists:          "meta_description is empty — write it",
   focus_keyword_in_title:           "focus keyword not present in seo_title — rewrite the title to include it naturally",
+  // SEO/keyword
+  focus_keyword_in_intro:           "focus keyword missing from the first paragraph of main_content — include it in the first sentence",
+  focus_keyword_in_heading:         "focus keyword not found in any H2/H3 heading — naturally include it in at least one heading",
+  seo_title_length_ok:              "seo_title is outside 45–65 characters — rewrite to fit within this range while keeping the focus keyword",
+  meta_description_length_ok:       "meta_description is outside 130–141 characters — rewrite to land in this exact range",
+  no_dashes_in_title:               "seo_title contains a dash — rewrite the title without using dashes",
+  // Structure
+  word_count_in_range:              "total article word count is outside 1800–3500 words — expand thin sections or trim bloated ones",
+  h3_count_sufficient:              "fewer than 4 H3 subheadings in the article — add subheadings to break up long sections",
+  h4_count_sufficient:              "fewer than 6 H4 subheadings in the article — add H4 sub-points under existing H3 sections",
+  keypoints_exist:                  "one or both keypoint callout boxes are empty — write them",
+  quotes_exist:                     "one or both pull-quote fields are empty — write a compelling 1–2 sentence quote for each",
+  external_links_present:           "no external links found in the article body — embed at least 1 authoritative external link",
   no_banned_phrases:                "banned phrase(s) found in the article — identify and remove or replace them",
   no_colons_in_headings:            "colon found in one or more headings — rewrite those headings without colons",
 };
@@ -691,7 +727,12 @@ export async function fixBlogContent(
 
   const fieldsToFix = [...new Set(failedKeys.flatMap((k) => CHECK_TO_FIELDS[k] ?? []))];
 
-  if (fieldsToFix.length === 0) return previousContent;
+  // If no mapping found (unknown check key), there's nothing targeted to fix — skip silently
+  // rather than returning unchanged content, log and proceed with whatever fields we do have.
+  if (fieldsToFix.length === 0) {
+    console.warn(`[fixBlogContent] No field mappings found for failing checks: ${failedKeys.join(", ")} — skipping content fix`);
+    return previousContent;
+  }
 
   const linksBlock = formatLinksForPrompt(selectedLinks, language);
 
@@ -701,7 +742,7 @@ export async function fixBlogContent(
 
   const currentFieldsBlock = fieldsToFix
     .map((f) => {
-      const val = (previousContent as Record<string, unknown>)[f] as string ?? "";
+      const val = (previousContent as unknown as Record<string, unknown>)[f] as string ?? "";
       return `--- ${f} (current — needs fixing) ---\n${val || "(empty)"}`;
     })
     .join("\n\n");
@@ -764,7 +805,33 @@ The "internal_links_used" and "external_links_used" arrays must include ALL link
   if (!jsonMatch) throw new Error(`fixBlogContent: no JSON in response. Raw: ${raw.slice(0, 200)}`);
 
   const fixes = JSON.parse(jsonMatch[0]) as Partial<BlogContent>;
-  return { ...previousContent, ...fixes };
+
+  // Safe merge: only apply non-empty values from GPT so a truncated response
+  // can't wipe fields that were already good.
+  const safeUpdates: Partial<BlogContent> = {};
+  for (const [k, v] of Object.entries(fixes)) {
+    if (typeof v === "string" && v.trim()) {
+      safeUpdates[k as keyof BlogContent] = v as never;
+    } else if (Array.isArray(v) && v.length > 0) {
+      safeUpdates[k as keyof BlogContent] = v as never;
+    }
+  }
+
+  // Enforce meta description ceiling so a bad GPT rewrite can't re-fail the check.
+  if (safeUpdates.meta_description) {
+    const md = safeUpdates.meta_description as string;
+    if (md.length > 141) {
+      safeUpdates.meta_description = md.slice(0, 141) as never;
+    }
+  }
+
+  // Validate slug: must be lowercase hyphenated — reject if GPT returned garbage.
+  if (safeUpdates.slug && !/^[a-z0-9-]+$/.test(safeUpdates.slug as string)) {
+    delete safeUpdates.slug;
+    console.warn("[fixBlogContent] GPT returned an invalid slug — keeping previous value");
+  }
+
+  return { ...previousContent, ...safeUpdates };
 }
 
 // ── Image generation ──────────────────────────────────────────
