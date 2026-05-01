@@ -572,11 +572,11 @@ TOPIC-TO-SCENE GUIDE — use this to pick the right setting for each image:
 RULES FOR EVERY PROMPT:
 - Each image must visualise a DIFFERENT aspect of the topic — no two prompts should describe the same scene
 - Featured image must show the most striking, instantly recognisable visual for "${content.focus_keyword}"
-- Apply Aston VIP visual style: clean corporate photography, bright and airy, natural daylight or soft indoor lighting, neutral whites/warm greys/soft golds, no oversaturated colours
-- Suited professionals may be included but are not required — let the setting carry the topic where appropriate
-- Never include: text, logos, watermarks, flags, clocks, screens with visible content, coins, currency symbols
-- End every prompt with: "shot on Canon EOS R5, 35mm lens, sharp focus, high resolution, professional corporate photography, no text, no logos"
-- 2–3 sentences per prompt
+- Apply Aston VIP visual style: high-end corporate editorial photography, bright and airy interiors, natural daylight through floor-to-ceiling windows or soft warm studio lighting, neutral whites/warm greys/muted golds, never oversaturated — think Architectural Digest meets Bloomberg editorial
+- Let the architectural setting or object carry the topic — do not add people unless the scene requires a human interaction (e.g. document signing, consultation). When people are included they must be dressed in formal business attire and shown from behind or side-on — no faces
+- Never include: text of any kind, logos, watermarks, flags, digital screens with readable content, clocks, coins, currency symbols, phone or laptop screens
+- End every prompt with: "shot on Canon EOS R5, 85mm f/1.4 lens, shallow depth of field, soft natural light or warm studio lighting, ultra-sharp focus on subject, professional corporate editorial photography, cinematic warm-neutral colour grade, no text overlay, no logos, no watermarks"
+- 2–3 sentences per prompt. Structure each prompt as: (1) the specific scene and subject in detail, (2) lighting quality, atmosphere, and mood, (3) the camera and style suffix above
 
 Return as a single valid JSON object. No markdown, no code fences:
 
@@ -648,6 +648,7 @@ export async function generateImage(prompt: string, model: ImageModel = "imagen-
       prompt,
       n: 1,
       size: "1536x1024",
+      quality: "high",
     });
 
     const b64 = response.data?.[0]?.b64_json;
@@ -673,6 +674,7 @@ export async function generateImage(prompt: string, model: ImageModel = "imagen-
       numberOfImages: 1,
       aspectRatio: "16:9",
       outputMimeType: "image/png",
+      enhancePrompt: true,
     },
   });
 
