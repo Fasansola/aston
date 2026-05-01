@@ -17,9 +17,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { generateBlueprint, generateBlogContent, generateImagePrompts, generateImage, type ImageModel } from "@/lib/openai";
+import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePrompts, generateImage, IMAGE_QA_CHECKS, type ImageModel } from "@/lib/openai";
 import { getSettings } from "@/lib/storage";
-import { uploadImageToWordPress, createWordPressPost } from "@/lib/wordpress";
+import { uploadImageToWordPress, createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 import { runQA } from "@/lib/qa";
 import {
@@ -32,6 +32,10 @@ import { generateStrategy } from "@/lib/strategy";
 import { researchTopic, deriveTitle, ResearchBrief } from "@/lib/research";
 
 export const maxDuration = 300;
+
+function qa_failing_fields(checks: Record<string, boolean>): string {
+  return Object.entries(checks).filter(([, v]) => !v).map(([k]) => k).join(", ") || "unknown";
+}
 
 export async function POST(req: NextRequest) {
   // ── 1. Parse + validate (returns JSON, never retried) ────────
@@ -168,41 +172,65 @@ export async function POST(req: NextRequest) {
         const MAX_QA   = 3;
         const fileSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
 
+        // State carried across retries so fix passes can build on prior work
+        type ImageIds = { keypointOneImg: number; keypointTwoImg: number; postSplitImg: number; featuredImg: number };
+        let prevContent:      BlogContent | null = null;
+        let prevImagePrompts: ImagePrompts | null = null;
+        let prevImageIds:     ImageIds | null = null;
+        let prevQAChecks:     Record<string, boolean> | null = null;
+
         for (let qaAttempt = 1; qaAttempt <= MAX_QA; qaAttempt++) {
-          if (qaAttempt > 1) {
+          let content:      BlogContent;
+          let imagePrompts: ImagePrompts;
+          let imageIds:     ImageIds;
+
+          if (qaAttempt === 1) {
+            // ── Full generation on first attempt ────────────────
+            content = await generateBlogContent(
+              title, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined
+            );
+          } else {
+            // ── Targeted fix on retries: only rewrite failing fields ─
             await send({ type: "qa_retry", attempt: qaAttempt, max: MAX_QA });
-            console.log(`[generate] QA retry ${qaAttempt}/${MAX_QA}`);
+            console.log(`[generate] QA retry ${qaAttempt}/${MAX_QA} — fixing: ${qa_failing_fields(prevQAChecks!)}`);
+            content = await fixBlogContent(
+              title, prevContent!, blueprint, selectedLinks, prevQAChecks!, language || undefined
+            );
           }
 
-          const content = await generateBlogContent(
-            title, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined
-          );
-          const imagePrompts = await generateImagePrompts(title, content);
+          // ── Images: regenerate only on attempt 1 or if image checks failed ─
+          const needNewImages = qaAttempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevQAChecks![k]);
 
-          console.log(`[generate] Generating images with ${imageModel}...`);
-          const [kp1Buf, kp2Buf, splitBuf, featBuf] = await Promise.all([
-            generateImage(imagePrompts.keypoint_one_img_prompt, imageModel),
-            generateImage(imagePrompts.keypoint_two_img_prompt, imageModel),
-            generateImage(imagePrompts.post_split_img_prompt, imageModel),
-            generateImage(imagePrompts.featured_img_prompt, imageModel),
-          ]);
-
-          const [kp1, kp2, split, feat] = await Promise.all([
-            uploadImageToWordPress(kp1Buf,   `${fileSlug}-kp1.png`,      imagePrompts.keypoint_one_img_alt),
-            uploadImageToWordPress(kp2Buf,   `${fileSlug}-kp2.png`,      imagePrompts.keypoint_two_img_alt),
-            uploadImageToWordPress(splitBuf, `${fileSlug}-split.png`,    imagePrompts.post_split_img_alt),
-            uploadImageToWordPress(featBuf,  `${fileSlug}-featured.png`, imagePrompts.featured_img_alt),
-          ]);
-
-          const imageIds = {
-            keypointOneImg: kp1.id,
-            keypointTwoImg: kp2.id,
-            postSplitImg:   split.id,
-            featuredImg:    feat.id,
-          };
+          if (needNewImages) {
+            imagePrompts = await generateImagePrompts(title, content);
+            console.log(`[generate] Generating images with ${imageModel}...`);
+            const [kp1Buf, kp2Buf, splitBuf, featBuf] = await Promise.all([
+              generateImage(imagePrompts.keypoint_one_img_prompt, imageModel),
+              generateImage(imagePrompts.keypoint_two_img_prompt, imageModel),
+              generateImage(imagePrompts.post_split_img_prompt, imageModel),
+              generateImage(imagePrompts.featured_img_prompt, imageModel),
+            ]);
+            const [kp1, kp2, split, feat] = await Promise.all([
+              uploadImageToWordPress(kp1Buf,   `${fileSlug}-kp1.png`,      imagePrompts.keypoint_one_img_alt),
+              uploadImageToWordPress(kp2Buf,   `${fileSlug}-kp2.png`,      imagePrompts.keypoint_two_img_alt),
+              uploadImageToWordPress(splitBuf, `${fileSlug}-split.png`,    imagePrompts.post_split_img_alt),
+              uploadImageToWordPress(featBuf,  `${fileSlug}-featured.png`, imagePrompts.featured_img_alt),
+            ]);
+            imageIds = { keypointOneImg: kp1.id, keypointTwoImg: kp2.id, postSplitImg: split.id, featuredImg: feat.id };
+          } else {
+            console.log(`[generate] Reusing images from attempt 1 — no image QA failures`);
+            imagePrompts = prevImagePrompts!;
+            imageIds     = prevImageIds!;
+          }
 
           const qa = runQA(content, imagePrompts, imageIds, title);
           console.log(`[generate] QA attempt ${qaAttempt}: ${qa.status.toUpperCase()} (${qa.score}/100, ${qa.wordCount} words)`);
+
+          // Persist state for next retry
+          prevContent      = content;
+          prevImagePrompts = imagePrompts;
+          prevImageIds     = imageIds;
+          prevQAChecks     = qa.checks;
 
           if (qa.status === "fail") {
             console.warn(`[generate] QA FAIL (${qaAttempt}/${MAX_QA}) — ${qa.blocking_issues.join("; ")}`);

@@ -632,6 +632,141 @@ Alt text rules (SEO-optimised — all must be met):
   }
 }
 
+// ── Step 2b: Fix only the fields that failed QA ───────────────
+
+// QA checks that relate to images — if only these fail, content doesn't need fixing
+export const IMAGE_QA_CHECKS = ["featured_image_exists", "section_images_exist", "image_alt_text_exists"];
+
+// Maps each QA check key → the BlogContent field(s) responsible
+const CHECK_TO_FIELDS: Record<string, string[]> = {
+  main_content_exists:              ["main_content"],
+  main_content_has_internal_link:   ["main_content"],
+  main_content_has_external_link:   ["main_content"],
+  key_takeaways_exists:             ["key_takeaways"],
+  more_content_5_exists:            ["more_content_5"],
+  final_points_exists:              ["final_points"],
+  cta_exists:                       ["more_content_4"],
+  internal_links_sufficient:        ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_6"],
+  focus_keyword_in_intro:           ["main_content"],
+  meta_description_exists:          ["meta_description"],
+  focus_keyword_in_title:           ["seo_title"],
+  no_banned_phrases:                ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
+  no_colons_in_headings:            ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
+};
+
+const CHECK_DESCRIPTIONS: Record<string, string> = {
+  main_content_exists:              "main_content is under 270 words — rewrite it to at least 300 words",
+  main_content_has_internal_link:   "main_content has no internal link — embed exactly 1 internal link from the provided list",
+  main_content_has_external_link:   "main_content has no external link — embed exactly 1 external link",
+  key_takeaways_exists:             "key_takeaways is empty — write 4–6 bullet points",
+  more_content_5_exists:            "more_content_5 (FAQ) is empty — write answers to the FAQ questions from the blueprint",
+  final_points_exists:              "final_points is empty — write exactly 4 practical next steps",
+  cta_exists:                       `more_content_4 is missing the contact CTA — end it with: <p>To discuss your situation, <a href="https://aston.ae/contact-us/">speak with our team</a>.</p>`,
+  internal_links_sufficient:        "fewer than 7 internal links across the article — add more internal links from the provided list, spread across the listed sections",
+  focus_keyword_in_intro:           "focus keyword missing from the first paragraph of main_content — include it in the first sentence",
+  meta_description_exists:          "meta_description is empty — write it",
+  focus_keyword_in_title:           "focus keyword not present in seo_title — rewrite the title to include it naturally",
+  no_banned_phrases:                "banned phrase(s) found in the article — identify and remove or replace them",
+  no_colons_in_headings:            "colon found in one or more headings — rewrite those headings without colons",
+};
+
+/**
+ * Fix only the content fields that failed QA, leaving everything else intact.
+ * Called on QA retry attempts 2 and 3 instead of a full regeneration.
+ */
+export async function fixBlogContent(
+  title: string,
+  previousContent: BlogContent,
+  blueprint: Blueprint,
+  selectedLinks: SelectedLinks,
+  failingChecks: Record<string, boolean>,
+  language?: string
+): Promise<BlogContent> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const failedKeys = Object.entries(failingChecks)
+    .filter(([, passed]) => !passed)
+    .map(([key]) => key)
+    .filter((key) => !IMAGE_QA_CHECKS.includes(key));
+
+  const fieldsToFix = [...new Set(failedKeys.flatMap((k) => CHECK_TO_FIELDS[k] ?? []))];
+
+  if (fieldsToFix.length === 0) return previousContent;
+
+  const linksBlock = formatLinksForPrompt(selectedLinks, language);
+
+  const issueList = failedKeys
+    .map((k, i) => `${i + 1}. ${CHECK_DESCRIPTIONS[k] ?? `"${k}" check failed`}`)
+    .join("\n");
+
+  const currentFieldsBlock = fieldsToFix
+    .map((f) => {
+      const val = (previousContent as Record<string, unknown>)[f] as string ?? "";
+      return `--- ${f} (current — needs fixing) ---\n${val || "(empty)"}`;
+    })
+    .join("\n\n");
+
+  const alreadyUsed = (previousContent.internal_links_used ?? [])
+    .map((l) => `- ${l.url} (anchor: "${l.anchor}")`)
+    .join("\n") || "None";
+
+  const prompt = `You are fixing specific QA failures in a blog article for Aston VIP. Fix ONLY the fields listed below and return them as JSON.
+
+ARTICLE CONTEXT:
+Title: "${title}"
+Focus keyword: "${blueprint.focus_keyword}"
+Secondary keywords: ${blueprint.secondary_keywords.join(", ")}
+
+ISSUES TO FIX:
+${issueList}
+
+CURRENT CONTENT OF FIELDS THAT NEED FIXING:
+${currentFieldsBlock}
+
+INTERNAL LINKS ALREADY PLACED in sections you are NOT fixing (do not duplicate these):
+${alreadyUsed}
+
+${linksBlock}
+
+RULES:
+- Fix every issue listed above — do not skip any
+- British English throughout, no colons in headings, sentence case, no em dashes
+- For main_content: minimum 300 words, at least 2 H3 subheadings, exactly 1 internal + 1 external link, no sentence over 20 words
+- Preserve all existing HTML structure within the fields you are fixing
+- Do NOT change fields that are not listed above
+- Return ONLY raw JSON — no markdown, no code fences, no explanation
+
+Return this exact JSON shape with ONLY the fields that need fixing plus updated link arrays:
+{
+  ${fieldsToFix.map((f) => `"${f}": "string"`).join(",\n  ")},
+  "internal_links_used": [{"anchor": "string", "url": "string"}],
+  "external_links_used": [{"anchor": "string", "url": "string"}]
+}
+
+The "internal_links_used" and "external_links_used" arrays must include ALL links in the full article — both the ones already placed in untouched sections and any new ones you add.`;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-5.1",
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: prompt },
+    ],
+    temperature: 0.5,
+    max_completion_tokens: 12000,
+  });
+
+  if (response.choices[0]?.finish_reason === "length") {
+    throw new Error("fixBlogContent response was cut off — increase max_completion_tokens");
+  }
+
+  const raw = response.choices[0]?.message?.content?.trim() ?? "";
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error(`fixBlogContent: no JSON in response. Raw: ${raw.slice(0, 200)}`);
+
+  const fixes = JSON.parse(jsonMatch[0]) as Partial<BlogContent>;
+  return { ...previousContent, ...fixes };
+}
+
 // ── Image generation ──────────────────────────────────────────
 
 export type ImageModel = "imagen-4" | "gpt-image-1";
