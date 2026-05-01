@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { LinkValidationResult, LinkIssue } from "@/lib/linkValidator";
 import type { ReadinessResult, ReadinessSubscore, ReadinessIssue } from "@/lib/readinessValidator";
 
@@ -615,6 +615,31 @@ function ReadinessPanel({
 }
 
 export default function HomePage() {
+  const [isAuthed, setIsAuthed]     = useState<null | boolean>(null);
+  const [loginPw, setLoginPw]       = useState("");
+  const [loginError, setLoginError] = useState("");
+  const loginRef                    = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetch("/api/auth").then(r => setIsAuthed(r.ok)).catch(() => setIsAuthed(false));
+  }, []);
+
+  useEffect(() => {
+    if (isAuthed === false) setTimeout(() => loginRef.current?.focus(), 50);
+  }, [isAuthed]);
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setLoginError("");
+    const res = await fetch("/api/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: loginPw }),
+    });
+    if (res.ok) { setIsAuthed(true); setLoginPw(""); }
+    else { setLoginError("Incorrect password"); }
+  }
+
   const [topic, setTopic]           = useState("");
   const [mode, setMode]             = useState<GenerationMode>("topic_only");
   const [sourceText, setSourceText] = useState("");
@@ -704,7 +729,6 @@ export default function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           topic:               topic.trim(),
-          secret:              process.env.NEXT_PUBLIC_API_SECRET,
           mode,
           sourceText:          sourceText.trim(),
           audience:            audience.trim() || undefined,
@@ -787,7 +811,6 @@ export default function HomePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-secret": process.env.NEXT_PUBLIC_API_SECRET ?? "",
         },
         body: JSON.stringify({
           title:           result.title,
@@ -824,7 +847,6 @@ export default function HomePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-secret": process.env.NEXT_PUBLIC_API_SECRET ?? "",
         },
         body: JSON.stringify({
           title:           result.title,
@@ -858,7 +880,6 @@ export default function HomePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-secret": process.env.NEXT_PUBLIC_API_SECRET ?? "",
         },
         body: JSON.stringify({
           title:                   currentResult.title,
@@ -892,7 +913,6 @@ export default function HomePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-secret": process.env.NEXT_PUBLIC_API_SECRET ?? "",
         },
         body: JSON.stringify({
           html: result.articleHtml,
@@ -928,7 +948,6 @@ export default function HomePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-secret": process.env.NEXT_PUBLIC_API_SECRET ?? "",
         },
         body: JSON.stringify({ links }),
       });
@@ -972,6 +991,37 @@ export default function HomePage() {
     setLanguage("");
     setCustomPrompt("");
   };
+
+  if (isAuthed === null) return (
+    <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+      <div className="w-2 h-2 rounded-full bg-[#C9A84C] animate-pulse" />
+    </div>
+  );
+
+  if (isAuthed === false) return (
+    <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+      <form onSubmit={handleLogin} className="w-80 flex flex-col gap-4">
+        <div className="text-center mb-2">
+          <p className="text-white/40 text-sm mt-1">Enter your password to continue</p>
+        </div>
+        <input
+          ref={loginRef}
+          type="password"
+          value={loginPw}
+          onChange={e => setLoginPw(e.target.value)}
+          placeholder="Password"
+          className="w-full bg-white/[0.06] border border-white/10 rounded-lg px-4 py-3 text-white placeholder:text-white/25 focus:outline-none focus:border-[#C9A84C]/50 text-sm"
+        />
+        {loginError && <p className="text-red-400 text-xs text-center">{loginError}</p>}
+        <button
+          type="submit"
+          className="w-full bg-[#C9A84C] hover:bg-[#b8963e] text-black font-medium rounded-lg py-3 text-sm transition-colors"
+        >
+          Sign in
+        </button>
+      </form>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white font-sans">

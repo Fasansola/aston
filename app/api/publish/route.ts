@@ -15,10 +15,7 @@ import { htmlToMarkdown } from "@/lib/publishers/htmlToMarkdown";
 export const maxDuration = 60;
 
 function authOk(req: NextRequest): boolean {
-  const secret =
-    req.headers.get("x-api-secret") ??
-    new URL(req.url).searchParams.get("secret");
-  return secret === process.env.API_SECRET;
+  return req.cookies.get("__aston_session")?.value === process.env.API_SECRET;
 }
 
 export async function POST(req: NextRequest) {

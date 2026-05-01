@@ -48,7 +48,6 @@ export async function POST(req: NextRequest) {
 
   const {
     topic        = "",
-    secret       = "",
     mode         = "topic_only",
     sourceText   = "",
     audience     = "",
@@ -59,7 +58,7 @@ export async function POST(req: NextRequest) {
     customPrompt = "",
     imageModel: bodyImageModel = "",
   } = body as {
-    topic?: string; secret?: string; mode?: GenerationMode;
+    topic?: string; mode?: GenerationMode;
     sourceText?: string; audience?: string; primary_country?: string;
     secondary_countries?: string; priority_service?: string;
     language?: string; customPrompt?: string; imageModel?: string;
@@ -77,10 +76,6 @@ export async function POST(req: NextRequest) {
   if (!audience?.trim()) {
     return NextResponse.json({ error: "Please provide a target audience." }, { status: 400 });
   }
-  if (secret !== process.env.API_SECRET) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
   const validModes: GenerationMode[] = [
     "topic_only", "source_assisted", "improve_existing", "notes_to_article",
   ];

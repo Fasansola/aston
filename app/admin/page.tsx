@@ -242,9 +242,9 @@ const I = {
 type Tab = "dashboard" | "queue" | "topics" | "links" | "performance" | "publish_queue";
 
 export default function AdminPage() {
-  const [secret, setSecret]   = useState("");
-  const [authed, setAuthed]   = useState(false);
-  const [authError, setAuthError] = useState("");
+  const [isAuthed, setIsAuthed]     = useState<null | boolean>(null);
+  const [loginPw, setLoginPw]       = useState("");
+  const [authError, setAuthError]   = useState("");
   const [tab, setTab]         = useState<Tab>("dashboard");
   const [loading, setLoading] = useState(false);
 
@@ -298,16 +298,15 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    const saved = sessionStorage.getItem("admin_secret");
-    if (saved) { setSecret(saved); setAuthed(true); }
+    fetch("/api/auth").then(r => setIsAuthed(r.ok)).catch(() => setIsAuthed(false));
   }, []);
 
-  const fetchDashboard = useCallback(async (s: string) => {
+  const fetchDashboard = useCallback(async () => {
     const [qRes, schRes] = await Promise.all([
-      fetch(`/api/queue?secret=${encodeURIComponent(s)}`),
-      fetch(`/api/scheduler?secret=${encodeURIComponent(s)}`),
+      fetch("/api/queue"),
+      fetch("/api/scheduler"),
     ]);
-    if (qRes.status === 401) { setAuthError("Invalid secret."); setAuthed(false); return; }
+    if (qRes.status === 401) { setIsAuthed(false); return; }
     const qData   = await qRes.json();
     const schData = await schRes.json();
     setItems(qData.items ?? []);
@@ -316,27 +315,27 @@ export default function AdminPage() {
     setRuns(schData.recentRuns ?? []);
   }, []);
 
-  const fetchTopics = useCallback(async (s: string) => {
-    const res  = await fetch(`/api/topics?secret=${encodeURIComponent(s)}`);
+  const fetchTopics = useCallback(async () => {
+    const res  = await fetch("/api/topics");
     const data = await res.json();
     setTopics(data.topics ?? []);
   }, []);
 
-  const fetchLinks = useCallback(async (s: string) => {
-    const res  = await fetch(`/api/links?secret=${encodeURIComponent(s)}`);
+  const fetchLinks = useCallback(async () => {
+    const res  = await fetch("/api/links");
     const data = await res.json();
     setLinks(data.links ?? []);
   }, []);
 
-  const fetchPerformance = useCallback(async (s: string) => {
-    const res  = await fetch(`/api/performance?secret=${encodeURIComponent(s)}`);
+  const fetchPerformance = useCallback(async () => {
+    const res  = await fetch("/api/performance");
     const data = await res.json();
     setPerfRecords(data.records ?? []);
   }, []);
 
-  const fetchPublishQueue = useCallback(async (s: string) => {
+  const fetchPublishQueue = useCallback(async () => {
     try {
-      const res  = await fetch(`/api/publish-queue?secret=${encodeURIComponent(s)}`);
+      const res  = await fetch("/api/publish-queue");
       if (!res.ok) return;
       const data = await res.json();
       setPublishQueue(data.items ?? []);
@@ -344,16 +343,16 @@ export default function AdminPage() {
     } catch { /* silently skip */ }
   }, []);
 
-  const fetchAll = useCallback(async (s: string) => {
+  const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
       await Promise.all([
-        fetchDashboard(s),
-        fetchTopics(s).catch(console.error),
-        fetchLinks(s).catch(console.error),
-        fetchPerformance(s).catch(console.error),
-        fetchPublishQueue(s),
-        fetch(`/api/links/languages?secret=${encodeURIComponent(s)}`)
+        fetchDashboard(),
+        fetchTopics().catch(console.error),
+        fetchLinks().catch(console.error),
+        fetchPerformance().catch(console.error),
+        fetchPublishQueue(),
+        fetch("/api/links/languages")
           .then(r => r.json())
           .then(d => { if (d.languages) setSiteLanguages(d.languages); })
           .catch(console.error),
@@ -361,18 +360,23 @@ export default function AdminPage() {
     } finally { setLoading(false); }
   }, [fetchDashboard, fetchTopics, fetchLinks, fetchPerformance, fetchPublishQueue]);
 
-  const handleLogin = () => {
-    if (!secret.trim()) return;
-    sessionStorage.setItem("admin_secret", secret);
-    setAuthed(true);
-    fetchAll(secret);
-  };
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setAuthError("");
+    const res = await fetch("/api/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: loginPw }),
+    });
+    if (res.ok) { setIsAuthed(true); setLoginPw(""); }
+    else { setAuthError("Incorrect password"); }
+  }
 
-  useEffect(() => { if (authed && secret) fetchAll(secret); }, [authed, secret, fetchAll]);
+  useEffect(() => { if (isAuthed) fetchAll(); }, [isAuthed, fetchAll]);
 
   useEffect(() => {
-    if (tab === "publish_queue" && authed && secret) fetchPublishQueue(secret);
-  }, [tab, authed, secret, fetchPublishQueue]);
+    if (tab === "publish_queue" && isAuthed) fetchPublishQueue();
+  }, [tab, isAuthed, fetchPublishQueue]);
 
   // ── Queue actions ──────────────────────────────────────────────
   async function addQueueItem() {
@@ -383,7 +387,7 @@ export default function AdminPage() {
     try {
       await fetch("/api/queue", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-secret": secret },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           topic: newTopic.trim(), mode: newMode, priority: newPriority,
           audience: newAudience.trim() || undefined,
@@ -396,20 +400,20 @@ export default function AdminPage() {
       });
       setNewTopic(""); setNewPriority(3);
       setNewAudience(""); setNewPrimaryCountry(""); setNewSecondaryCountries(""); setNewPriorityService(""); setNewLanguage(""); setNewCustomPrompt("");
-      await fetchDashboard(secret);
+      await fetchDashboard();
       showToast("Topic added to queue");
     } finally { setAdding(false); }
   }
 
   async function patchQueue(id: string, updates: Partial<QueueItem>) {
-    await fetch("/api/queue", { method: "PATCH", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify({ id, ...updates }) });
-    await fetchDashboard(secret);
+    await fetch("/api/queue", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...updates }) });
+    await fetchDashboard();
   }
 
   async function deleteQueueItem(id: string) {
-    await fetch("/api/queue", { method: "DELETE", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify({ id }) });
+    await fetch("/api/queue", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
     setConfirmDeleteId(null);
-    await fetchDashboard(secret);
+    await fetchDashboard();
     showToast("Item removed");
   }
 
@@ -417,7 +421,7 @@ export default function AdminPage() {
     if (!settings) return;
     setSavingSettings(true);
     try {
-      const res  = await fetch("/api/scheduler", { method: "POST", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify({ ...settings, ...patch }) });
+      const res  = await fetch("/api/scheduler", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...settings, ...patch }) });
       const data = await res.json();
       setSettings(data.settings);
     } finally { setSavingSettings(false); }
@@ -427,23 +431,23 @@ export default function AdminPage() {
     if (!tForm.topic.trim()) return;
     setAddingTopic(true);
     try {
-      await fetch("/api/topics", { method: "POST", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify(tForm) });
+      await fetch("/api/topics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(tForm) });
       setTForm({ topic: "", focusKeyword: "", cluster: "", intent: "informational", priority: 3, notes: "", audience: "", primary_country: "", secondary_countries: "", priority_service: "", language: "", customPrompt: "" });
-      await fetchTopics(secret);
+      await fetchTopics();
       showToast("Topic plan created");
     } finally { setAddingTopic(false); }
   }
 
   async function patchTopic(id: string, updates: Partial<TopicPlan> & { action?: string }) {
-    await fetch("/api/topics", { method: "PATCH", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify({ id, ...updates }) });
-    await Promise.all([fetchTopics(secret), fetchDashboard(secret)]);
+    await fetch("/api/topics", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...updates }) });
+    await Promise.all([fetchTopics(), fetchDashboard()]);
     if (updates.action === "push_to_queue") showToast("Topic pushed to generation queue");
   }
 
   async function deleteTopic(id: string) {
-    await fetch("/api/topics", { method: "DELETE", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify({ id }) });
+    await fetch("/api/topics", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
     setConfirmTopicId(null);
-    await fetchTopics(secret);
+    await fetchTopics();
     showToast("Topic deleted");
   }
 
@@ -451,41 +455,41 @@ export default function AdminPage() {
     if (!lForm.url.trim() || !lForm.title.trim()) return;
     setAddingLink(true);
     try {
-      await fetch("/api/links", { method: "POST", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify({ ...lForm, keywords: lForm.keywords.split(",").map(s => s.trim()).filter(Boolean), anchors: lForm.anchors.split(",").map(s => s.trim()).filter(Boolean) }) });
+      await fetch("/api/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...lForm, keywords: lForm.keywords.split(",").map(s => s.trim()).filter(Boolean), anchors: lForm.anchors.split(",").map(s => s.trim()).filter(Boolean) }) });
       setLForm({ url: "", title: "", type: "internal", category: "", keywords: "", anchors: "", status: "active", language: "" });
-      await fetchLinks(secret);
+      await fetchLinks();
       showToast("Link added");
     } finally { setAddingLink(false); }
   }
 
   async function saveEditLink() {
     if (!editingLink) return;
-    await fetch("/api/links", { method: "PATCH", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify(editingLink) });
+    await fetch("/api/links", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(editingLink) });
     setEditingLink(null);
-    await fetchLinks(secret);
+    await fetchLinks();
     showToast("Link updated");
   }
 
   async function toggleLinkStatus(id: string, current: "active" | "inactive") {
-    await fetch("/api/links", { method: "PATCH", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify({ id, status: current === "active" ? "inactive" : "active" }) });
-    await fetchLinks(secret);
+    await fetch("/api/links", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status: current === "active" ? "inactive" : "active" }) });
+    await fetchLinks();
   }
 
   async function deleteLink(id: string) {
-    await fetch("/api/links", { method: "DELETE", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify({ id }) });
+    await fetch("/api/links", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
     setConfirmLinkId(null);
-    await fetchLinks(secret);
+    await fetchLinks();
     showToast("Link deleted");
   }
 
   async function syncWpLinks() {
     setWpSyncing(true); setWpSyncResult(null);
     try {
-      const res  = await fetch("/api/links/sync-wp", { method: "POST", headers: { "x-api-secret": secret } });
+      const res  = await fetch("/api/links/sync-wp", { method: "POST" });
       const data = await res.json();
       if (!res.ok) { setWpSyncResult({ ok: false, msg: data.error ?? "Sync failed" }); return; }
       setWpSyncResult({ ok: true, msg: `${data.added} new posts added · ${data.skipped} already present · ${data.total} total links` });
-      await fetchLinks(secret);
+      await fetchLinks();
     } catch { setWpSyncResult({ ok: false, msg: "Network error — try again" }); }
     finally { setWpSyncing(false); }
   }
@@ -493,12 +497,12 @@ export default function AdminPage() {
   async function syncPerformance(action: "sync_all" | "sync_post", postId?: string) {
     setSyncing(true); setSyncResult(null);
     try {
-      const res  = await fetch("/api/performance", { method: "POST", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify({ action, postId }) });
+      const res  = await fetch("/api/performance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, postId }) });
       const data = await res.json();
       if (!res.ok) { setSyncResult({ ok: false, msg: data.error }); }
       else if (action === "sync_all") { const r = data.result; setSyncResult({ ok: true, msg: `${r.synced} posts synced${r.errors.length ? `, ${r.errors.length} errors` : ""}` }); }
       else { setSyncResult({ ok: true, msg: `Synced — ${data.record?.classification} (${data.record?.impressions?.toLocaleString()} impressions)` }); }
-      await fetchPerformance(secret);
+      await fetchPerformance();
     } finally { setSyncing(false); }
   }
 
@@ -508,18 +512,24 @@ export default function AdminPage() {
     try {
       const res = await fetch("/api/publish-now", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-secret": secret },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: item.id }),
       });
       const data = await res.json();
       if (res.ok) { showToast(`Published "${item.title}" successfully`); }
       else { showToast(data.error ?? "Publish failed", false); }
-      await fetchPublishQueue(secret);
+      await fetchPublishQueue();
     } finally { setPublishingId(null); }
   }
 
-  // ── Login ──────────────────────────────────────────────────────
-  if (!authed) {
+  // ── Loading / Login ────────────────────────────────────────────
+  if (isAuthed === null) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse" />
+    </div>
+  );
+
+  if (!isAuthed) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="w-full max-w-sm px-4">
@@ -533,18 +543,20 @@ export default function AdminPage() {
             <p className="text-sm text-gray-500 mt-1">Aston.ae — internal tool</p>
           </div>
           <Card className="p-8 space-y-4">
-            <div>
-              <Label>API Secret</Label>
-              <Input type="password" value={secret} onChange={(e) => setSecret(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleLogin()} placeholder="Enter your API_SECRET" autoFocus />
-            </div>
-            {authError && (
-              <div className="flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-xs text-red-700 border border-red-100">
-                <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
-                {authError}
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <Label>Password</Label>
+                <Input type="password" value={loginPw} onChange={(e) => setLoginPw(e.target.value)}
+                  placeholder="Enter password" autoFocus />
               </div>
-            )}
-            <Btn variant="primary" size="lg" className="w-full" onClick={handleLogin}>Sign in</Btn>
+              {authError && (
+                <div className="flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-xs text-red-700 border border-red-100">
+                  <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
+                  {authError}
+                </div>
+              )}
+              <Btn type="submit" variant="primary" size="lg" className="w-full">Sign in</Btn>
+            </form>
           </Card>
         </div>
       </div>
@@ -613,12 +625,12 @@ export default function AdminPage() {
 
         {/* Bottom */}
         <div className="px-3 py-3 border-t border-white/[0.06] space-y-0.5">
-          <button onClick={() => fetchAll(secret)} disabled={loading}
+          <button onClick={() => fetchAll()} disabled={loading}
             className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-gray-400 hover:bg-white/[0.06] hover:text-white transition-all disabled:opacity-40">
             {loading ? <Spinner /> : I.refresh}
             <span className="font-medium text-[13px]">{loading ? "Refreshing…" : "Refresh data"}</span>
           </button>
-          <button onClick={() => { sessionStorage.removeItem("admin_secret"); setAuthed(false); setSecret(""); }}
+          <button onClick={() => { fetch("/api/auth", { method: "DELETE" }).finally(() => setIsAuthed(false)); }}
             className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-gray-400 hover:bg-white/[0.06] hover:text-white transition-all">
             {I.signout}
             <span className="font-medium text-[13px]">Sign out</span>
@@ -940,7 +952,7 @@ export default function AdminPage() {
                   <h1 className="text-xl font-bold text-gray-900">Publish Queue</h1>
                   <p className="text-sm text-gray-500 mt-0.5">Articles are dispatched to external platforms by the hourly cron, or you can publish immediately.</p>
                 </div>
-                <Btn variant="secondary" onClick={() => { setPqLoading(true); fetchPublishQueue(secret).finally(() => setPqLoading(false)); }} disabled={pqLoading}>
+                <Btn variant="secondary" onClick={() => { setPqLoading(true); fetchPublishQueue().finally(() => setPqLoading(false)); }} disabled={pqLoading}>
                   {pqLoading ? <Spinner /> : I.refresh} Refresh
                 </Btn>
               </div>
@@ -1022,26 +1034,26 @@ export default function AdminPage() {
                               )}
                               {item.status === "queued" && (
                                 <Btn variant="secondary" size="sm" className="w-full" onClick={async () => {
-                                  await fetch("/api/publish-queue", { method: "PATCH", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify({ id: item.id, status: "paused" }) });
-                                  fetchPublishQueue(secret);
+                                  await fetch("/api/publish-queue", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, status: "paused" }) });
+                                  fetchPublishQueue();
                                 }}>Pause</Btn>
                               )}
                               {item.status === "paused" && (
                                 <Btn variant="secondary" size="sm" className="w-full" onClick={async () => {
-                                  await fetch("/api/publish-queue", { method: "PATCH", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify({ id: item.id, status: "queued" }) });
-                                  fetchPublishQueue(secret);
+                                  await fetch("/api/publish-queue", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, status: "queued" }) });
+                                  fetchPublishQueue();
                                 }}>Resume</Btn>
                               )}
                               {item.status === "failed" && (
                                 <Btn variant="secondary" size="sm" className="w-full" onClick={async () => {
-                                  await fetch("/api/publish-queue", { method: "PATCH", headers: { "Content-Type": "application/json", "x-api-secret": secret }, body: JSON.stringify({ id: item.id, status: "queued" }) });
-                                  fetchPublishQueue(secret);
+                                  await fetch("/api/publish-queue", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, status: "queued" }) });
+                                  fetchPublishQueue();
                                 }}>Retry (cron)</Btn>
                               )}
                               <Btn variant="danger" size="sm" className="w-full" onClick={async () => {
                                 if (!confirm("Remove this item from the publish queue?")) return;
-                                await fetch(`/api/publish-queue?id=${item.id}`, { method: "DELETE", headers: { "x-api-secret": secret } });
-                                fetchPublishQueue(secret);
+                                await fetch(`/api/publish-queue?id=${item.id}`, { method: "DELETE" });
+                                fetchPublishQueue();
                               }}>{I.trash} Remove</Btn>
                             </div>
                           </div>
