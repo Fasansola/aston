@@ -197,7 +197,7 @@ Rules:
     ],
     temperature: 0.4,
     max_completion_tokens: 16000,
-  }, { signal: AbortSignal.timeout(120_000) });
+  }, { signal: AbortSignal.timeout(90_000) });
 
   const choice = response.choices[0];
   if (choice.finish_reason === "length") {

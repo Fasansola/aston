@@ -752,6 +752,7 @@ export default function HomePage() {
       const reader  = res.body!.getReader();
       const decoder = new TextDecoder();
       let   buffer  = "";
+      let   completed = false;
 
       // eslint-disable-next-line no-constant-condition
       while (true) {
@@ -778,6 +779,7 @@ export default function HomePage() {
             const data = event as unknown as GenerateResult;
             setResult(data);
             setStatus("success");
+            completed = true;
             if ((event.linksUsed as GenerateResult["linksUsed"])) {
               runLinkValidation([
                 ...(event.linksUsed as GenerateResult["linksUsed"]).internal,
@@ -786,9 +788,15 @@ export default function HomePage() {
             }
             return;
           } else if (event.type === "error") {
+            completed = true;
             throw new Error(String(event.message) || "Generation failed. Please try again.");
           }
         }
+      }
+
+      // Stream closed without a done/error event — server likely timed out
+      if (!completed) {
+        throw new Error("The server took too long to respond. Please try again.");
       }
     } catch (err: unknown) {
       clearInterval(interval);
