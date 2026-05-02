@@ -37,6 +37,29 @@ function qa_failing_fields(checks: Record<string, boolean>): string {
   return Object.entries(checks).filter(([, v]) => !v).map(([k]) => k).join(", ") || "unknown";
 }
 
+/**
+ * Generate a single image with up to `maxAttempts` retries.
+ * Isolates failures so one bad image doesn't kill the other three.
+ */
+async function generateImageWithRetry(
+  prompt: string,
+  model: ImageModel,
+  label: string,
+  maxAttempts = 2
+): Promise<Buffer> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await generateImage(prompt, model);
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[generate] Image "${label}" failed (attempt ${attempt}/${maxAttempts}): ${msg}`);
+    }
+  }
+  throw new Error(`Image "${label}" failed after ${maxAttempts} attempts: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
+}
+
 export async function POST(req: NextRequest) {
   // ── 1. Parse + validate (returns JSON, never retried) ────────
   let body: Record<string, unknown>;
@@ -200,17 +223,27 @@ export async function POST(req: NextRequest) {
             imagePrompts = await generateImagePrompts(title, content);
             console.log(`[generate] Generating images with ${imageModel}...`);
             const [kp1Buf, kp2Buf, splitBuf, featBuf] = await Promise.all([
-              generateImage(imagePrompts.keypoint_one_img_prompt, imageModel),
-              generateImage(imagePrompts.keypoint_two_img_prompt, imageModel),
-              generateImage(imagePrompts.post_split_img_prompt, imageModel),
-              generateImage(imagePrompts.featured_img_prompt, imageModel),
+              generateImageWithRetry(imagePrompts.keypoint_one_img_prompt, imageModel, "kp1"),
+              generateImageWithRetry(imagePrompts.keypoint_two_img_prompt, imageModel, "kp2"),
+              generateImageWithRetry(imagePrompts.post_split_img_prompt,   imageModel, "split"),
+              generateImageWithRetry(imagePrompts.featured_img_prompt,     imageModel, "featured"),
             ]);
-            const [kp1, kp2, split, feat] = await Promise.all([
+            const uploadResults = await Promise.allSettled([
               uploadImageToWordPress(kp1Buf,   `${fileSlug}-kp1.png`,      imagePrompts.keypoint_one_img_alt),
               uploadImageToWordPress(kp2Buf,   `${fileSlug}-kp2.png`,      imagePrompts.keypoint_two_img_alt),
               uploadImageToWordPress(splitBuf, `${fileSlug}-split.png`,    imagePrompts.post_split_img_alt),
               uploadImageToWordPress(featBuf,  `${fileSlug}-featured.png`, imagePrompts.featured_img_alt),
             ]);
+            const uploadLabels = ["kp1", "kp2", "split", "featured"];
+            const uploadErrors = uploadResults
+              .map((r, i) => r.status === "rejected" ? `${uploadLabels[i]}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}` : null)
+              .filter(Boolean);
+            if (uploadErrors.length > 0) {
+              throw new Error(`Image upload(s) failed: ${uploadErrors.join("; ")}`);
+            }
+            const [kp1, kp2, split, feat] = uploadResults.map(
+              (r) => (r as PromiseFulfilledResult<{ id: number; url: string }>).value
+            );
             imageIds = { keypointOneImg: kp1.id, keypointTwoImg: kp2.id, postSplitImg: split.id, featuredImg: feat.id };
           } else {
             console.log(`[generate] Reusing images from attempt 1 — no image QA failures`);
