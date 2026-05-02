@@ -23,7 +23,7 @@ const LINK_FIELDS: (keyof BlogContent)[] = [
 
 const EXTERNAL_HREF_RE = /href="(https?:\/\/(?!(?:www\.)?aston\.ae)[^"]+)"/gi;
 
-async function headCheck(url: string, timeoutMs = 4000): Promise<boolean> {
+async function headCheck(url: string, timeoutMs = 6000): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -42,8 +42,11 @@ async function headCheck(url: string, timeoutMs = 4000): Promise<boolean> {
       });
     }
     return res.ok;
-  } catch {
-    return false;
+  } catch (err) {
+    // Timeout or network error: keep the link rather than falsely flagging it as broken.
+    // Only explicit 4xx/5xx responses count as broken.
+    const isAbort = err instanceof Error && err.name === "AbortError";
+    return isAbort ? true : false;
   } finally {
     clearTimeout(timer);
   }
