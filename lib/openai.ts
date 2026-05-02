@@ -593,12 +593,14 @@ Return as a single valid JSON object. No markdown, no code fences:
 }
 
 Alt text rules (SEO-optimised — all must be met):
-1. Describe exactly what is visually shown — specific scene, setting, and subject (e.g. "DIFC Gate building entrance with suited adviser walking through glass doors" not "business meeting")
-2. Include the focus keyword "${content.focus_keyword}" naturally in at least 2 of the 4 alt texts
-3. Featured image alt text must always include the focus keyword
-4. 8–12 words per alt text — descriptive but not stuffed
-5. No full stops, no quotes, no HTML
-6. Never start with "image of" or "photo of" — start directly with the subject`;
+1. Write each alt text AFTER writing the image prompt — it must describe the exact visual scene depicted in that prompt, not just the article topic. If the prompt shows a DIFC glass tower at dusk, the alt text must mention DIFC and the tower, not just "UAE corporate finance".
+2. Be specific and visual: include the setting (named location or environment), the main subject or object, and any relevant action or context (e.g. "DIFC Gate building entrance framing a document signing desk in foreground" not "business office")
+3. Include the focus keyword "${content.focus_keyword}" naturally in at least 2 of the 4 alt texts — the featured image alt must always include it
+4. 10–15 words per alt text — enough to be useful to a screen reader, not so long it becomes a sentence
+5. All 4 alt texts must describe visually distinct scenes — no two should reference the same type of setting, object, or moment
+6. Include a named location or recognisable setting when the image prompt depicts one (e.g. "Al Maryah Island", "Frankfurt banking district", "Limassol harbour")
+7. No full stops, no quotes, no HTML
+8. Never start with "image of", "photo of", or "picture of" — start directly with the subject or setting`;
 
   const response = await openai.chat.completions.create({
     model: "gpt-5.1",
