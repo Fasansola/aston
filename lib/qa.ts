@@ -246,7 +246,7 @@ export function runQA(
     !!(content.quote_1?.trim()) && !!(content.quote_2?.trim());
   if (!checks.quotes_exist) warnings.push("One or both quote fields are empty");
 
-  // Minimum 4 external authority links across the article.
+  // Minimum 5 external authority links across the article.
   // Count from the HTML directly — the self-reported array can miss links.
   const allBodyHtmlForLinks = [
     content.main_content, content.more_content_1, content.more_content_2,
@@ -255,9 +255,9 @@ export function runQA(
   ].join(" ");
   const externalHrefMatches = allBodyHtmlForLinks.match(/href="https?:\/\/(?!(?:www\.)?aston\.ae)[^"]+"/gi) ?? [];
   const externalLinkCount = externalHrefMatches.length;
-  checks.external_links_present = externalLinkCount >= 4;
+  checks.external_links_present = externalLinkCount >= 5;
   if (!checks.external_links_present)
-    warnings.push(`Only ${externalLinkCount} external link(s) found — minimum 4 required`);
+    warnings.push(`Only ${externalLinkCount} external link(s) found — minimum 5 required`);
 
   // Banned phrases
   const plainAll = stripHtml(allFields).toLowerCase();

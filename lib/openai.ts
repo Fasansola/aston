@@ -62,7 +62,7 @@ LINK FORMAT RULES (mandatory):
 - Do NOT invent external URLs. Do NOT cite random blogs or weak sources
 - Insert links inside sentences naturally — do NOT group links at the end of sections
 - Anchor text must be natural, descriptive, and fit the sentence — never use "click here" or raw URLs
-- MINIMUM 4 external links across the full article — spread across different body sections (main_content, more_content_1, more_content_2, more_content_3, more_content_6)
+- MINIMUM 5 external links across the full article — spread across different body sections (main_content, more_content_1, more_content_2, more_content_3, more_content_6)
 
 ARTICLE STRUCTURE (mandatory):
 1. Title (H1)
@@ -702,7 +702,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   h4_count_sufficient:              "fewer than 6 H4 subheadings in the article — add H4 sub-points under existing H3 sections",
   keypoints_exist:                  "one or both keypoint callout boxes are empty — write them",
   quotes_exist:                     "one or both pull-quote fields are empty — write a compelling 1–2 sentence quote for each",
-  external_links_present:           "fewer than 4 external links in the article — add authoritative external links (regulators, governments, official institutions) spread across main_content, more_content_1, more_content_2, more_content_3, and more_content_6 until the total reaches at least 4",
+  external_links_present:           "fewer than 5 external links in the article — add authoritative external links (regulators, governments, official institutions) spread across main_content, more_content_1, more_content_2, more_content_3, and more_content_6 until the total reaches at least 5",
   no_banned_phrases:                "banned phrase(s) found in the article — identify and remove or replace them",
   no_colons_in_headings:            "colon found in one or more headings — rewrite those headings without colons",
 };
@@ -775,7 +775,7 @@ RULES:
 - Fix every issue listed above — do not skip any
 - British English throughout, no colons in headings, sentence case, no em dashes
 - For main_content: minimum 300 words, at least 2 H3 subheadings, exactly 1 internal link + at least 1 external link, no sentence over 20 words
-- Across all sections combined: minimum 4 external links total — add to whichever sections you are fixing until the article-wide total reaches 4${brokenUrls && brokenUrls.length > 0 ? `\n- The following external URLs were found to be BROKEN (404/unreachable) — do NOT reuse any of them; replace with working official sources:\n${brokenUrls.map((u) => `  • ${u}`).join("\n")}` : ""}
+- Across all sections combined: minimum 5 external links total — add to whichever sections you are fixing until the article-wide total reaches 5${brokenUrls && brokenUrls.length > 0 ? `\n- The following external URLs were found to be BROKEN (404/unreachable) — do NOT reuse any of them; replace with working official sources:\n${brokenUrls.map((u) => `  • ${u}`).join("\n")}` : ""}
 - Preserve all existing HTML structure within the fields you are fixing
 - Do NOT change fields that are not listed above
 - Return ONLY raw JSON — no markdown, no code fences, no explanation
