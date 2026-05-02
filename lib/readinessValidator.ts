@@ -90,9 +90,13 @@ function hasColonInHeadings(html: string): boolean {
 }
 
 function isTitleCase(str: string): boolean {
-  const words = str.split(" ").filter((w) => w.length > 3);
-  if (words.length < 2) return false;
-  return words.filter((w) => /^[A-Z]/.test(w)).length > words.length * 0.6;
+  const tokens = str.split(/\s+/).filter((w) => w.length > 3);
+  if (tokens.length < 2) return false;
+  // Exclude the first word (always capitalised) and all-caps tokens (acronyms like VARA, DIFC).
+  // A heading is title-cased if >60% of the remaining regular words start with a capital.
+  const candidates = tokens.slice(1).filter((w) => !/^[A-Z]{2,}$/.test(w));
+  if (candidates.length === 0) return false;
+  return candidates.filter((w) => /^[A-Z]/.test(w)).length > candidates.length * 0.6;
 }
 
 const US_SPELLINGS: Record<string, string> = {

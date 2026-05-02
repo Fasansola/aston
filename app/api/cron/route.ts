@@ -24,14 +24,32 @@ import {
   updateRunLog,
 } from "@/lib/storage";
 import { selectLinks } from "@/lib/links";
-import { generateBlueprint, generateBlogContent, generateImagePrompts, generateImage, type ImageModel } from "@/lib/openai";
-import { uploadImageToWordPress, createWordPressPost } from "@/lib/wordpress";
+import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePrompts, generateImage, IMAGE_QA_CHECKS, type ImageModel } from "@/lib/openai";
+import { uploadImageToWordPress, createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { runQA } from "@/lib/qa";
 import { emptyBrief, processSourceInput, SourceBrief } from "@/lib/source";
 import { generateStrategy, StrategyBrief, StrategyContext } from "@/lib/strategy";
 import { researchTopic, deriveTitle, ResearchBrief } from "@/lib/research";
 
 export const maxDuration = 300;
+
+async function generateImageWithRetry(
+  prompt: string,
+  model: ImageModel,
+  label: string,
+  maxAttempts = 2
+): Promise<Buffer> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await generateImage(prompt, model);
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[cron:item] Image "${label}" failed (attempt ${attempt}/${maxAttempts}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  throw new Error(`Image "${label}" failed after ${maxAttempts} attempts: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
+}
 
 function authOk(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`;
@@ -93,37 +111,62 @@ async function processOneItem(
   const MAX_ATTEMPTS = 3;
   const fileSlug = resolvedTopic.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
 
+  type ImageIds = { keypointOneImg: number; keypointTwoImg: number; postSplitImg: number; featuredImg: number };
+  let prevContent:      BlogContent | null = null;
+  let prevImagePrompts: ImagePrompts | null = null;
+  let prevImageIds:     ImageIds | null = null;
+  let prevQAChecks:     Record<string, boolean> | null = null;
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    if (attempt > 1) {
-      console.log(`[cron:item] QA failed — retrying content generation (attempt ${attempt}/${MAX_ATTEMPTS})...`);
+    let content: BlogContent;
+    let imagePrompts: ImagePrompts;
+    let imageIds: ImageIds;
+
+    if (attempt === 1) {
+      content = await generateBlogContent(resolvedTopic, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language);
+    } else {
+      const failingFields = Object.entries(prevQAChecks!).filter(([, v]) => !v).map(([k]) => k).join(", ");
+      console.log(`[cron:item] QA retry ${attempt}/${MAX_ATTEMPTS} — fixing: ${failingFields}`);
+      content = await fixBlogContent(resolvedTopic, prevContent!, blueprint, selectedLinks, prevQAChecks!, strategyInputs?.language);
     }
 
-    const content = await generateBlogContent(resolvedTopic, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language);
-    const imagePrompts = await generateImagePrompts(resolvedTopic, content);
-
-    const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
-      generateImage(imagePrompts.keypoint_one_img_prompt, imageModel),
-      generateImage(imagePrompts.keypoint_two_img_prompt, imageModel),
-      generateImage(imagePrompts.post_split_img_prompt, imageModel),
-      generateImage(imagePrompts.featured_img_prompt, imageModel),
-    ]);
-
-    const [kp1Media, kp2Media, splitMedia, featuredMedia] = await Promise.all([
-      uploadImageToWordPress(kp1Buffer, `${fileSlug}-kp1.png`, imagePrompts.keypoint_one_img_alt),
-      uploadImageToWordPress(kp2Buffer, `${fileSlug}-kp2.png`, imagePrompts.keypoint_two_img_alt),
-      uploadImageToWordPress(splitBuffer, `${fileSlug}-split.png`, imagePrompts.post_split_img_alt),
-      uploadImageToWordPress(featuredBuffer, `${fileSlug}-featured.png`, imagePrompts.featured_img_alt),
-    ]);
-
-    const imageIds = {
-      keypointOneImg: kp1Media.id,
-      keypointTwoImg: kp2Media.id,
-      postSplitImg:   splitMedia.id,
-      featuredImg:    featuredMedia.id,
-    };
+    const needNewImages = attempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevQAChecks![k]);
+    if (needNewImages) {
+      imagePrompts = await generateImagePrompts(resolvedTopic, content);
+      const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
+        generateImageWithRetry(imagePrompts.keypoint_one_img_prompt, imageModel, "kp1"),
+        generateImageWithRetry(imagePrompts.keypoint_two_img_prompt, imageModel, "kp2"),
+        generateImageWithRetry(imagePrompts.post_split_img_prompt,   imageModel, "split"),
+        generateImageWithRetry(imagePrompts.featured_img_prompt,     imageModel, "featured"),
+      ]);
+      const uploadResults = await Promise.allSettled([
+        uploadImageToWordPress(kp1Buffer,    `${fileSlug}-kp1.png`,      imagePrompts.keypoint_one_img_alt),
+        uploadImageToWordPress(kp2Buffer,    `${fileSlug}-kp2.png`,      imagePrompts.keypoint_two_img_alt),
+        uploadImageToWordPress(splitBuffer,  `${fileSlug}-split.png`,    imagePrompts.post_split_img_alt),
+        uploadImageToWordPress(featuredBuffer, `${fileSlug}-featured.png`, imagePrompts.featured_img_alt),
+      ]);
+      const uploadLabels = ["kp1", "kp2", "split", "featured"];
+      const uploadErrors = uploadResults
+        .map((r, i) => r.status === "rejected" ? `${uploadLabels[i]}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}` : null)
+        .filter(Boolean);
+      if (uploadErrors.length > 0) throw new Error(`Image upload(s) failed: ${uploadErrors.join("; ")}`);
+      const [kp1Media, kp2Media, splitMedia, featuredMedia] = uploadResults.map(
+        (r) => (r as PromiseFulfilledResult<{ id: number; url: string }>).value
+      );
+      imageIds = { keypointOneImg: kp1Media.id, keypointTwoImg: kp2Media.id, postSplitImg: splitMedia.id, featuredImg: featuredMedia.id };
+    } else {
+      console.log(`[cron:item] Reusing images from attempt 1 — no image QA failures`);
+      imagePrompts = prevImagePrompts!;
+      imageIds     = prevImageIds!;
+    }
 
     const qa = runQA(content, imagePrompts, imageIds, resolvedTopic);
     console.log(`[cron:item] QA attempt ${attempt}: ${qa.status.toUpperCase()} (score ${qa.score}/100)`);
+
+    prevContent      = content;
+    prevImagePrompts = imagePrompts;
+    prevImageIds     = imageIds;
+    prevQAChecks     = qa.checks;
 
     if (qa.status === "fail") {
       console.warn(`[cron:item] QA FAIL (attempt ${attempt}/${MAX_ATTEMPTS}) — ${qa.blocking_issues.join("; ")}`);
