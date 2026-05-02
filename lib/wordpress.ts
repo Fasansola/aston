@@ -78,36 +78,6 @@ export async function uploadImageToWordPress(
   return { id: mediaId, url: mediaUrl };
 }
 
-/**
- * Validate required fields before pushing to WordPress.
- * Throws a descriptive error if anything critical is missing.
- */
-function validateContent(content: BlogContent, imagePrompts: ImagePrompts): void {
-  const required: Array<[string, string]> = [
-    ["focus_keyword", content.focus_keyword],
-    ["seo_title", content.seo_title],
-    ["meta_description", content.meta_description],
-    ["slug", content.slug],
-    ["main_content", content.main_content],
-    ["keypoint_one", content.keypoint_one],
-    ["keypoint_two", content.keypoint_two],
-    ["key_takeaways", content.key_takeaways],
-    ["more_content_5", content.more_content_5],
-    ["final_points", content.final_points],
-    ["keypoint_one_img_prompt", imagePrompts.keypoint_one_img_prompt],
-    ["featured_img_prompt", imagePrompts.featured_img_prompt],
-  ];
-
-  const missing = required
-    .filter(([, value]) => !value || value.trim().length === 0)
-    .map(([field]) => field);
-
-  if (missing.length > 0) {
-    throw new Error(
-      `Missing required fields before WordPress post creation: ${missing.join(", ")}`
-    );
-  }
-}
 
 // ── Category auto-assignment ───────────────────────────────────
 // Canonical English category IDs from aston.ae/wp-json/wp/v2/categories
@@ -171,8 +141,6 @@ export async function createWordPressPost(
     featuredImg: number;
   }
 ) {
-  validateContent(content, imagePrompts);
-
   const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
   const postTitle  = cap(title);
   const seoTitle   = cap(content.seo_title);

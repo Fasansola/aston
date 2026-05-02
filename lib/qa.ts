@@ -241,7 +241,6 @@ export function runQA(
   // Keypoints and quotes populated
   checks.keypoints_exist =
     !!(content.keypoint_one?.trim()) && !!(content.keypoint_two?.trim());
-  if (!checks.keypoints_exist) warnings.push("One or both keypoint callouts are empty");
 
   checks.quotes_exist =
     !!(content.quote_1?.trim()) && !!(content.quote_2?.trim());
@@ -301,6 +300,7 @@ export function runQA(
     "final_points_exists",
     "cta_exists",
     "internal_links_sufficient",
+    "keypoints_exist",
     "featured_image_exists",
     "section_images_exist",
     "image_alt_text_exists",
