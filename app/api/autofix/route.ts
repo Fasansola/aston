@@ -67,10 +67,16 @@ export async function POST(req: NextRequest) {
           .join("\n")
       : "No specific issues flagged — perform a full quality pass.";
 
+    const isBritishEnglish = !language || language.toLowerCase().includes("english") || language === "";
+    const spellingRule = isBritishEnglish
+      ? "7. Fix any British English violations (organisation, licence, authorise, centre, optimise, travelling)"
+      : `7. The article is written in "${language}" — preserve the language and do not apply English spelling rules`;
+
     const contextBlock = [
       focusKeyword ? `Focus keyword: ${focusKeyword}` : "",
       title        ? `Article title: ${title}` : "",
       seoTitle     ? `SEO title: ${seoTitle}` : "",
+      language     ? `Language: ${language}` : "",
     ].filter(Boolean).join("\n");
 
     const prompt = `${contextBlock ? `ARTICLE CONTEXT:\n${contextBlock}\n\n` : ""}FLAGGED ISSUES TO FIX:
@@ -86,7 +92,7 @@ WHAT YOU MUST DO:
 4. Rewrite passive voice constructions to active voice throughout
 5. Add transition words where three or more consecutive sentences lack one
 6. Ensure the focus keyword appears naturally in the first paragraph if not already present
-7. Fix any British English violations
+${spellingRule}
 8. Remove bold from inside <p> tags — move emphasis to sentence structure instead
 9. Remove em dashes and en dashes — replace with commas or restructure the sentence
 

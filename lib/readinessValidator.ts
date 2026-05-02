@@ -602,10 +602,17 @@ export function applyAutoFixes(html: string, language?: string | null): AutoFixR
     const plain = text.replace(/<[^>]+>/g, "");
     const isTc  = isTitleCase(plain);
     if (!isTc) return `${open}${text}${close}`;
-    const sentenceCase = plain.charAt(0).toUpperCase() + plain.slice(1).toLowerCase()
-      .replace(/\b(difc|adgm|uae|uk|vara|aml|kyc|spv|llc|ltd|plc|gmbh|sa|nv|bv|ag|fca|sec|eu|us)\b/gi,
-        (m: string) => m.toUpperCase()
-      );
+    // Only lowercase pure-TitleCase words (^[A-Z][a-z]+$) that are not the first token.
+    // Words with internal uppercase (DIFC, UAE, GmbH, Aston VIP, etc.) are preserved as-is
+    // so we never destroy proper nouns or acronyms.
+    const sentenceCase = plain.split(/(\s+)/).map((token: string, i: number) => {
+      if (!/\S/.test(token)) return token;
+      if (i === 0) return token;
+      if (/^[A-Z][a-z]/.test(token) && !/[A-Z]/.test(token.slice(1))) {
+        return token.charAt(0).toLowerCase() + token.slice(1);
+      }
+      return token;
+    }).join("");
     appliedFixes.push("Converted title-case headings to sentence case");
     return `${open}${sentenceCase}${close}`;
   });

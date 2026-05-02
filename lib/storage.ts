@@ -219,8 +219,13 @@ async function fileSet<T>(key: string, value: T): Promise<void> {
 async function kget<T>(key: string, fallback: T): Promise<T> {
   const redis = await getAdapter();
   if (redis) {
-    const val = await redis.get<T>(key);
-    return val ?? fallback;
+    try {
+      const val = await redis.get<T>(key);
+      return val ?? fallback;
+    } catch (err) {
+      console.error(`[storage:kget] Redis error for key "${key}":`, err);
+      return fallback;
+    }
   }
   return fileGet(key, fallback);
 }
@@ -228,7 +233,12 @@ async function kget<T>(key: string, fallback: T): Promise<T> {
 async function kset<T>(key: string, value: T): Promise<void> {
   const redis = await getAdapter();
   if (redis) {
-    await redis.set(key, value);
+    try {
+      await redis.set(key, value);
+    } catch (err) {
+      console.error(`[storage:kset] Redis error for key "${key}":`, err);
+      throw new Error(`Storage write failed for "${key}": ${err instanceof Error ? err.message : String(err)}`);
+    }
     return;
   }
   return fileSet(key, value);
