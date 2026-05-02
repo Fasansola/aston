@@ -28,6 +28,7 @@ import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePr
 import { uploadImageToWordPress, createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { runQA } from "@/lib/qa";
 import { scrubBrokenExternalLinks } from "@/lib/linkScrubber";
+import { selectAuthorityLinks } from "@/lib/authorityLinks";
 import { emptyBrief, processSourceInput, SourceBrief } from "@/lib/source";
 import { generateStrategy, StrategyBrief, StrategyContext } from "@/lib/strategy";
 import { researchTopic, deriveTitle, ResearchBrief } from "@/lib/research";
@@ -109,6 +110,9 @@ async function processOneItem(
   const selectedLinks = await selectLinks(resolvedTopic, strategyInputs?.language);
   const blueprint = await generateBlueprint(resolvedTopic, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language);
 
+  const jurisdictions = (strategy?.jurisdiction_map ?? []).map((j) => j.jurisdiction);
+  const authorityLinks = selectAuthorityLinks(`${resolvedTopic} ${strategy?.keyword_model.primary_keyword ?? ""}`, jurisdictions);
+
   const MAX_ATTEMPTS = 3;
   const fileSlug = resolvedTopic.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
 
@@ -125,11 +129,11 @@ async function processOneItem(
     let imageIds: ImageIds;
 
     if (attempt === 1) {
-      content = await generateBlogContent(resolvedTopic, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language);
+      content = await generateBlogContent(resolvedTopic, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language, authorityLinks);
     } else {
       const failingFields = Object.entries(prevQAChecks!).filter(([, v]) => !v).map(([k]) => k).join(", ");
       console.log(`[cron:item] QA retry ${attempt}/${MAX_ATTEMPTS} — fixing: ${failingFields}`);
-      content = await fixBlogContent(resolvedTopic, prevContent!, blueprint, selectedLinks, prevQAChecks!, strategyInputs?.language, prevBrokenUrls.length > 0 ? prevBrokenUrls : undefined);
+      content = await fixBlogContent(resolvedTopic, prevContent!, blueprint, selectedLinks, prevQAChecks!, strategyInputs?.language, prevBrokenUrls.length > 0 ? prevBrokenUrls : undefined, authorityLinks);
     }
 
     // ── Scrub broken external links before QA ─────────────────

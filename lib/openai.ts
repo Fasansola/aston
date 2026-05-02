@@ -18,6 +18,7 @@ import { BlogContent, Blueprint, ImagePrompts } from "./wordpress";
 import { SelectedLinks, formatLinksForPrompt } from "./links";
 import { SourceBrief, formatBriefForPrompt } from "./source";
 import { StrategyBrief } from "./strategy";
+import { AuthorityLink, formatAuthorityLinksForPrompt } from "./authorityLinks";
 
 // ── Fixed system prompt — never changes between requests ──────
 const SYSTEM_PROMPT = `You are a senior business consultant, SEO strategist, and authoritative blog writer for Aston VIP (Aston.ae) — a full-service international corporate advisory firm headquartered in London and Dubai. Aston VIP advises entrepreneurs, investors, corporate groups, family offices, and fintech businesses on international company formation, regulatory licensing, corporate banking, cross-border tax structuring, and nominee services across 20+ jurisdictions including the UAE (mainland, DIFC, ADGM, free zones), UK, Cyprus, Germany, Switzerland, Spain, Netherlands, Sweden, Denmark, Hong Kong, Panama, Seychelles, and others.
@@ -62,7 +63,8 @@ LINK FORMAT RULES (mandatory):
 - Do NOT invent external URLs. Do NOT cite random blogs or weak sources
 - Insert links inside sentences naturally — do NOT group links at the end of sections
 - Anchor text must be natural, descriptive, and fit the sentence — never use "click here" or raw URLs
-- TARGET 7 to 9 external links across the full article (minimum 5 will be enforced by QA — generate more than the minimum so broken links can be removed without failing) — spread across different body sections (main_content, more_content_1, more_content_2, more_content_3, more_content_6)
+- TARGET 7 to 9 external links across the full article — spread across different body sections (main_content, more_content_1, more_content_2, more_content_3, more_content_6)
+- Use ONLY the APPROVED EXTERNAL AUTHORITY SOURCES listed above — do NOT invent external URLs or use any URL not in that list
 
 ARTICLE STRUCTURE (mandatory):
 1. Title (H1)
@@ -291,11 +293,15 @@ export async function generateBlogContent(
   sourceBrief?: SourceBrief,
   strategy?: StrategyBrief | null,
   customPrompt?: string,
-  language?: string
+  language?: string,
+  authorityLinks?: AuthorityLink[]
 ): Promise<BlogContent> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   const linksBlock = formatLinksForPrompt(selectedLinks, language);
+  const authorityLinksBlock = authorityLinks && authorityLinks.length > 0
+    ? `\n${formatAuthorityLinksForPrompt(authorityLinks)}\n`
+    : "";
   const sourceBriefBlock = sourceBrief ? formatBriefForPrompt(sourceBrief) : "";
 
   const strategyContentBlock = strategy ? `
@@ -339,7 +345,7 @@ ${subs}`;
     : "";
 
   const userPrompt = `Blog title: "${title}"
-${languageContentBlock}${strategyContentBlock}${customPromptContentBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
+${languageContentBlock}${strategyContentBlock}${customPromptContentBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}${authorityLinksBlock}
 You have already planned the structure. Now write the full article following the blueprint exactly.
 The headings, section angles, and word targets below are fixed — do not change them.
 
@@ -720,7 +726,8 @@ export async function fixBlogContent(
   selectedLinks: SelectedLinks,
   failingChecks: Record<string, boolean>,
   language?: string,
-  brokenUrls?: string[]
+  brokenUrls?: string[],
+  authorityLinks?: AuthorityLink[]
 ): Promise<BlogContent> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -739,6 +746,9 @@ export async function fixBlogContent(
   }
 
   const linksBlock = formatLinksForPrompt(selectedLinks, language);
+  const authorityLinksBlock = authorityLinks && authorityLinks.length > 0
+    ? `\n${formatAuthorityLinksForPrompt(authorityLinks)}\n`
+    : "";
 
   const issueList = failedKeys
     .map((k, i) => `${i + 1}. ${CHECK_DESCRIPTIONS[k] ?? `"${k}" check failed`}`)
@@ -772,12 +782,12 @@ INTERNAL LINKS ALREADY PLACED in sections you are NOT fixing (do not duplicate t
 ${alreadyUsed}
 
 ${linksBlock}
-
+${authorityLinksBlock}
 RULES:
 - Fix every issue listed above — do not skip any
 - British English throughout, no colons in headings, sentence case, no em dashes
 - For main_content: minimum 300 words, at least 2 H3 subheadings, exactly 1 internal link + at least 1 external link, no sentence over 20 words
-- Across all sections combined: target 7 to 9 external links (minimum 5 after QA scrub) — add to whichever sections you are fixing; broken links are removed automatically so generate more than the minimum${brokenUrls && brokenUrls.length > 0 ? `\n- The following external URLs were found to be BROKEN (404/unreachable) — do NOT reuse any of them; replace with working official sources:\n${brokenUrls.map((u) => `  • ${u}`).join("\n")}` : ""}
+- Across all sections combined: target 7 to 9 external links (minimum 5) — use ONLY the APPROVED EXTERNAL AUTHORITY SOURCES listed above${brokenUrls && brokenUrls.length > 0 ? `\n- The following external URLs were found to be BROKEN — do NOT reuse any of them:\n${brokenUrls.map((u) => `  • ${u}`).join("\n")}` : ""}
 - Preserve all existing HTML structure within the fields you are fixing
 - Do NOT change fields that are not listed above
 - Return ONLY raw JSON — no markdown, no code fences, no explanation

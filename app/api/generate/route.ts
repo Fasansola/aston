@@ -23,6 +23,7 @@ import { uploadImageToWordPress, createWordPressPost, type BlogContent, type Ima
 import { selectLinks } from "@/lib/links";
 import { runQA } from "@/lib/qa";
 import { scrubBrokenExternalLinks } from "@/lib/linkScrubber";
+import { selectAuthorityLinks } from "@/lib/authorityLinks";
 import {
   GenerationMode,
   SourceBrief,
@@ -183,6 +184,10 @@ export async function POST(req: NextRequest) {
         const blueprint = await generateBlueprint(title, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined);
         console.log(`[generate] Blueprint ready. Keyword: "${blueprint.focus_keyword}"`);
 
+        // ── Authority links (curated real external URLs) ───────
+        const jurisdictions = (strategy?.jurisdiction_map ?? []).map((j) => j.jurisdiction);
+        const authorityLinks = selectAuthorityLinks(`${title} ${strategy?.keyword_model.primary_keyword ?? ""}`, jurisdictions);
+
         // ── QA retry loop ─────────────────────────────────────
         const MAX_QA   = 3;
         const fileSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
@@ -203,14 +208,14 @@ export async function POST(req: NextRequest) {
           if (qaAttempt === 1) {
             // ── Full generation on first attempt ────────────────
             content = await generateBlogContent(
-              title, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined
+              title, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined, authorityLinks
             );
           } else {
             // ── Targeted fix on retries: only rewrite failing fields ─
             await send({ type: "qa_retry", attempt: qaAttempt, max: MAX_QA });
             console.log(`[generate] QA retry ${qaAttempt}/${MAX_QA} — fixing: ${qa_failing_fields(prevQAChecks!)}`);
             content = await fixBlogContent(
-              title, prevContent!, blueprint, selectedLinks, prevQAChecks!, language || undefined, prevBrokenUrls.length > 0 ? prevBrokenUrls : undefined
+              title, prevContent!, blueprint, selectedLinks, prevQAChecks!, language || undefined, prevBrokenUrls.length > 0 ? prevBrokenUrls : undefined, authorityLinks
             );
           }
 
