@@ -246,11 +246,11 @@ export function runQA(
     !!(content.quote_1?.trim()) && !!(content.quote_2?.trim());
   if (!checks.quotes_exist) warnings.push("One or both quote fields are empty");
 
-  // At least one external authority link
+  // Minimum 4 external authority links across the article
   checks.external_links_present =
-    (content.external_links_used?.length ?? 0) >= 1;
+    (content.external_links_used?.length ?? 0) >= 4;
   if (!checks.external_links_present)
-    warnings.push("No external authority links used (recommended)");
+    warnings.push(`Only ${content.external_links_used?.length ?? 0} external link(s) found — minimum 4 required`);
 
   // Banned phrases
   const plainAll = stripHtml(allFields).toLowerCase();
@@ -301,6 +301,7 @@ export function runQA(
     "cta_exists",
     "internal_links_sufficient",
     "keypoints_exist",
+    "external_links_present",
     "featured_image_exists",
     "section_images_exist",
     "image_alt_text_exists",

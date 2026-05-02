@@ -62,6 +62,7 @@ LINK FORMAT RULES (mandatory):
 - Do NOT invent external URLs. Do NOT cite random blogs or weak sources
 - Insert links inside sentences naturally — do NOT group links at the end of sections
 - Anchor text must be natural, descriptive, and fit the sentence — never use "click here" or raw URLs
+- MINIMUM 4 external links across the full article — spread across different body sections (main_content, more_content_1, more_content_2, more_content_3, more_content_6)
 
 ARTICLE STRUCTURE (mandatory):
 1. Title (H1)
@@ -393,7 +394,7 @@ main_content (300-340 words — MINIMUM 300, count before submitting):
 - After the opening paragraph, you MUST include at least 2 H3 subheadings to break the text into scannable sections — do not write 300 words of unbroken paragraphs
 - Heading hierarchy: every H4 must sit under an H3. Never skip levels
 - End with a sentence that pulls the reader into what follows
-- LINKS (mandatory): embed exactly 1 internal link and exactly 1 external link naturally within the text — both must sit inside a sentence and support the point being made
+- LINKS (mandatory): embed exactly 1 internal link and at least 1 external link naturally within the text — both must sit inside a sentence and support the point being made
 - SENTENCE LENGTH (mandatory): no sentence may exceed 20 words. If a sentence is running long, split it into two. This applies to every paragraph in this section
 - Allowed HTML: <h3>, <h4>, <p>, <strong>, <em>, <a>
 
@@ -667,7 +668,7 @@ const CHECK_TO_FIELDS: Record<string, string[]> = {
   h4_count_sufficient:              ["more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5"],
   keypoints_exist:                  ["keypoint_one", "keypoint_two"],
   quotes_exist:                     ["quote_1", "quote_2"],
-  external_links_present:           ["main_content", "more_content_1", "more_content_2"],
+  external_links_present:           ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_6"],
   no_banned_phrases:                ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
   no_colons_in_headings:            ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
 };
@@ -682,7 +683,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   // Content body
   main_content_exists:              "main_content is under 270 words — rewrite it to at least 300 words",
   main_content_has_internal_link:   "main_content has no internal link — embed exactly 1 internal link from the provided list",
-  main_content_has_external_link:   "main_content has no external link — embed exactly 1 external link",
+  main_content_has_external_link:   "main_content has no external link — embed at least 1 external link from an official source (regulator, government, institution)",
   key_takeaways_exists:             "key_takeaways is empty — write 4–6 bullet points",
   more_content_5_exists:            "more_content_5 (FAQ) is empty — write answers to the FAQ questions from the blueprint",
   final_points_exists:              "final_points is empty — write exactly 4 practical next steps",
@@ -701,7 +702,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   h4_count_sufficient:              "fewer than 6 H4 subheadings in the article — add H4 sub-points under existing H3 sections",
   keypoints_exist:                  "one or both keypoint callout boxes are empty — write them",
   quotes_exist:                     "one or both pull-quote fields are empty — write a compelling 1–2 sentence quote for each",
-  external_links_present:           "no external links found in the article body — embed at least 1 authoritative external link",
+  external_links_present:           "fewer than 4 external links in the article — add authoritative external links (regulators, governments, official institutions) spread across main_content, more_content_1, more_content_2, more_content_3, and more_content_6 until the total reaches at least 4",
   no_banned_phrases:                "banned phrase(s) found in the article — identify and remove or replace them",
   no_colons_in_headings:            "colon found in one or more headings — rewrite those headings without colons",
 };
@@ -772,7 +773,8 @@ ${linksBlock}
 RULES:
 - Fix every issue listed above — do not skip any
 - British English throughout, no colons in headings, sentence case, no em dashes
-- For main_content: minimum 300 words, at least 2 H3 subheadings, exactly 1 internal + 1 external link, no sentence over 20 words
+- For main_content: minimum 300 words, at least 2 H3 subheadings, exactly 1 internal link + at least 1 external link, no sentence over 20 words
+- Across all sections combined: minimum 4 external links total — add to whichever sections you are fixing until the article-wide total reaches 4
 - Preserve all existing HTML structure within the fields you are fixing
 - Do NOT change fields that are not listed above
 - Return ONLY raw JSON — no markdown, no code fences, no explanation
