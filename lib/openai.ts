@@ -877,7 +877,6 @@ export async function generateImage(prompt: string, model: ImageModel = "imagen-
       numberOfImages: 1,
       aspectRatio: "16:9",
       outputMimeType: "image/png",
-      enhancePrompt: true,
     },
   });
   const timeoutPromise = new Promise<never>((_, reject) =>
