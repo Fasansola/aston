@@ -236,6 +236,37 @@ export async function createWordPressPost(
     throw err;
   }
 
+  const postId: number = response.data.id;
+
+  // ── Yoast meta: second PATCH to guarantee fields are written ──
+  // The standard `meta` block above is silently ignored unless the site
+  // has explicitly registered those keys via register_post_meta(). A
+  // dedicated PATCH after creation is the reliable fallback.
+  try {
+    await axios.patch(
+      `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
+      {
+        meta: {
+          _yoast_wpseo_focuskw:                content.focus_keyword,
+          _yoast_wpseo_title:                  seoTitle,
+          _yoast_wpseo_metadesc:               content.meta_description,
+          "_yoast_wpseo_opengraph-title":       seoTitle,
+          "_yoast_wpseo_opengraph-description": content.meta_description,
+          "_yoast_wpseo_twitter-title":         seoTitle,
+          "_yoast_wpseo_twitter-description":   content.meta_description,
+        },
+      },
+      { headers: BASE_HEADERS }
+    );
+    console.log(`[wordpress] Yoast meta patched for post ${postId}`);
+  } catch (yoastErr: unknown) {
+    // Non-fatal — log and continue. The post itself was created successfully.
+    const detail = axios.isAxiosError(yoastErr)
+      ? JSON.stringify(yoastErr.response?.data ?? yoastErr.message)
+      : String(yoastErr);
+    console.warn(`[wordpress] Yoast meta patch failed for post ${postId} (non-fatal): ${detail}`);
+  }
+
   return response.data;
 }
 
