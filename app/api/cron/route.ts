@@ -28,10 +28,10 @@ import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePr
 import { uploadImageToWordPress, createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { runQA } from "@/lib/qa";
 import { scrubBrokenExternalLinks } from "@/lib/linkScrubber";
-import { selectAuthorityLinks } from "@/lib/authorityLinks";
+import { selectAuthorityLinks, mergeWithDiscovered } from "@/lib/authorityLinks";
 import { emptyBrief, processSourceInput, SourceBrief } from "@/lib/source";
 import { generateStrategy, StrategyBrief, StrategyContext } from "@/lib/strategy";
-import { researchTopic, deriveTitle, ResearchBrief } from "@/lib/research";
+import { researchTopic, deriveTitle, findExternalAuthorityLinks, ResearchBrief } from "@/lib/research";
 
 export const maxDuration = 300;
 
@@ -111,7 +111,19 @@ async function processOneItem(
   const blueprint = await generateBlueprint(resolvedTopic, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language);
 
   const jurisdictions = (strategy?.jurisdiction_map ?? []).map((j) => j.jurisdiction);
-  const authorityLinks = selectAuthorityLinks(`${resolvedTopic} ${strategy?.keyword_model.primary_keyword ?? ""}`, jurisdictions);
+  const curatedLinks = selectAuthorityLinks(`${resolvedTopic} ${strategy?.keyword_model.primary_keyword ?? ""}`, jurisdictions);
+  let discoveredLinks: Awaited<ReturnType<typeof findExternalAuthorityLinks>> = [];
+  try {
+    discoveredLinks = await findExternalAuthorityLinks(
+      resolvedTopic,
+      strategy?.keyword_model.primary_keyword ?? resolvedTopic,
+      jurisdictions
+    );
+    console.log(`[cron:item] Discovered ${discoveredLinks.length} external authority links`);
+  } catch (err) {
+    console.warn("[cron:item] External link discovery failed — using curated list only:", err);
+  }
+  const authorityLinks = mergeWithDiscovered(curatedLinks, discoveredLinks);
 
   const MAX_ATTEMPTS = 3;
   const fileSlug = resolvedTopic.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);

@@ -317,6 +317,43 @@ export function selectAuthorityLinks(
   return result.slice(0, max);
 }
 
+/**
+ * Merge a set of dynamically discovered links (from gpt-4o-search-preview)
+ * with the curated hardcoded list, deduplicating by domain so no two entries
+ * point to the same root domain. Discovered links take priority — they are
+ * specific pages, not just homepages.
+ */
+export function mergeWithDiscovered(
+  curated: AuthorityLink[],
+  discovered: Array<{ url: string; name: string; description: string }>
+): AuthorityLink[] {
+  const usedDomains = new Set<string>();
+
+  function domain(url: string): string {
+    try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+  }
+
+  const result: AuthorityLink[] = [];
+
+  // Discovered links first — specific pages > homepages
+  for (const d of discovered) {
+    const dom = domain(d.url);
+    if (usedDomains.has(dom)) continue;
+    usedDomains.add(dom);
+    result.push({ url: d.url, name: d.name, description: d.description, topics: [], jurisdictions: [] });
+  }
+
+  // Curated links fill remaining slots, skipping domains already covered
+  for (const c of curated) {
+    const dom = domain(c.url);
+    if (usedDomains.has(dom)) continue;
+    usedDomains.add(dom);
+    result.push(c);
+  }
+
+  return result;
+}
+
 /** Format the authority link list for injection into the content generation prompt. */
 export function formatAuthorityLinksForPrompt(links: AuthorityLink[]): string {
   const lines = links.map((l) => `- ${l.url} — ${l.name}: ${l.description}`).join("\n");

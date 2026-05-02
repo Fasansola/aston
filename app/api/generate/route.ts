@@ -23,7 +23,7 @@ import { uploadImageToWordPress, createWordPressPost, type BlogContent, type Ima
 import { selectLinks } from "@/lib/links";
 import { runQA } from "@/lib/qa";
 import { scrubBrokenExternalLinks } from "@/lib/linkScrubber";
-import { selectAuthorityLinks } from "@/lib/authorityLinks";
+import { selectAuthorityLinks, mergeWithDiscovered } from "@/lib/authorityLinks";
 import {
   GenerationMode,
   SourceBrief,
@@ -31,7 +31,7 @@ import {
   processSourceInput,
 } from "@/lib/source";
 import { generateStrategy } from "@/lib/strategy";
-import { researchTopic, deriveTitle, ResearchBrief } from "@/lib/research";
+import { researchTopic, deriveTitle, findExternalAuthorityLinks, ResearchBrief } from "@/lib/research";
 
 export const maxDuration = 300;
 
@@ -184,9 +184,21 @@ export async function POST(req: NextRequest) {
         const blueprint = await generateBlueprint(title, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined);
         console.log(`[generate] Blueprint ready. Keyword: "${blueprint.focus_keyword}"`);
 
-        // ── Authority links (curated real external URLs) ───────
+        // ── Authority links (curated + dynamically discovered) ─
         const jurisdictions = (strategy?.jurisdiction_map ?? []).map((j) => j.jurisdiction);
-        const authorityLinks = selectAuthorityLinks(`${title} ${strategy?.keyword_model.primary_keyword ?? ""}`, jurisdictions);
+        const curatedLinks = selectAuthorityLinks(`${title} ${strategy?.keyword_model.primary_keyword ?? ""}`, jurisdictions);
+        let discoveredLinks: Awaited<ReturnType<typeof findExternalAuthorityLinks>> = [];
+        try {
+          discoveredLinks = await findExternalAuthorityLinks(
+            title,
+            strategy?.keyword_model.primary_keyword ?? title,
+            jurisdictions
+          );
+          console.log(`[generate] Discovered ${discoveredLinks.length} external authority links`);
+        } catch (err) {
+          console.warn("[generate] External link discovery failed ��� using curated list only:", err);
+        }
+        const authorityLinks = mergeWithDiscovered(curatedLinks, discoveredLinks);
 
         // ── QA retry loop ─────────────────────────────────────
         const MAX_QA   = 3;
