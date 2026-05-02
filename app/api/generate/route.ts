@@ -132,10 +132,6 @@ export async function POST(req: NextRequest) {
     const MAX_TECH = 3;
 
     for (let techAttempt = 1; techAttempt <= MAX_TECH; techAttempt++) {
-      if (techAttempt > 1) {
-        await send({ type: "tech_retry", attempt: techAttempt, max: MAX_TECH });
-        console.log(`[generate] Technical retry ${techAttempt}/${MAX_TECH}`);
-      }
 
       try {
         // ── Derive title ──────────────────────────────────────
@@ -332,6 +328,7 @@ export async function POST(req: NextRequest) {
         const msg = error instanceof Error ? error.message : String(error);
         if (techAttempt < MAX_TECH) {
           console.warn(`[generate] Technical error (attempt ${techAttempt}/${MAX_TECH}), retrying: ${msg}`);
+          await send({ type: "tech_retry", attempt: techAttempt + 1, max: MAX_TECH, reason: msg });
         } else {
           console.error(`[generate] All ${MAX_TECH} attempts failed: ${msg}`);
           await send({ type: "error", message: msg || "An unexpected error occurred." });

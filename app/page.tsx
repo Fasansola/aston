@@ -772,7 +772,8 @@ export default function HomePage() {
           if (event.type === "qa_retry") {
             setRetryMessage(`QA check didn't pass — rewriting content (attempt ${event.attempt}/${event.max})...`);
           } else if (event.type === "tech_retry") {
-            setRetryMessage(`Technical issue — retrying (attempt ${event.attempt}/${event.max})...`);
+            const reason = event.reason ? ` (${String(event.reason).slice(0, 120)})` : "";
+            setRetryMessage(`Technical issue — retrying (attempt ${event.attempt}/${event.max})...${reason}`);
           } else if (event.type === "done") {
             clearInterval(interval);
             setRetryMessage(null);

@@ -490,7 +490,7 @@ ${linksBlock}`;
     ],
     temperature: 0.6,
     max_completion_tokens: 32000,
-  }, { signal: AbortSignal.timeout(150_000) });
+  }, { signal: AbortSignal.timeout(180_000) });
 
   const choice = response.choices[0];
   if (choice.finish_reason === "length") {
