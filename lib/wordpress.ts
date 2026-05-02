@@ -48,6 +48,7 @@ export async function uploadImageToWordPress(
         "User-Agent": "AstonBlogTool/1.0 (Vercel; +https://aston.ae)",
         ...form.getHeaders(),
       },
+      timeout: 60_000,
     });
   } catch (err: unknown) {
     if (axios.isAxiosError(err)) {
@@ -71,7 +72,7 @@ export async function uploadImageToWordPress(
   await axios.post(
     `${WP_URL}/wp-json/wp/v2/media/${mediaId}`,
     { alt_text: altText },
-    { headers: BASE_HEADERS }
+    { headers: BASE_HEADERS, timeout: 20_000 }
   );
 
   return { id: mediaId, url: mediaUrl };
@@ -224,7 +225,7 @@ export async function createWordPressPost(
           more_content_6:   content.more_content_6,
         },
       },
-      { headers: BASE_HEADERS }
+      { headers: BASE_HEADERS, timeout: 45_000 }
     );
   } catch (err: unknown) {
     if (axios.isAxiosError(err)) {
@@ -256,7 +257,7 @@ export async function createWordPressPost(
           "_yoast_wpseo_twitter-description":   content.meta_description,
         },
       },
-      { headers: BASE_HEADERS }
+      { headers: BASE_HEADERS, timeout: 20_000 }
     );
     console.log(`[wordpress] Yoast meta patched for post ${postId}`);
   } catch (yoastErr: unknown) {

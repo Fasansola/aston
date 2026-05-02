@@ -245,7 +245,7 @@ BLUEPRINT RULES:
     ],
     temperature: 0.4,
     max_completion_tokens: 2000,
-  });
+  }, { signal: AbortSignal.timeout(90_000) });
 
   const choice = response.choices[0];
   if (choice.finish_reason === "length") {
@@ -489,7 +489,7 @@ ${linksBlock}`;
     ],
     temperature: 0.6,
     max_completion_tokens: 32000,
-  });
+  }, { signal: AbortSignal.timeout(240_000) });
 
   const choice = response.choices[0];
   if (choice.finish_reason === "length") {
@@ -607,7 +607,7 @@ Alt text rules (SEO-optimised — all must be met):
     ],
     temperature: 0.5,
     max_completion_tokens: 2000,
-  });
+  }, { signal: AbortSignal.timeout(60_000) });
 
   const choice = response.choices[0];
   if (choice.finish_reason === "length") {
@@ -794,7 +794,7 @@ The "internal_links_used" and "external_links_used" arrays must include ALL link
     ],
     temperature: 0.5,
     max_completion_tokens: 12000,
-  });
+  }, { signal: AbortSignal.timeout(150_000) });
 
   if (response.choices[0]?.finish_reason === "length") {
     throw new Error("fixBlogContent response was cut off — increase max_completion_tokens");
@@ -851,7 +851,7 @@ export async function generateImage(prompt: string, model: ImageModel = "imagen-
       n: 1,
       size: "1536x1024",
       quality: "high",
-    });
+    }, { signal: AbortSignal.timeout(120_000) });
 
     const b64 = response.data?.[0]?.b64_json;
     if (b64) return Buffer.from(b64, "base64");
@@ -869,7 +869,8 @@ export async function generateImage(prompt: string, model: ImageModel = "imagen-
   const { GoogleGenAI } = await import("@google/genai");
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-  const response = await ai.models.generateImages({
+  const timeoutMs = 120_000;
+  const imagenPromise = ai.models.generateImages({
     model: "imagen-4.0-generate-001",
     prompt,
     config: {
@@ -879,6 +880,10 @@ export async function generateImage(prompt: string, model: ImageModel = "imagen-
       enhancePrompt: true,
     },
   });
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`Imagen 4 timed out after ${timeoutMs / 1000}s`)), timeoutMs)
+  );
+  const response = await Promise.race([imagenPromise, timeoutPromise]);
 
   const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
   if (!imageBytes) throw new Error("Imagen 4 returned no image data");

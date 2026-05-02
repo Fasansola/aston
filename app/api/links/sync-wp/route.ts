@@ -96,6 +96,7 @@ async function fetchWpPage(
       Authorization: `Basic ${auth}`,
       "User-Agent": "AstonBlogTool/1.0 (Vercel; +https://aston.ae)",
     },
+    timeout: 30_000,
   });
   const totalPages = parseInt(res.headers["x-wp-totalpages"] ?? "1", 10);
   return { posts: res.data as WpPost[], totalPages };
