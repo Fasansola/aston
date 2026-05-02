@@ -22,7 +22,7 @@ import { getSettings } from "@/lib/storage";
 import { uploadImageToWordPress, createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 import { runQA } from "@/lib/qa";
-import { scrubBrokenExternalLinks } from "@/lib/linkScrubber";
+import { enforceApprovedLinks, scrubBrokenExternalLinks } from "@/lib/linkScrubber";
 import { selectAuthorityLinks, mergeWithDiscovered } from "@/lib/authorityLinks";
 import {
   GenerationMode,
@@ -231,13 +231,21 @@ export async function POST(req: NextRequest) {
             );
           }
 
-          // ── Scrub broken external links before QA ─────────────
+          // ── Pass 1: strip any URL not in the approved list ────
+          const approvedUrls = authorityLinks.map((l) => l.url);
+          const { content: enforcedContent, removed: unapproved } = enforceApprovedLinks(content, approvedUrls);
+          if (unapproved.length > 0) {
+            console.warn(`[generate] Removed ${unapproved.length} unapproved external URL(s): ${unapproved.join(", ")}`);
+          }
+          content = enforcedContent;
+
+          // ── Pass 2: HEAD-check remaining approved URLs ─────────
           const { content: scrubbedContent, removed: brokenUrls } = await scrubBrokenExternalLinks(content);
           if (brokenUrls.length > 0) {
             console.warn(`[generate] Scrubbed ${brokenUrls.length} broken external link(s): ${brokenUrls.join(", ")}`);
           }
           content = scrubbedContent;
-          prevBrokenUrls = brokenUrls;
+          prevBrokenUrls = [...unapproved, ...brokenUrls];
 
           // ── Images: regenerate only on attempt 1 or if image checks failed ─
           const needNewImages = qaAttempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevQAChecks![k]);

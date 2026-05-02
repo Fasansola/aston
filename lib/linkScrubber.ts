@@ -1,12 +1,17 @@
 /**
  * lib/linkScrubber.ts
  *
- * After content generation, extract every external link from the article HTML,
- * HEAD-check each one, and strip any that return a non-2xx status or fail to
- * connect. Keeps anchor text in place so the sentence still reads naturally.
+ * Two-pass external link enforcement:
  *
- * Called before QA so the QA engine sees the cleaned content. Broken URLs are
- * returned so fixBlogContent can be told not to reuse them.
+ * Pass 1 — enforceApprovedLinks(): synchronous, no network.
+ *   Strips any external href that is NOT in the approved authority URL list.
+ *   GPT ignores "use only approved URLs" instructions, so we enforce it here.
+ *
+ * Pass 2 — scrubBrokenExternalLinks(): async, HEAD-checks remaining URLs.
+ *   Strips any approved URL that actually returns 4xx/5xx. Keeps the link on
+ *   timeout/network errors (benefit of the doubt for slow gov sites).
+ *
+ * Always call enforceApprovedLinks first, then scrubBrokenExternalLinks.
  */
 
 import type { BlogContent } from "./wordpress";
@@ -63,6 +68,50 @@ function stripLinkTag(html: string, url: string): string {
   );
 }
 
+/**
+ * Pass 1 — synchronous, no network calls.
+ * Removes any external <a> tag whose href is not in the approvedUrls set.
+ * Keeps anchor text so the sentence reads naturally.
+ */
+export function enforceApprovedLinks(
+  content: BlogContent,
+  approvedUrls: string[]
+): { content: BlogContent; removed: string[] } {
+  if (approvedUrls.length === 0) return { content, removed: [] };
+
+  const approved = new Set(approvedUrls.map((u) => u.toLowerCase().replace(/\/$/, "")));
+  const removed: string[] = [];
+
+  const cleaned = { ...content } as BlogContent;
+
+  for (const field of LINK_FIELDS) {
+    let html = (cleaned[field] as string) ?? "";
+    EXTERNAL_HREF_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    const toStrip: string[] = [];
+
+    while ((m = EXTERNAL_HREF_RE.exec(html)) !== null) {
+      const href = m[1].replace(/\/$/, "");
+      if (!approved.has(href.toLowerCase())) {
+        toStrip.push(m[1]);
+      }
+    }
+
+    for (const url of toStrip) {
+      html = stripLinkTag(html, url);
+      removed.push(url);
+    }
+
+    (cleaned as unknown as Record<string, unknown>)[field] = html;
+  }
+
+  return { content: cleaned, removed };
+}
+
+/**
+ * Pass 2 — async HEAD checks.
+ * Scrubs any remaining external link that returns a non-2xx HTTP response.
+ */
 export async function scrubBrokenExternalLinks(content: BlogContent): Promise<{
   content: BlogContent;
   removed: string[];
