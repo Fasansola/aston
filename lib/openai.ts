@@ -717,7 +717,8 @@ export async function fixBlogContent(
   blueprint: Blueprint,
   selectedLinks: SelectedLinks,
   failingChecks: Record<string, boolean>,
-  language?: string
+  language?: string,
+  brokenUrls?: string[]
 ): Promise<BlogContent> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -774,7 +775,7 @@ RULES:
 - Fix every issue listed above — do not skip any
 - British English throughout, no colons in headings, sentence case, no em dashes
 - For main_content: minimum 300 words, at least 2 H3 subheadings, exactly 1 internal link + at least 1 external link, no sentence over 20 words
-- Across all sections combined: minimum 4 external links total — add to whichever sections you are fixing until the article-wide total reaches 4
+- Across all sections combined: minimum 4 external links total — add to whichever sections you are fixing until the article-wide total reaches 4${brokenUrls && brokenUrls.length > 0 ? `\n- The following external URLs were found to be BROKEN (404/unreachable) — do NOT reuse any of them; replace with working official sources:\n${brokenUrls.map((u) => `  • ${u}`).join("\n")}` : ""}
 - Preserve all existing HTML structure within the fields you are fixing
 - Do NOT change fields that are not listed above
 - Return ONLY raw JSON — no markdown, no code fences, no explanation

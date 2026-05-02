@@ -22,6 +22,7 @@ import { getSettings } from "@/lib/storage";
 import { uploadImageToWordPress, createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 import { runQA } from "@/lib/qa";
+import { scrubBrokenExternalLinks } from "@/lib/linkScrubber";
 import {
   GenerationMode,
   SourceBrief,
@@ -192,6 +193,7 @@ export async function POST(req: NextRequest) {
         let prevImagePrompts: ImagePrompts | null = null;
         let prevImageIds:     ImageIds | null = null;
         let prevQAChecks:     Record<string, boolean> | null = null;
+        let prevBrokenUrls:   string[] = [];
 
         for (let qaAttempt = 1; qaAttempt <= MAX_QA; qaAttempt++) {
           let content:      BlogContent;
@@ -208,9 +210,17 @@ export async function POST(req: NextRequest) {
             await send({ type: "qa_retry", attempt: qaAttempt, max: MAX_QA });
             console.log(`[generate] QA retry ${qaAttempt}/${MAX_QA} — fixing: ${qa_failing_fields(prevQAChecks!)}`);
             content = await fixBlogContent(
-              title, prevContent!, blueprint, selectedLinks, prevQAChecks!, language || undefined
+              title, prevContent!, blueprint, selectedLinks, prevQAChecks!, language || undefined, prevBrokenUrls.length > 0 ? prevBrokenUrls : undefined
             );
           }
+
+          // ── Scrub broken external links before QA ─────────────
+          const { content: scrubbedContent, removed: brokenUrls } = await scrubBrokenExternalLinks(content);
+          if (brokenUrls.length > 0) {
+            console.warn(`[generate] Scrubbed ${brokenUrls.length} broken external link(s): ${brokenUrls.join(", ")}`);
+          }
+          content = scrubbedContent;
+          prevBrokenUrls = brokenUrls;
 
           // ── Images: regenerate only on attempt 1 or if image checks failed ─
           const needNewImages = qaAttempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevQAChecks![k]);

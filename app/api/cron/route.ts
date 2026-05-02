@@ -27,6 +27,7 @@ import { selectLinks } from "@/lib/links";
 import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePrompts, generateImage, IMAGE_QA_CHECKS, type ImageModel } from "@/lib/openai";
 import { uploadImageToWordPress, createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { runQA } from "@/lib/qa";
+import { scrubBrokenExternalLinks } from "@/lib/linkScrubber";
 import { emptyBrief, processSourceInput, SourceBrief } from "@/lib/source";
 import { generateStrategy, StrategyBrief, StrategyContext } from "@/lib/strategy";
 import { researchTopic, deriveTitle, ResearchBrief } from "@/lib/research";
@@ -116,6 +117,7 @@ async function processOneItem(
   let prevImagePrompts: ImagePrompts | null = null;
   let prevImageIds:     ImageIds | null = null;
   let prevQAChecks:     Record<string, boolean> | null = null;
+  let prevBrokenUrls:   string[] = [];
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let content: BlogContent;
@@ -127,8 +129,16 @@ async function processOneItem(
     } else {
       const failingFields = Object.entries(prevQAChecks!).filter(([, v]) => !v).map(([k]) => k).join(", ");
       console.log(`[cron:item] QA retry ${attempt}/${MAX_ATTEMPTS} — fixing: ${failingFields}`);
-      content = await fixBlogContent(resolvedTopic, prevContent!, blueprint, selectedLinks, prevQAChecks!, strategyInputs?.language);
+      content = await fixBlogContent(resolvedTopic, prevContent!, blueprint, selectedLinks, prevQAChecks!, strategyInputs?.language, prevBrokenUrls.length > 0 ? prevBrokenUrls : undefined);
     }
+
+    // ── Scrub broken external links before QA ─────────────────
+    const { content: scrubbedContent, removed: brokenUrls } = await scrubBrokenExternalLinks(content);
+    if (brokenUrls.length > 0) {
+      console.warn(`[cron:item] Scrubbed ${brokenUrls.length} broken external link(s): ${brokenUrls.join(", ")}`);
+    }
+    content = scrubbedContent;
+    prevBrokenUrls = brokenUrls;
 
     const needNewImages = attempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevQAChecks![k]);
     if (needNewImages) {
