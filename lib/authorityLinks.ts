@@ -355,10 +355,16 @@ export function mergeWithDiscovered(
 }
 
 /** Format the authority link list for injection into the content generation prompt. */
-export function formatAuthorityLinksForPrompt(links: AuthorityLink[]): string {
+export function formatAuthorityLinksForPrompt(links: AuthorityLink[], language?: string): string {
   const lines = links.map((l) => `- ${l.url} — ${l.name}: ${l.description}`).join("\n");
+
+  const anchorTextRule = language
+    ? `IMPORTANT: The URLs below are fixed and must never be changed. However, the anchor text you write for each link inside the article MUST be written in ${language.toUpperCase()} — not in English. Write natural, descriptive anchor text in ${language.toUpperCase()} that fits the surrounding sentence. The institution names listed below are in English for reference only.`
+    : `Write natural, descriptive anchor text that fits the surrounding sentence — do not use the institution name as anchor text verbatim.`;
+
   return `APPROVED EXTERNAL AUTHORITY SOURCES
-These are real, verified URLs. You MUST use only these for external links — do NOT invent external URLs or use any URL not listed here. Pick the most contextually relevant ones and embed them naturally inside sentences:
+These are real, verified URLs. You MUST use only these for external links — do NOT invent external URLs or use any URL not listed here. Pick the most contextually relevant ones and embed them naturally inside sentences.
+${anchorTextRule}
 
 ${lines}`;
 }

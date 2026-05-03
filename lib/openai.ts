@@ -300,7 +300,7 @@ export async function generateBlogContent(
 
   const linksBlock = formatLinksForPrompt(selectedLinks, language);
   const authorityLinksBlock = authorityLinks && authorityLinks.length > 0
-    ? `\n${formatAuthorityLinksForPrompt(authorityLinks)}\n`
+    ? `\n${formatAuthorityLinksForPrompt(authorityLinks, language)}\n`
     : "";
   const sourceBriefBlock = sourceBrief ? formatBriefForPrompt(sourceBrief) : "";
 
@@ -749,7 +749,7 @@ export async function fixBlogContent(
 
   const linksBlock = formatLinksForPrompt(selectedLinks, language);
   const authorityLinksBlock = authorityLinks && authorityLinks.length > 0
-    ? `\n${formatAuthorityLinksForPrompt(authorityLinks)}\n`
+    ? `\n${formatAuthorityLinksForPrompt(authorityLinks, language)}\n`
     : "";
 
   const issueList = failedKeys
