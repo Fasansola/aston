@@ -48,6 +48,25 @@ function extractHeadingText(html: string): string[] {
   );
 }
 
+/**
+ * Mirrors Yoast's sentence-length check.
+ * Returns the percentage of sentences that exceed 20 words.
+ * Yoast issues a warning when this exceeds 25%.
+ */
+function longSentencePercent(html: string): number {
+  const text = stripHtml(html);
+  if (!text) return 0;
+  const sentences = text
+    .split(/[.!?]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (sentences.length === 0) return 0;
+  const long = sentences.filter(
+    (s) => s.split(/\s+/).filter((w) => w.length > 0).length > 20
+  ).length;
+  return Math.round((long / sentences.length) * 100);
+}
+
 const BANNED_PHRASES = [
   "seamless",
   "hassle-free",
@@ -290,6 +309,12 @@ export function runQA(
   checks.key_takeaways_quality = takeawayItems.length >= 4;
   if (takeawayItems.length < 4)
     warnings.push(`Key takeaways has only ${takeawayItems.length} items — minimum 4 required`);
+
+  // Yoast sentence length: max 25% of sentences may exceed 20 words
+  const sentenceLengthPct = longSentencePercent(allFields);
+  checks.sentence_length_ok = sentenceLengthPct <= 25;
+  if (!checks.sentence_length_ok)
+    warnings.push(`${sentenceLengthPct}% of sentences exceed 20 words — Yoast requires ≤25% (target 12–16 words per sentence)`);
 
   // ── COLLECT BLOCKING ISSUES ───────────────────────────────
 

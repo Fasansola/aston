@@ -36,7 +36,7 @@ SEO KEYWORD RULES (Yoast green target — every rule below is mandatory):
 
 READABILITY RULES (Yoast readability green target — every rule below is mandatory):
 - Transition words: at least one in every three sentences must open with or include a transition (however, therefore, because, this means, as a result, for example, in addition, which means, in practice, by contrast, that said, more importantly, in most cases, as a rule)
-- Sentence length: aim for 15–20 words per sentence. Never exceed 25 words in a single sentence. If a sentence is running long, split it in two
+- Sentence length: HARD MAXIMUM 20 words per sentence — no exceptions. Yoast flags any post where more than 25% of sentences exceed 20 words, which blocks a green readability score. Count words as you write. Target 12–16 words per sentence. If a sentence is approaching 18 words, end it and start a new one. The most common causes of long sentences are: (1) chaining clauses with "which", "that", "and", "because", or "since" — break these into two sentences; (2) listing three or more items in a sentence — convert to a bullet list or split; (3) adding a parenthetical or qualification mid-sentence — move it to its own sentence
 - Passive voice: use active voice in at least 9 of every 10 sentences. Write "Aston VIP handles the filing" not "the filing is handled by Aston VIP"
 - Paragraph length: maximum 4 sentences per paragraph. Never exceed 100 words in a single paragraph
 - Consecutive sentences: never start 3 or more sentences in a row with the same word
@@ -679,6 +679,7 @@ const CHECK_TO_FIELDS: Record<string, string[]> = {
   external_links_present:           ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_6"],
   no_banned_phrases:                ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
   no_colons_in_headings:            ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
+  sentence_length_ok:               ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
 };
 
 const CHECK_DESCRIPTIONS: Record<string, string> = {
@@ -713,6 +714,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   external_links_present:           "fewer than 5 verified external links in the article — add authoritative external links (regulators, governments, official institutions) spread across main_content, more_content_1, more_content_2, more_content_3, and more_content_6; target 7 to 9 total so broken links can be removed without dropping below 5",
   no_banned_phrases:                "banned phrase(s) found in the article — identify and remove or replace them",
   no_colons_in_headings:            "colon found in one or more headings — rewrite those headings without colons",
+  sentence_length_ok:               "too many sentences exceed 20 words — Yoast requires fewer than 25% of sentences to be over 20 words. Rewrite any sentence over 20 words by splitting it at a natural junction (full stop). Target 12–16 words. Common fixes: split clauses joined by 'which', 'that', 'because', 'since'; convert inline lists to bullet points; move parenthetical qualifications to their own sentence",
 };
 
 /**
@@ -786,7 +788,8 @@ ${authorityLinksBlock}
 RULES:
 - Fix every issue listed above — do not skip any
 - British English throughout, no colons in headings, sentence case, no em dashes
-- For main_content: minimum 300 words, at least 2 H3 subheadings, exactly 1 internal link + at least 1 external link, no sentence over 20 words
+- For main_content: minimum 300 words, at least 2 H3 subheadings, exactly 1 internal link + at least 1 external link
+- Sentence length across ALL fields you are fixing: hard maximum 20 words per sentence. Split any sentence at 18+ words. Target 12–16 words
 - Across all sections combined: target 7 to 9 external links (minimum 5) — use ONLY the APPROVED EXTERNAL AUTHORITY SOURCES listed above${brokenUrls && brokenUrls.length > 0 ? `\n- The following external URLs were found to be BROKEN — do NOT reuse any of them:\n${brokenUrls.map((u) => `  • ${u}`).join("\n")}` : ""}
 - Preserve all existing HTML structure within the fields you are fixing
 - Do NOT change fields that are not listed above
