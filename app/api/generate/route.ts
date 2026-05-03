@@ -305,7 +305,7 @@ export async function POST(req: NextRequest) {
             more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
           };
 
-          const post = await createWordPressPost(content.seo_title || title, content, imagePrompts, assembled, imageIds);
+          const post = await createWordPressPost(content.seo_title || title, content, imagePrompts, assembled, imageIds, language || undefined);
           console.log(`[generate] Post created! ID: ${post.id}, slug: "${content.slug}"`);
 
           const articleHtml = [

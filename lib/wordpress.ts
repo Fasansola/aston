@@ -25,6 +25,53 @@ const BASE_HEADERS = {
   "User-Agent": "AstonBlogTool/1.0 (Vercel; +https://aston.ae)",
 };
 
+// ── Language normalisation ────────────────────────────────────
+// Polylang uses 2-letter ISO slugs. The tool accepts full names or codes.
+const LANG_CODE_MAP: Record<string, string> = {
+  english: "en", german: "de", deutsch: "de",
+  french: "fr", français: "fr", francais: "fr",
+  arabic: "ar", عربي: "ar",
+  spanish: "es", español: "es", espanol: "es",
+  italian: "it", italiano: "it",
+  portuguese: "pt", português: "pt", portugues: "pt",
+  dutch: "nl", nederlands: "nl",
+  russian: "ru",
+  chinese: "zh", mandarin: "zh",
+  japanese: "ja",
+  korean: "ko",
+  turkish: "tr",
+  polish: "pl",
+  swedish: "sv", svenska: "sv",
+  danish: "da", dansk: "da",
+  norwegian: "no", norsk: "no",
+  finnish: "fi",
+  greek: "el",
+  hebrew: "he",
+  hindi: "hi",
+  indonesian: "id",
+  malay: "ms",
+  thai: "th",
+  vietnamese: "vi",
+  romanian: "ro",
+  hungarian: "hu",
+  czech: "cs",
+  slovak: "sk",
+  bulgarian: "bg",
+  ukrainian: "uk",
+  croatian: "hr",
+  serbian: "sr",
+};
+
+/**
+ * Convert any language string the tool might receive into a 2-letter ISO code.
+ * Falls back to the first two characters lowercased if no mapping exists.
+ */
+export function normaliseLangCode(language?: string): string | undefined {
+  if (!language?.trim()) return undefined;
+  const lower = language.trim().toLowerCase();
+  return LANG_CODE_MAP[lower] ?? (lower.length >= 2 ? lower.slice(0, 2) : undefined);
+}
+
 /**
  * Upload an image buffer to the WordPress media library.
  * Returns the media ID and public URL — ID for ACF fields, URL for inline img tags.
@@ -139,8 +186,10 @@ export async function createWordPressPost(
     keypointTwoImg: number;
     postSplitImg: number;
     featuredImg: number;
-  }
+  },
+  language?: string
 ) {
+  const langCode = normaliseLangCode(language);
   const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
   const postTitle  = cap(title);
   const seoTitle   = cap(content.seo_title);
@@ -161,6 +210,8 @@ export async function createWordPressPost(
         slug: content.slug,
         excerpt: content.excerpt,
         ...(categoryIds.length > 0 && { categories: categoryIds }),
+        // Polylang Pro: set language via REST API directly
+        ...(langCode && { lang: langCode }),
 
         // ── SEO and Yoast ──────────────────────────────────
         meta: {
@@ -206,6 +257,26 @@ export async function createWordPressPost(
   }
 
   const postId: number = response.data.id;
+
+  // ── Polylang: set language via custom REST endpoint ───────────
+  // This covers Polylang Free (which ignores the `lang` POST param above).
+  // Requires the aston/v1/set-post-language endpoint — see
+  // wordpress-setup/polylang-rest-endpoint.php for the registration snippet.
+  if (langCode) {
+    try {
+      await axios.post(
+        `${WP_URL}/wp-json/aston/v1/set-post-language`,
+        { post_id: postId, lang: langCode },
+        { headers: BASE_HEADERS, timeout: 10_000 }
+      );
+      console.log(`[wordpress] Polylang language set to "${langCode}" for post ${postId}`);
+    } catch (langErr: unknown) {
+      const detail = axios.isAxiosError(langErr)
+        ? JSON.stringify(langErr.response?.data ?? langErr.message)
+        : String(langErr);
+      console.warn(`[wordpress] Polylang language assignment failed for post ${postId} (non-fatal): ${detail}`);
+    }
+  }
 
   // ── Yoast meta: second PATCH to guarantee fields are written ──
   // The standard `meta` block above is silently ignored unless the site

@@ -219,7 +219,7 @@ async function processOneItem(
       more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
     };
 
-    const post = await createWordPressPost(content.seo_title || resolvedTopic, content, imagePrompts, assembled, imageIds);
+    const post = await createWordPressPost(content.seo_title || resolvedTopic, content, imagePrompts, assembled, imageIds, strategyInputs?.language);
 
     await updateQueueItem(itemId, {
       status: "completed",
