@@ -71,26 +71,52 @@ function normaliseUrl(href: string, siteDomain: string): string | null {
 
 // Domains explicitly in our curated authority list — always trusted
 const CURATED_AUTHORITY_DOMAINS = new Set([
-  // UAE
+  // ── UAE regulators & government ───────────────────────────────
   "dfsa.ae", "adgm.com", "difc.ae", "centralbank.ae", "vara.ae",
   "tax.gov.ae", "moec.gov.ae", "dubaided.gov.ae", "economy.sharjah.ae",
-  // UK
+  "uaecabinet.ae", "mohre.gov.ae",
+
+  // ── UK regulators & government ────────────────────────────────
   "fca.org.uk", "bankofengland.co.uk", "gov.uk", "companieshouse.gov.uk",
-  // EU / Europe
+  "pra.org.uk", "ico.org.uk", "hmrc.gov.uk",
+
+  // ── EU / European regulators ──────────────────────────────────
   "esma.europa.eu", "eba.europa.eu", "ec.europa.eu", "ecb.europa.eu",
-  "bafin.de", "bundesbank.de", "finma.ch",
-  // Cyprus
-  "cysec.gov.cy", "investcyprus.org.cy",
-  // Asia-Pacific
+  "eiopa.europa.eu", "enisa.europa.eu",
+  "bafin.de", "bundesbank.de", "finma.ch", "amf-france.org",
+  "acpr.banque-france.fr", "banque-france.fr", "mfsa.mt",
+
+  // ── Cyprus ───────────────────────────────────────────────────
+  "cysec.gov.cy", "investcyprus.org.cy", "mof.gov.cy",
+
+  // ── Asia-Pacific ─────────────────────────────────────────────
   "mas.gov.sg", "sfc.hk", "hkma.gov.hk",
-  // Offshore
+
+  // ── Offshore jurisdictions ────────────────────────────────────
   "cima.ky", "bvifsc.vg", "fscmauritius.org", "iomfsa.im",
-  // International
+  "seylii.org", "fiu.gov.sc",
+
+  // ── International institutions ────────────────────────────────
   "oecd.org", "imf.org", "worldbank.org", "bis.org",
-  "fatf-gafi.org", "fsb.org",
-  // Media / research
+  "fatf-gafi.org", "fsb.org", "wto.org", "un.org", "uncitral.org",
+  "ifc.org", "ebrd.com",
+
+  // ── Global financial media ────────────────────────────────────
   "reuters.com", "ft.com", "economist.com", "bloomberg.com",
+  "wsj.com", "cnbc.com", "bbc.com", "theguardian.com",
+
+  // ── Big 4 and major advisory firms ───────────────────────────
   "pwc.com", "deloitte.com", "kpmg.com", "ey.com",
+  "mckinsey.com", "bcg.com", "oliverwyman.com",
+
+  // ── Major global banks (used as reference sources) ────────────
+  "hsbc.com", "barclays.com", "standardchartered.com",
+  "db.com", "ubs.com", "credit-suisse.com",
+  "jpmorgan.com", "goldmansachs.com", "morganstanley.com",
+
+  // ── Financial reference & research ───────────────────────────
+  "investopedia.com", "corporatefinanceinstitute.com",
+  "transparency.org", "globalcompact.org",
 ]);
 
 export function scoreExternalDomain(domain: string): number {
