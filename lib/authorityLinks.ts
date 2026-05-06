@@ -68,7 +68,7 @@ export const AUTHORITY_LINKS: AuthorityLink[] = [
     jurisdictions: ["UAE"],
   },
   {
-    url: "https://www.dubaided.gov.ae",
+    url: "https://www.ded.gov.ae",
     name: "Dubai Department of Economy and Tourism (DET)",
     description: "Dubai authority for mainland trade licences and business registration",
     topics: ["Dubai mainland", "trade licence", "DED", "business setup", "Dubai company", "Dubai licence"],

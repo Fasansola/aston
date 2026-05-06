@@ -73,7 +73,7 @@ function normaliseUrl(href: string, siteDomain: string): string | null {
 const CURATED_AUTHORITY_DOMAINS = new Set([
   // ── UAE regulators & government ───────────────────────────────
   "dfsa.ae", "adgm.com", "difc.ae", "centralbank.ae", "vara.ae",
-  "tax.gov.ae", "moec.gov.ae", "dubaided.gov.ae", "economy.sharjah.ae",
+  "tax.gov.ae", "moec.gov.ae", "economy.sharjah.ae",
   "uaecabinet.ae", "mohre.gov.ae",
   // Dubai government digital platforms (.com but official UAE gov entities)
   "dldcube.com", "dubailand.gov.ae", "dm.gov.ae", "rta.ae",
