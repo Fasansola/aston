@@ -22,7 +22,7 @@ import { getSettings } from "@/lib/storage";
 import { uploadImageToWordPress, createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 import { runQA } from "@/lib/qa";
-import { enforceApprovedLinks } from "@/lib/linkScrubber";
+import { enforceApprovedLinks, scrubBrokenExternalLinks } from "@/lib/linkScrubber";
 import { selectAuthorityLinks, mergeWithDiscovered } from "@/lib/authorityLinks";
 import {
   GenerationMode,
@@ -231,18 +231,23 @@ export async function POST(req: NextRequest) {
             );
           }
 
-          // ── Strip any URL not on an approved domain ───────────
-          // HEAD-checking is unreliable: gov/regulator sites return 403 to
-          // automated requests even when pages are live. Domain enforcement
-          // is sufficient — approved domains are trusted authorities and
-          // gpt-4o-search-preview discovered real URLs on those domains.
+          // ── Pass 1: strip URLs not on an approved domain ──────
           const approvedUrls = authorityLinks.map((l) => l.url);
           const { content: enforcedContent, removed: unapproved } = enforceApprovedLinks(content, approvedUrls);
           if (unapproved.length > 0) {
             console.warn(`[generate] Removed ${unapproved.length} unapproved external URL(s): ${unapproved.join(", ")}`);
           }
           content = enforcedContent;
-          prevBrokenUrls = unapproved;
+
+          // ── Pass 2: remove genuine 404s only ──────────────────
+          // 403/timeout = server blocked bot but page exists — keep.
+          // Only a 404 is definitive proof the specific path doesn't exist.
+          const { content: scrubbedContent, removed: brokenUrls } = await scrubBrokenExternalLinks(content);
+          if (brokenUrls.length > 0) {
+            console.warn(`[generate] Removed ${brokenUrls.length} 404 external link(s): ${brokenUrls.join(", ")}`);
+          }
+          content = scrubbedContent;
+          prevBrokenUrls = [...unapproved, ...brokenUrls];
 
           // ── Images: regenerate only on attempt 1 or if image checks failed ─
           const needNewImages = qaAttempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevQAChecks![k]);

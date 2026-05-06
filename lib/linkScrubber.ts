@@ -28,30 +28,32 @@ const LINK_FIELDS: (keyof BlogContent)[] = [
 
 const EXTERNAL_HREF_RE = /href="(https?:\/\/(?!(?:www\.)?aston\.ae)[^"]+)"/gi;
 
-async function headCheck(url: string, timeoutMs = 6000): Promise<boolean> {
+/**
+ * Returns false ONLY for an explicit 404 response — the only signal that
+ * reliably means "this page does not exist".
+ *
+ * 403 / 405 / 429 / 5xx = server responded but blocked the bot request.
+ *   These pages almost certainly exist — government and regulator sites
+ *   routinely block automated HEAD/GET requests via WAF/Cloudflare.
+ *   Keeping the link is the right call.
+ *
+ * Timeout / network error = inconclusive. Keep the link.
+ */
+async function headCheck(url: string, timeoutMs = 8000): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    let res = await fetch(url, {
+    const res = await fetch(url, {
       method: "HEAD",
       redirect: "follow",
       signal: controller.signal,
-      headers: { "User-Agent": "AstonBlogTool/1.0 (link-check)" },
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; AstonBlogTool/1.0)" },
     });
-    if (res.status === 405 || res.status === 403) {
-      res = await fetch(url, {
-        method: "GET",
-        redirect: "follow",
-        signal: controller.signal,
-        headers: { "User-Agent": "AstonBlogTool/1.0 (link-check)" },
-      });
-    }
-    return res.ok;
-  } catch (err) {
-    // Timeout or network error: keep the link rather than falsely flagging it as broken.
-    // Only explicit 4xx/5xx responses count as broken.
-    const isAbort = err instanceof Error && err.name === "AbortError";
-    return isAbort ? true : false;
+    // Only a 404 is definitive proof the page doesn't exist
+    return res.status !== 404;
+  } catch {
+    // Timeout, DNS failure, network error — benefit of the doubt
+    return true;
   } finally {
     clearTimeout(timer);
   }

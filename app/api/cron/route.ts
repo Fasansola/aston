@@ -27,7 +27,7 @@ import { selectLinks } from "@/lib/links";
 import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePrompts, generateImage, IMAGE_QA_CHECKS, type ImageModel } from "@/lib/openai";
 import { uploadImageToWordPress, createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { runQA } from "@/lib/qa";
-import { enforceApprovedLinks } from "@/lib/linkScrubber";
+import { enforceApprovedLinks, scrubBrokenExternalLinks } from "@/lib/linkScrubber";
 import { selectAuthorityLinks, mergeWithDiscovered } from "@/lib/authorityLinks";
 import { emptyBrief, processSourceInput, SourceBrief } from "@/lib/source";
 import { generateStrategy, StrategyBrief, StrategyContext } from "@/lib/strategy";
@@ -148,14 +148,21 @@ async function processOneItem(
       content = await fixBlogContent(resolvedTopic, prevContent!, blueprint, selectedLinks, prevQAChecks!, strategyInputs?.language, prevBrokenUrls.length > 0 ? prevBrokenUrls : undefined, authorityLinks);
     }
 
-    // ── Strip any URL not on an approved domain ──────────────────
+    // ── Pass 1: strip URLs not on an approved domain ─────────────
     const approvedUrls = authorityLinks.map((l) => l.url);
     const { content: enforcedContent, removed: unapproved } = enforceApprovedLinks(content, approvedUrls);
     if (unapproved.length > 0) {
       console.warn(`[cron:item] Removed ${unapproved.length} unapproved external URL(s): ${unapproved.join(", ")}`);
     }
     content = enforcedContent;
-    prevBrokenUrls = unapproved;
+
+    // ── Pass 2: remove genuine 404s only ─────────────────────────
+    const { content: scrubbedContent, removed: brokenUrls } = await scrubBrokenExternalLinks(content);
+    if (brokenUrls.length > 0) {
+      console.warn(`[cron:item] Removed ${brokenUrls.length} 404 external link(s): ${brokenUrls.join(", ")}`);
+    }
+    content = scrubbedContent;
+    prevBrokenUrls = [...unapproved, ...brokenUrls];
 
     const needNewImages = attempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevQAChecks![k]);
     if (needNewImages) {
