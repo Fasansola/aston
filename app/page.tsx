@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import type { LinkValidationResult, LinkIssue } from "@/lib/linkValidator";
 import type { ReadinessResult, ReadinessSubscore, ReadinessIssue } from "@/lib/readinessValidator";
 
@@ -120,12 +120,17 @@ function LinkIssueRow({
   issue,
   expanded,
   onToggle,
+  onAction,
 }: {
   issue: LinkIssue;
   expanded: boolean;
   onToggle: () => void;
+  onAction: (action: "remove" | "recheck" | "edit" | "auto_fix" | "find_better_source", newUrl?: string) => void;
 }) {
   const isActionable = issue.status === "failed" || issue.status === "warning";
+  const [editMode, setEditMode] = React.useState(false);
+  const [editUrl, setEditUrl] = React.useState(issue.url);
+
   return (
     <div className={`border rounded-lg overflow-hidden ${issue.status === "failed" ? "border-red-500/20 bg-red-500/[0.03]" : issue.status === "warning" ? "border-amber-500/20 bg-amber-500/[0.03]" : "border-white/[0.06] bg-white/[0.02]"}`}>
       <button
@@ -146,7 +151,34 @@ function LinkIssueRow({
         <div className="px-3 pb-3 space-y-2 border-t border-white/[0.05] pt-2.5">
           <div>
             <p className="text-[10px] text-white/25 uppercase tracking-wide mb-0.5">URL</p>
-            <p className="text-xs text-white/40 font-mono break-all">{issue.url}</p>
+            {editMode ? (
+              <div className="flex gap-1.5 mt-1">
+                <input
+                  className="flex-1 text-xs font-mono bg-white/5 border border-white/10 rounded px-2 py-1 text-white/70 focus:outline-none focus:border-[#C9A84C]/40"
+                  value={editUrl}
+                  onChange={(e) => setEditUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { onAction("edit", editUrl); setEditMode(false); }
+                    if (e.key === "Escape") { setEditMode(false); setEditUrl(issue.url); }
+                  }}
+                  autoFocus
+                />
+                <button
+                  onClick={() => { onAction("edit", editUrl); setEditMode(false); }}
+                  className="text-[11px] px-2.5 py-1 rounded border border-[#C9A84C]/40 text-[#C9A84C] hover:border-[#C9A84C]/70 transition-colors"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => { setEditMode(false); setEditUrl(issue.url); }}
+                  className="text-[11px] px-2.5 py-1 rounded border border-white/10 text-white/30 hover:text-white/50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-white/40 font-mono break-all">{issue.url}</p>
+            )}
             {issue.finalUrl && issue.finalUrl !== issue.url && (
               <p className="text-[10px] text-white/20 mt-0.5">→ Redirected to: {issue.finalUrl}</p>
             )}
@@ -164,28 +196,43 @@ function LinkIssueRow({
             </div>
           )}
           <div className="flex gap-2 flex-wrap pt-1">
-            {issue.actions.includes("auto_fix") && (
-              <button className="text-[11px] px-2.5 py-1 rounded border border-[#C9A84C]/30 text-[#C9A84C]/80 hover:text-[#C9A84C] hover:border-[#C9A84C]/60 transition-colors">
+            {issue.actions.includes("auto_fix") && issue.finalUrl && (
+              <button
+                onClick={() => onAction("auto_fix", issue.finalUrl!)}
+                className="text-[11px] px-2.5 py-1 rounded border border-[#C9A84C]/30 text-[#C9A84C]/80 hover:text-[#C9A84C] hover:border-[#C9A84C]/60 transition-colors"
+              >
                 Auto-fix
               </button>
             )}
             {issue.actions.includes("find_better_source") && (
-              <button className="text-[11px] px-2.5 py-1 rounded border border-[#C9A84C]/30 text-[#C9A84C]/80 hover:text-[#C9A84C] hover:border-[#C9A84C]/60 transition-colors">
+              <button
+                onClick={() => onAction("find_better_source")}
+                className="text-[11px] px-2.5 py-1 rounded border border-[#C9A84C]/30 text-[#C9A84C]/80 hover:text-[#C9A84C] hover:border-[#C9A84C]/60 transition-colors"
+              >
                 Find better source
               </button>
             )}
             {issue.actions.includes("edit") && (
-              <button className="text-[11px] px-2.5 py-1 rounded border border-white/10 text-white/40 hover:text-white/60 hover:border-white/20 transition-colors">
+              <button
+                onClick={() => { setEditMode(true); setEditUrl(issue.url); }}
+                className="text-[11px] px-2.5 py-1 rounded border border-white/10 text-white/40 hover:text-white/60 hover:border-white/20 transition-colors"
+              >
                 Edit link
               </button>
             )}
             {issue.actions.includes("remove") && (
-              <button className="text-[11px] px-2.5 py-1 rounded border border-white/10 text-white/40 hover:text-white/60 hover:border-white/20 transition-colors">
+              <button
+                onClick={() => onAction("remove")}
+                className="text-[11px] px-2.5 py-1 rounded border border-red-500/20 text-red-400/60 hover:text-red-400 hover:border-red-500/40 transition-colors"
+              >
                 Remove
               </button>
             )}
             {issue.actions.includes("recheck") && (
-              <button className="text-[11px] px-2.5 py-1 rounded border border-white/10 text-white/40 hover:text-white/60 hover:border-white/20 transition-colors">
+              <button
+                onClick={() => onAction("recheck")}
+                className="text-[11px] px-2.5 py-1 rounded border border-white/10 text-white/40 hover:text-white/60 hover:border-white/20 transition-colors"
+              >
                 Recheck
               </button>
             )}
@@ -204,6 +251,7 @@ function LinkGroupSection({
   onToggle,
   expandedIssues,
   onToggleIssue,
+  onLinkAction,
 }: {
   label: string;
   summary: { passed: number; warning: number; failed: number };
@@ -212,6 +260,7 @@ function LinkGroupSection({
   onToggle: () => void;
   expandedIssues: Set<string>;
   onToggleIssue: (id: string) => void;
+  onLinkAction: (issue: LinkIssue, action: "remove" | "recheck" | "edit" | "auto_fix" | "find_better_source", newUrl?: string) => void;
 }) {
   const actionable = issues.filter((i) => i.status !== "passed");
   const allPassed = actionable.length === 0;
@@ -258,6 +307,7 @@ function LinkGroupSection({
                 issue={issue}
                 expanded={expandedIssues.has(issue.id)}
                 onToggle={() => onToggleIssue(issue.id)}
+                onAction={(action, newUrl) => onLinkAction(issue, action, newUrl)}
               />
             ))
           )}
@@ -275,6 +325,7 @@ function LinkValidationPanel({
   expandedIssues,
   setExpandedIssues,
   onRecheck,
+  onLinkAction,
 }: {
   status: LinkValidationStatus;
   result: LinkValidationResult | null;
@@ -283,6 +334,7 @@ function LinkValidationPanel({
   expandedIssues: Set<string>;
   setExpandedIssues: (s: Set<string>) => void;
   onRecheck: () => void;
+  onLinkAction: (issue: LinkIssue, action: "remove" | "recheck" | "edit" | "auto_fix" | "find_better_source", newUrl?: string) => void;
 }) {
   const toggleIssue = (id: string) => {
     const next = new Set(expandedIssues);
@@ -372,6 +424,7 @@ function LinkValidationPanel({
           onToggle={() => toggleGroup("internal")}
           expandedIssues={expandedIssues}
           onToggleIssue={toggleIssue}
+          onLinkAction={onLinkAction}
         />
         <LinkGroupSection
           label="External links"
@@ -381,6 +434,7 @@ function LinkValidationPanel({
           onToggle={() => toggleGroup("external")}
           expandedIssues={expandedIssues}
           onToggleIssue={toggleIssue}
+          onLinkAction={onLinkAction}
         />
       </div>
     </div>
@@ -972,6 +1026,154 @@ export default function HomePage() {
       }
     } catch {
       setLinkValidationStatus("error");
+    }
+  };
+
+  // ── Link action handler ───────────────────────────────────────
+  const handleLinkAction = async (
+    issue: LinkIssue,
+    action: "remove" | "recheck" | "edit" | "auto_fix" | "find_better_source",
+    newUrl?: string
+  ) => {
+    if (action === "find_better_source") {
+      // Open a Google search for a better source on the same topic
+      const query = encodeURIComponent(`${issue.anchorText} official source site:gov OR site:org OR site:edu`);
+      window.open(`https://www.google.com/search?q=${query}`, "_blank");
+      return;
+    }
+
+    // Helpers to update link in articleHtml
+    const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const replaceHref = (html: string, oldUrl: string, updatedUrl: string) =>
+      html.replace(new RegExp(`href=["']${escapeRegex(oldUrl)}["']`, "g"), `href="${updatedUrl}"`);
+    const removeLink = (html: string, url: string) =>
+      html.replace(new RegExp(`<a[^>]+href=["']${escapeRegex(url)}["'][^>]*>(.*?)</a>`, "gs"), "$1");
+
+    if (action === "remove") {
+      if (!result) return;
+      const updatedHtml = removeLink(result.articleHtml ?? "", issue.url);
+      const updatedResult = { ...result, articleHtml: updatedHtml };
+      setResult(updatedResult);
+      // Remove this issue from validation state
+      setLinkValidation((prev) => {
+        if (!prev) return prev;
+        const issues = prev.issues.filter((i) => i.id !== issue.id);
+        const internals = issues.filter((i) => i.type === "internal");
+        const externals = issues.filter((i) => i.type === "external");
+        const count = (arr: LinkIssue[], s: string) => arr.filter((i) => i.status === s).length;
+        const hasBlocking = issues.some((i) => i.blocking && i.status === "failed");
+        const hasWarnings = issues.some((i) => i.status === "warning");
+        return {
+          ...prev,
+          issues,
+          canPublish: !hasBlocking,
+          overallStatus: hasBlocking ? "failed" : hasWarnings ? "warning" : "passed",
+          summary: {
+            internal: { passed: count(internals, "passed"), warning: count(internals, "warning"), failed: count(internals, "failed") },
+            external: { passed: count(externals, "passed"), warning: count(externals, "warning"), failed: count(externals, "failed") },
+          },
+        };
+      });
+      return;
+    }
+
+    if (action === "auto_fix" && newUrl) {
+      if (!result) return;
+      const updatedHtml = replaceHref(result.articleHtml ?? "", issue.url, newUrl);
+      setResult({ ...result, articleHtml: updatedHtml });
+      // Mark issue as passed with updated URL
+      setLinkValidation((prev) => {
+        if (!prev) return prev;
+        const issues = prev.issues.map((i) =>
+          i.id === issue.id ? { ...i, url: newUrl, status: "passed" as const, problem: null, suggestedFix: null, blocking: false, actions: ["recheck" as const] } : i
+        );
+        const internals = issues.filter((i) => i.type === "internal");
+        const externals = issues.filter((i) => i.type === "external");
+        const count = (arr: LinkIssue[], s: string) => arr.filter((i) => i.status === s).length;
+        const hasBlocking = issues.some((i) => i.blocking && i.status === "failed");
+        const hasWarnings = issues.some((i) => i.status === "warning");
+        return {
+          ...prev,
+          issues,
+          canPublish: !hasBlocking,
+          overallStatus: hasBlocking ? "failed" : hasWarnings ? "warning" : "passed",
+          summary: {
+            internal: { passed: count(internals, "passed"), warning: count(internals, "warning"), failed: count(internals, "failed") },
+            external: { passed: count(externals, "passed"), warning: count(externals, "warning"), failed: count(externals, "failed") },
+          },
+        };
+      });
+      return;
+    }
+
+    if (action === "edit" && newUrl) {
+      if (!result) return;
+      const updatedHtml = replaceHref(result.articleHtml ?? "", issue.url, newUrl);
+      setResult({ ...result, articleHtml: updatedHtml });
+      // Recheck just this link with the new URL
+      try {
+        const res = await fetch("/api/validate-links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ links: [{ anchor: issue.anchorText, url: newUrl }] }),
+        });
+        const data = await res.json();
+        const recheckResult: LinkIssue | undefined = data.validation?.issues?.[0];
+        if (!recheckResult) return;
+        setLinkValidation((prev) => {
+          if (!prev) return prev;
+          const issues = prev.issues.map((i) => i.id === issue.id ? { ...recheckResult, id: issue.id } : i);
+          const internals = issues.filter((i) => i.type === "internal");
+          const externals = issues.filter((i) => i.type === "external");
+          const count = (arr: LinkIssue[], s: string) => arr.filter((i) => i.status === s).length;
+          const hasBlocking = issues.some((i) => i.blocking && i.status === "failed");
+          const hasWarnings = issues.some((i) => i.status === "warning");
+          return {
+            ...prev,
+            issues,
+            canPublish: !hasBlocking,
+            overallStatus: hasBlocking ? "failed" : hasWarnings ? "warning" : "passed",
+            summary: {
+              internal: { passed: count(internals, "passed"), warning: count(internals, "warning"), failed: count(internals, "failed") },
+              external: { passed: count(externals, "passed"), warning: count(externals, "warning"), failed: count(externals, "failed") },
+            },
+          };
+        });
+      } catch { /* silently fail — issue stays as-is */ }
+      return;
+    }
+
+    if (action === "recheck") {
+      try {
+        const res = await fetch("/api/validate-links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ links: [{ anchor: issue.anchorText, url: issue.url }] }),
+        });
+        const data = await res.json();
+        const recheckResult: LinkIssue | undefined = data.validation?.issues?.[0];
+        if (!recheckResult) return;
+        setLinkValidation((prev) => {
+          if (!prev) return prev;
+          const issues = prev.issues.map((i) => i.id === issue.id ? { ...recheckResult, id: issue.id } : i);
+          const internals = issues.filter((i) => i.type === "internal");
+          const externals = issues.filter((i) => i.type === "external");
+          const count = (arr: LinkIssue[], s: string) => arr.filter((i) => i.status === s).length;
+          const hasBlocking = issues.some((i) => i.blocking && i.status === "failed");
+          const hasWarnings = issues.some((i) => i.status === "warning");
+          return {
+            ...prev,
+            issues,
+            canPublish: !hasBlocking,
+            overallStatus: hasBlocking ? "failed" : hasWarnings ? "warning" : "passed",
+            summary: {
+              internal: { passed: count(internals, "passed"), warning: count(internals, "warning"), failed: count(internals, "failed") },
+              external: { passed: count(externals, "passed"), warning: count(externals, "warning"), failed: count(externals, "failed") },
+            },
+          };
+        });
+      } catch { /* silently fail */ }
+      return;
     }
   };
 
@@ -1596,6 +1798,7 @@ export default function HomePage() {
                       runLinkValidation([...result.linksUsed.internal, ...result.linksUsed.external], result);
                     }
                   }}
+                  onLinkAction={handleLinkAction}
                 />
               )}
 
