@@ -77,7 +77,7 @@ const CURATED_AUTHORITY_DOMAINS = new Set([
   "uaecabinet.ae", "mohre.gov.ae",
   // Dubai government digital platforms (.com but official UAE gov entities)
   "dldcube.com", "dubailand.gov.ae", "dm.gov.ae", "rta.ae",
-  "dha.gov.ae", "khda.gov.ae", "ded.gov.ae",
+  "dha.gov.ae", "khda.gov.ae", "dubaidet.gov.ae",
 
   // ── UK regulators & government ────────────────────────────────
   "fca.org.uk", "bankofengland.co.uk", "gov.uk", "companieshouse.gov.uk",
