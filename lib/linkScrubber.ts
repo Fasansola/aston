@@ -73,13 +73,25 @@ function stripLinkTag(html: string, url: string): string {
  * Removes any external <a> tag whose href is not in the approvedUrls set.
  * Keeps anchor text so the sentence reads naturally.
  */
+function extractDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 export function enforceApprovedLinks(
   content: BlogContent,
   approvedUrls: string[]
 ): { content: BlogContent; removed: string[] } {
   if (approvedUrls.length === 0) return { content, removed: [] };
 
-  const approved = new Set(approvedUrls.map((u) => u.toLowerCase().replace(/\/$/, "")));
+  // Match on domain, not exact URL — GPT writes specific page paths within
+  // approved domains (e.g. dfsa.ae/rulebooks/...) which won't match the base
+  // URL exactly. Any path on an approved domain is trusted; the HEAD-check
+  // scrubber in pass 2 will catch pages that actually 404.
+  const approvedDomains = new Set(approvedUrls.map(extractDomain).filter(Boolean));
   const removed: string[] = [];
 
   const cleaned = { ...content } as BlogContent;
@@ -91,8 +103,8 @@ export function enforceApprovedLinks(
     const toStrip: string[] = [];
 
     while ((m = EXTERNAL_HREF_RE.exec(html)) !== null) {
-      const href = m[1].replace(/\/$/, "");
-      if (!approved.has(href.toLowerCase())) {
+      const domain = extractDomain(m[1]);
+      if (!domain || !approvedDomains.has(domain)) {
         toStrip.push(m[1]);
       }
     }
