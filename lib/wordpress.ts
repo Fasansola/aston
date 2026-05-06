@@ -310,6 +310,69 @@ export async function createWordPressPost(
   return response.data;
 }
 
+/**
+ * Patch a WordPress post to fix a link across ALL ACF content fields.
+ *
+ * action = "replace": swaps oldUrl → newUrl in every field
+ * action = "remove":  strips <a href="oldUrl">text</a> → text in every field
+ */
+export async function patchWordPressPostLinks(
+  postId: number,
+  oldUrl: string,
+  action: "replace" | "remove",
+  newUrl?: string
+): Promise<void> {
+  const ACF_FIELDS = [
+    "Key_takeaways", "Keypoint_One", "more_content_1", "more_content_2",
+    "quote_1", "more_content_3", "Keypoint_Two", "more_content_4",
+    "quote_2", "Final_Points", "more_content_5", "more_content_6",
+  ];
+
+  // 1. Fetch the current post (content + acf)
+  const { data: post } = await axios.get(
+    `${WP_URL}/wp-json/wp/v2/posts/${postId}?context=edit`,
+    { auth: { username: WP_USERNAME, password: WP_APP_PASSWORD } }
+  );
+
+  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const applyFix = (html: string): string => {
+    if (!html) return html;
+    if (action === "replace" && newUrl) {
+      return html.replace(
+        new RegExp(`href=["']${escapeRegex(oldUrl)}["']`, "g"),
+        `href="${newUrl}"`
+      );
+    }
+    if (action === "remove") {
+      return html.replace(
+        new RegExp(`<a[^>]+href=["']${escapeRegex(oldUrl)}["'][^>]*>(.*?)</a>`, "gs"),
+        "$1"
+      );
+    }
+    return html;
+  };
+
+  // 2. Apply fix to main content field
+  const updatedContent = applyFix(post.content?.raw ?? post.content?.rendered ?? "");
+
+  // 3. Apply fix to each ACF field
+  const updatedAcf: Record<string, string> = {};
+  const currentAcf: Record<string, string> = post.acf ?? {};
+  for (const field of ACF_FIELDS) {
+    if (currentAcf[field]) {
+      updatedAcf[field] = applyFix(currentAcf[field]);
+    }
+  }
+
+  // 4. PATCH the post back
+  await axios.post(
+    `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
+    { content: updatedContent, acf: updatedAcf },
+    { auth: { username: WP_USERNAME, password: WP_APP_PASSWORD } }
+  );
+}
+
 // ── Shared types used across the app ──────────────────────────
 
 export interface BlogContent {

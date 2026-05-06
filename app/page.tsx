@@ -56,6 +56,7 @@ interface GenerateResult {
     internal: Array<{ anchor: string; url: string }>;
     external: Array<{ anchor: string; url: string }>;
   };
+  postId?: number;
   articleHtml?: string;
   excerpt?: string;
   tags?: string[];
@@ -1042,38 +1043,48 @@ export default function HomePage() {
       return;
     }
 
-    // Helpers to update link in articleHtml
+    // Helpers to update link in articleHtml (local preview)
     const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const replaceHref = (html: string, oldUrl: string, updatedUrl: string) =>
       html.replace(new RegExp(`href=["']${escapeRegex(oldUrl)}["']`, "g"), `href="${updatedUrl}"`);
     const removeLink = (html: string, url: string) =>
       html.replace(new RegExp(`<a[^>]+href=["']${escapeRegex(url)}["'][^>]*>(.*?)</a>`, "gs"), "$1");
 
+    // Helper to recompute validation summary after changing issues array
+    const recomputeValidation = (prev: LinkValidationResult, updatedIssues: LinkIssue[]): LinkValidationResult => {
+      const internals = updatedIssues.filter((i) => i.type === "internal");
+      const externals = updatedIssues.filter((i) => i.type === "external");
+      const count = (arr: LinkIssue[], s: string) => arr.filter((i) => i.status === s).length;
+      const hasBlocking = updatedIssues.some((i) => i.blocking && i.status === "failed");
+      const hasWarnings = updatedIssues.some((i) => i.status === "warning");
+      return {
+        ...prev,
+        issues: updatedIssues,
+        canPublish: !hasBlocking,
+        overallStatus: hasBlocking ? "failed" : hasWarnings ? "warning" : "passed",
+        summary: {
+          internal: { passed: count(internals, "passed"), warning: count(internals, "warning"), failed: count(internals, "failed") },
+          external: { passed: count(externals, "passed"), warning: count(externals, "warning"), failed: count(externals, "failed") },
+        },
+      };
+    };
+
+    // Push link change to WordPress (fire-and-forget, non-blocking)
+    const syncToWordPress = (wpAction: "replace" | "remove", wpNewUrl?: string) => {
+      if (!result?.postId) return;
+      fetch("/api/update-post-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postId: result.postId, oldUrl: issue.url, action: wpAction, newUrl: wpNewUrl }),
+      }).catch(() => { /* non-fatal — user can manually fix in WP if needed */ });
+    };
+
     if (action === "remove") {
       if (!result) return;
       const updatedHtml = removeLink(result.articleHtml ?? "", issue.url);
-      const updatedResult = { ...result, articleHtml: updatedHtml };
-      setResult(updatedResult);
-      // Remove this issue from validation state
-      setLinkValidation((prev) => {
-        if (!prev) return prev;
-        const issues = prev.issues.filter((i) => i.id !== issue.id);
-        const internals = issues.filter((i) => i.type === "internal");
-        const externals = issues.filter((i) => i.type === "external");
-        const count = (arr: LinkIssue[], s: string) => arr.filter((i) => i.status === s).length;
-        const hasBlocking = issues.some((i) => i.blocking && i.status === "failed");
-        const hasWarnings = issues.some((i) => i.status === "warning");
-        return {
-          ...prev,
-          issues,
-          canPublish: !hasBlocking,
-          overallStatus: hasBlocking ? "failed" : hasWarnings ? "warning" : "passed",
-          summary: {
-            internal: { passed: count(internals, "passed"), warning: count(internals, "warning"), failed: count(internals, "failed") },
-            external: { passed: count(externals, "passed"), warning: count(externals, "warning"), failed: count(externals, "failed") },
-          },
-        };
-      });
+      setResult({ ...result, articleHtml: updatedHtml });
+      setLinkValidation((prev) => prev ? recomputeValidation(prev, prev.issues.filter((i) => i.id !== issue.id)) : prev);
+      syncToWordPress("remove");
       return;
     }
 
@@ -1081,28 +1092,10 @@ export default function HomePage() {
       if (!result) return;
       const updatedHtml = replaceHref(result.articleHtml ?? "", issue.url, newUrl);
       setResult({ ...result, articleHtml: updatedHtml });
-      // Mark issue as passed with updated URL
-      setLinkValidation((prev) => {
-        if (!prev) return prev;
-        const issues = prev.issues.map((i) =>
-          i.id === issue.id ? { ...i, url: newUrl, status: "passed" as const, problem: null, suggestedFix: null, blocking: false, actions: ["recheck" as const] } : i
-        );
-        const internals = issues.filter((i) => i.type === "internal");
-        const externals = issues.filter((i) => i.type === "external");
-        const count = (arr: LinkIssue[], s: string) => arr.filter((i) => i.status === s).length;
-        const hasBlocking = issues.some((i) => i.blocking && i.status === "failed");
-        const hasWarnings = issues.some((i) => i.status === "warning");
-        return {
-          ...prev,
-          issues,
-          canPublish: !hasBlocking,
-          overallStatus: hasBlocking ? "failed" : hasWarnings ? "warning" : "passed",
-          summary: {
-            internal: { passed: count(internals, "passed"), warning: count(internals, "warning"), failed: count(internals, "failed") },
-            external: { passed: count(externals, "passed"), warning: count(externals, "warning"), failed: count(externals, "failed") },
-          },
-        };
-      });
+      setLinkValidation((prev) => prev ? recomputeValidation(prev, prev.issues.map((i) =>
+        i.id === issue.id ? { ...i, url: newUrl, status: "passed" as const, problem: null, suggestedFix: null, blocking: false, actions: ["recheck" as const] } : i
+      )) : prev);
+      syncToWordPress("replace", newUrl);
       return;
     }
 
@@ -1110,7 +1103,8 @@ export default function HomePage() {
       if (!result) return;
       const updatedHtml = replaceHref(result.articleHtml ?? "", issue.url, newUrl);
       setResult({ ...result, articleHtml: updatedHtml });
-      // Recheck just this link with the new URL
+      syncToWordPress("replace", newUrl);
+      // Recheck the new URL and update the issue
       try {
         const res = await fetch("/api/validate-links", {
           method: "POST",
@@ -1120,25 +1114,7 @@ export default function HomePage() {
         const data = await res.json();
         const recheckResult: LinkIssue | undefined = data.validation?.issues?.[0];
         if (!recheckResult) return;
-        setLinkValidation((prev) => {
-          if (!prev) return prev;
-          const issues = prev.issues.map((i) => i.id === issue.id ? { ...recheckResult, id: issue.id } : i);
-          const internals = issues.filter((i) => i.type === "internal");
-          const externals = issues.filter((i) => i.type === "external");
-          const count = (arr: LinkIssue[], s: string) => arr.filter((i) => i.status === s).length;
-          const hasBlocking = issues.some((i) => i.blocking && i.status === "failed");
-          const hasWarnings = issues.some((i) => i.status === "warning");
-          return {
-            ...prev,
-            issues,
-            canPublish: !hasBlocking,
-            overallStatus: hasBlocking ? "failed" : hasWarnings ? "warning" : "passed",
-            summary: {
-              internal: { passed: count(internals, "passed"), warning: count(internals, "warning"), failed: count(internals, "failed") },
-              external: { passed: count(externals, "passed"), warning: count(externals, "warning"), failed: count(externals, "failed") },
-            },
-          };
-        });
+        setLinkValidation((prev) => prev ? recomputeValidation(prev, prev.issues.map((i) => i.id === issue.id ? { ...recheckResult, id: issue.id } : i)) : prev);
       } catch { /* silently fail — issue stays as-is */ }
       return;
     }
@@ -1153,25 +1129,7 @@ export default function HomePage() {
         const data = await res.json();
         const recheckResult: LinkIssue | undefined = data.validation?.issues?.[0];
         if (!recheckResult) return;
-        setLinkValidation((prev) => {
-          if (!prev) return prev;
-          const issues = prev.issues.map((i) => i.id === issue.id ? { ...recheckResult, id: issue.id } : i);
-          const internals = issues.filter((i) => i.type === "internal");
-          const externals = issues.filter((i) => i.type === "external");
-          const count = (arr: LinkIssue[], s: string) => arr.filter((i) => i.status === s).length;
-          const hasBlocking = issues.some((i) => i.blocking && i.status === "failed");
-          const hasWarnings = issues.some((i) => i.status === "warning");
-          return {
-            ...prev,
-            issues,
-            canPublish: !hasBlocking,
-            overallStatus: hasBlocking ? "failed" : hasWarnings ? "warning" : "passed",
-            summary: {
-              internal: { passed: count(internals, "passed"), warning: count(internals, "warning"), failed: count(internals, "failed") },
-              external: { passed: count(externals, "passed"), warning: count(externals, "warning"), failed: count(externals, "failed") },
-            },
-          };
-        });
+        setLinkValidation((prev) => prev ? recomputeValidation(prev, prev.issues.map((i) => i.id === issue.id ? { ...recheckResult, id: issue.id } : i)) : prev);
       } catch { /* silently fail */ }
       return;
     }
