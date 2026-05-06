@@ -69,40 +69,76 @@ function normaliseUrl(href: string, siteDomain: string): string | null {
 
 // ── Authority scoring ──────────────────────────────────────────
 
+// Domains explicitly in our curated authority list — always trusted
+const CURATED_AUTHORITY_DOMAINS = new Set([
+  // UAE
+  "dfsa.ae", "adgm.com", "difc.ae", "centralbank.ae", "vara.ae",
+  "tax.gov.ae", "moec.gov.ae", "dubaided.gov.ae", "economy.sharjah.ae",
+  // UK
+  "fca.org.uk", "bankofengland.co.uk", "gov.uk", "companieshouse.gov.uk",
+  // EU / Europe
+  "esma.europa.eu", "eba.europa.eu", "ec.europa.eu", "ecb.europa.eu",
+  "bafin.de", "bundesbank.de", "finma.ch",
+  // Cyprus
+  "cysec.gov.cy", "investcyprus.org.cy",
+  // Asia-Pacific
+  "mas.gov.sg", "sfc.hk", "hkma.gov.hk",
+  // Offshore
+  "cima.ky", "bvifsc.vg", "fscmauritius.org", "iomfsa.im",
+  // International
+  "oecd.org", "imf.org", "worldbank.org", "bis.org",
+  "fatf-gafi.org", "fsb.org",
+  // Media / research
+  "reuters.com", "ft.com", "economist.com", "bloomberg.com",
+  "pwc.com", "deloitte.com", "kpmg.com", "ey.com",
+]);
+
 export function scoreExternalDomain(domain: string): number {
+  // 1. Curated list — these are pre-vetted authority sources
+  if (CURATED_AUTHORITY_DOMAINS.has(domain)) return 80;
+  // Also catch subdomains of curated domains (e.g. www.fca.org.uk)
+  if ([...CURATED_AUTHORITY_DOMAINS].some((d) => domain.endsWith(`.${d}`))) return 80;
+
+  // 2. Heuristic scoring for dynamically discovered domains
   let score = 0;
 
-  if (domain.endsWith(".gov"))       score += 60;
-  if (domain.endsWith(".edu"))       score += 50;
-  if (domain.includes("europa.eu")) score += 60;
+  // Strong TLD signals
+  if (domain.endsWith(".gov"))                          score += 70;
+  if (domain.endsWith(".edu"))                          score += 60;
+  if (domain.includes("europa.eu"))                     score += 70;
+  if (/\.gov\.[a-z]{2}$/.test(domain))                 score += 60; // .gov.uk, .gov.ae, .gov.cy etc.
+  if (/\.gouv\.[a-z]{2}$/.test(domain))                score += 60; // French government
+  if (domain.endsWith(".int"))                          score += 60; // intergovernmental orgs
 
-  if (domain.includes("fca"))        score += 40;
-  if (domain.includes(".gov."))      score += 30;
-  if (domain.includes("bank"))       score += 25;
-  if (domain.includes("authority")) score += 25;
-  if (domain.includes("ministry"))  score += 25;
-  if (domain.includes("official"))  score += 20;
+  // Regulator / institution name signals
+  if (domain.includes("fca"))                           score += 45;
+  if (domain.includes("finma"))                         score += 45;
+  if (domain.includes("bafin"))                         score += 45;
+  if (domain.includes("cysec"))                         score += 45;
+  if (domain.includes("central-bank") || domain.includes("centralbank")) score += 40;
+  if (domain.includes("bank"))                          score += 25;
+  if (domain.includes("authority"))                     score += 25;
+  if (domain.includes("ministry") || domain.includes("minister")) score += 25;
+  if (domain.includes("regulator") || domain.includes("regulatory")) score += 25;
+  if (domain.includes("commission"))                    score += 20;
+  if (domain.includes("official"))                      score += 20;
+  if (domain.includes("treasury"))                      score += 30;
 
-  // Trusted TLDs by region
-  if (domain.endsWith(".ae"))  score += 20;
+  // Trusted regional TLDs (government/official use common)
+  if (domain.endsWith(".ae"))  score += 25;
   if (domain.endsWith(".uk"))  score += 20;
   if (domain.endsWith(".de"))  score += 20;
   if (domain.endsWith(".eu"))  score += 20;
-
-  // Known authority sites
-  const AUTHORITY_SITES = [
-    "reuters.com", "bbc.com", "ft.com", "economist.com",
-    "investopedia.com", "forbes.com", "bloomberg.com",
-    "pwc.com", "deloitte.com", "kpmg.com", "ey.com",
-    "imf.org", "worldbank.org", "bis.org", "oecd.org",
-  ];
-  if (AUTHORITY_SITES.some((s) => domain === s || domain.endsWith(`.${s}`))) score += 40;
+  if (domain.endsWith(".ch"))  score += 20;
+  if (domain.endsWith(".sg"))  score += 20;
+  if (domain.endsWith(".hk"))  score += 20;
+  if (domain.endsWith(".ky"))  score += 20;
 
   // Low-quality signals
-  if (domain.includes("blog"))      score -= 20;
-  if (domain.includes("affiliate")) score -= 40;
-  if (domain.includes("casino"))    score -= 100;
-  if (domain.includes("spam"))      score -= 100;
+  if (domain.includes("blog"))       score -= 20;
+  if (domain.includes("affiliate"))  score -= 40;
+  if (domain.includes("casino"))     score -= 100;
+  if (domain.includes("spam"))       score -= 100;
 
   return score;
 }
