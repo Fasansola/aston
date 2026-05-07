@@ -472,7 +472,7 @@ function scoreEditorialCompliance(input: ReadinessInput): ReadinessSubscore {
   let earned = 0;
   const MAX = 15;
 
-  const isBritish = !input.language || input.language.toLowerCase().includes("english") || !input.language;
+  const isBritish = !input.language || input.language.toLowerCase().includes("english");
 
   // British English (only check if language is English/unset)
   if (isBritish) {
@@ -607,7 +607,7 @@ export function applyAutoFixes(html: string, language?: string | null): AutoFixR
   if (houseStyleFixed) appliedFixes.push("Applied house style: licence → license");
 
   // 2b. Convert US spellings to British (English articles only)
-  const isBritish = !language || language.toLowerCase().includes("english") || !language;
+  const isBritish = !language || language.toLowerCase().includes("english");
   if (isBritish) {
     let spellingFixed = false;
     for (const [us, uk] of Object.entries(US_SPELLINGS)) {

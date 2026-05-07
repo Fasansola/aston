@@ -1039,6 +1039,7 @@ export default function HomePage() {
       setPublishStatus("done");
     } catch {
       setPublishStatus("error");
+      setError("Publish failed — please try again.");
     }
   };
 
@@ -1107,7 +1108,7 @@ export default function HomePage() {
       const hasLinkFailures = linkValidation ? !linkValidation.canPublish : false;
       await runReadinessCheck(updatedResult, hasLinkFailures);
     } catch {
-      // silently fail — user can retry
+      setError("Auto-fix failed — please try again.");
     } finally {
       setIsAutoFixing(false);
     }
@@ -1258,6 +1259,7 @@ export default function HomePage() {
     setStatus("idle");
     setResult(null);
     setError("");
+    setRetryMessage(null);
     setTopic("");
     setSourceText("");
     setLinkValidationStatus("idle");

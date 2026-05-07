@@ -135,7 +135,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Only allow safe client-facing fields
-    const allowed = ["status", "priority", "topic"];
+    const allowed = ["status", "priority", "topic", "retryCount", "lastError"];
     const safeUpdates = Object.fromEntries(
       Object.entries(updates).filter(([k]) => allowed.includes(k))
     );

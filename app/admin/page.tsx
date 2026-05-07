@@ -307,12 +307,14 @@ export default function AdminPage() {
       fetch("/api/scheduler"),
     ]);
     if (qRes.status === 401) { setIsAuthed(false); return; }
-    const qData   = await qRes.json();
-    const schData = await schRes.json();
+    const qData = await qRes.json();
     setItems(qData.items ?? []);
     setStats(qData.stats ?? null);
-    setSettings(schData.settings ?? null);
-    setRuns(schData.recentRuns ?? []);
+    if (schRes.ok) {
+      const schData = await schRes.json();
+      setSettings(schData.settings ?? null);
+      setRuns(schData.recentRuns ?? []);
+    }
   }, []);
 
   const fetchTopics = useCallback(async () => {
@@ -582,7 +584,7 @@ export default function AdminPage() {
         <div className="px-5 py-5 border-b border-white/[0.06]">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-indigo-500 flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-900/50">
-              <svg className="w-4.5 h-4.5 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <svg className="w-[18px] h-[18px] text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
             </div>
