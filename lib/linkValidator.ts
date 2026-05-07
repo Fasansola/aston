@@ -75,6 +75,9 @@ const CURATED_AUTHORITY_DOMAINS = new Set([
   "dfsa.ae", "adgm.com", "difc.ae", "centralbank.ae", "vara.ae",
   "tax.gov.ae", "moec.gov.ae", "economy.sharjah.ae",
   "uaecabinet.ae", "mohre.gov.ae",
+  // UAE free zones
+  "dic.ae", "dso.ae", "dmcc.ae", "jafza.ae", "dafza.ae",
+  "rakez.com", "shams.ae", "freezones.ae",
   // Dubai government digital platforms (.com but official UAE gov entities)
   "dldcube.com", "dubailand.gov.ae", "dm.gov.ae", "rta.ae",
   "dha.gov.ae", "khda.gov.ae", "dubaidet.gov.ae",
@@ -154,7 +157,7 @@ export function scoreExternalDomain(domain: string): number {
   if (domain.includes("treasury"))                      score += 30;
 
   // Trusted regional TLDs (government/official use common)
-  if (domain.endsWith(".ae"))  score += 25;
+  if (domain.endsWith(".ae"))  score += 45; // UAE is the primary market — any .ae domain clears the 40 minimum
   if (domain.endsWith(".uk"))  score += 20;
   if (domain.endsWith(".de"))  score += 20;
   if (domain.endsWith(".eu"))  score += 20;
