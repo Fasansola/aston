@@ -101,6 +101,115 @@ const SUGGESTIONS = [
   "Step-by-step guide to getting a UAE trade licence",
 ];
 
+// ── WordPress Post Picker ──────────────────────────────────────
+
+interface WpPostSummary {
+  id: number;
+  title: string;
+  slug: string;
+  status: string;
+  date: string;
+  link: string;
+}
+
+function WpPostPicker({ onSelect }: { onSelect: (title: string, content: string) => void }) {
+  const [query, setQuery]       = React.useState("");
+  const [results, setResults]   = React.useState<WpPostSummary[]>([]);
+  const [searching, setSearching] = React.useState(false);
+  const [loading, setLoading]   = React.useState<number | null>(null);
+  const [error, setError]       = React.useState("");
+  const debounceRef             = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const search = async (q: string) => {
+    if (q.trim().length < 3) { setResults([]); return; }
+    setSearching(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/fetch-wp-post?search=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Search failed");
+      setResults(data.posts ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Search failed");
+      setResults([]);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleInput = (val: string) => {
+    setQuery(val);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => search(val), 400);
+  };
+
+  const loadPost = async (post: WpPostSummary) => {
+    setLoading(post.id);
+    setError("");
+    try {
+      const res = await fetch(`/api/fetch-wp-post?id=${post.id}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to load post");
+      onSelect(data.title, data.content);
+      setQuery("");
+      setResults([]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load post");
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => handleInput(e.target.value)}
+          placeholder="Search by post title…"
+          className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 transition-all duration-200 pr-8"
+        />
+        {searching && (
+          <svg className="absolute right-3 top-3 w-4 h-4 text-white/30 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+        )}
+      </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      {results.length > 0 && (
+        <div className="border border-white/10 rounded-lg overflow-hidden divide-y divide-white/[0.05]">
+          {results.map((post) => (
+            <button
+              key={post.id}
+              onClick={() => loadPost(post)}
+              disabled={loading === post.id}
+              className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-white/[0.04] transition-colors text-left gap-3"
+            >
+              <div className="min-w-0">
+                <p className="text-sm text-white/80 truncate">{post.title}</p>
+                <p className="text-[10px] text-white/25 mt-0.5">/{post.slug} · {post.status}</p>
+              </div>
+              {loading === post.id ? (
+                <svg className="w-3.5 h-3.5 text-[#C9A84C] animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+              ) : (
+                <span className="text-[10px] text-[#C9A84C]/60 shrink-0">Load</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      {query.length >= 3 && !searching && results.length === 0 && !error && (
+        <p className="text-xs text-white/25">No posts found</p>
+      )}
+    </div>
+  );
+}
+
 // ── Link Validation Panel ──────────────────────────────────────
 
 function StatusBadge({ status }: { status: LinkIssue["status"] }) {
@@ -1598,16 +1707,48 @@ export default function HomePage() {
                     {mode === "improve_existing" && "Existing Aston post"}
                     {mode === "notes_to_article" && "Notes"}
                   </label>
-                  <textarea
-                    value={sourceText}
-                    onChange={(e) => setSourceText(e.target.value)}
-                    placeholder={selectedMode.placeholder}
-                    rows={8}
-                    className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
-                  />
-                  <p className="text-white/20 text-xs mt-1.5">
-                    {sourceText.trim().split(/\s+/).filter(Boolean).length.toLocaleString()} words pasted
-                  </p>
+
+                  {mode === "improve_existing" ? (
+                    <div className="space-y-3">
+                      {sourceText ? (
+                        /* Post loaded — show summary + clear button */
+                        <div className="flex items-center justify-between bg-white/[0.04] border border-[#C9A84C]/20 rounded-lg px-4 py-3">
+                          <div>
+                            <p className="text-sm text-white/70">{topic || "Post loaded"}</p>
+                            <p className="text-[11px] text-white/30 mt-0.5">
+                              {sourceText.trim().split(/\s+/).filter(Boolean).length.toLocaleString()} words · ready to improve
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => { setSourceText(""); setTopic(""); }}
+                            className="text-[11px] text-white/30 hover:text-white/60 transition-colors ml-4"
+                          >
+                            Change
+                          </button>
+                        </div>
+                      ) : (
+                        <WpPostPicker
+                          onSelect={(title, content) => {
+                            setTopic(title);
+                            setSourceText(content);
+                          }}
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <textarea
+                        value={sourceText}
+                        onChange={(e) => setSourceText(e.target.value)}
+                        placeholder={selectedMode.placeholder}
+                        rows={8}
+                        className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
+                      />
+                      <p className="text-white/20 text-xs mt-1.5">
+                        {sourceText.trim().split(/\s+/).filter(Boolean).length.toLocaleString()} words pasted
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 
