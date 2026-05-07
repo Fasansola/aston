@@ -217,7 +217,7 @@ BLUEPRINT RULES:
 
 - meta_description: This appears verbatim on Google — it must be complete, punchy, and entice the reader to click. STRICT RULES — all must be met simultaneously:
   1. HARD MAXIMUM: 141 characters including spaces. This is an absolute ceiling — never exceed it under any circumstance. Count the characters in your final string before returning it. If your draft is 142 or more characters, rewrite the sentence with shorter words or remove a clause — do NOT truncate mid-word or mid-thought.
-  2. TARGET: aim for 138–141 characters. If you genuinely cannot reach 138 without padding or filler, 130–137 is acceptable — but never go below 130.
+  2. TARGET: aim for 130–141 characters. If you genuinely cannot reach 130 without padding or filler, 110–129 is acceptable — but never go below 110.
   3. The description must be a COMPLETE, grammatically correct sentence or two that ends on a full stop or clear CTA. It must never trail off or end mid-thought.
   4. Place the exact focus keyword within the first 60 characters
   5. Lead with the specific outcome or insight the reader gets — name a real number, jurisdiction, timeline, or comparison; no vague claims
@@ -688,7 +688,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   // Structural metadata
   focus_keyword_exists:             "focus_keyword is empty — write a short, specific keyword phrase (3–5 words) that this article targets",
   seo_title_exists:                 "seo_title is empty — write an SEO-optimised title (45–65 chars) containing the focus keyword",
-  meta_description_exists:          "meta_description is empty — write it (130–141 chars, contain focus keyword, end with a call to action)",
+  meta_description_exists:          "meta_description is empty — write it (110–141 chars, contain focus keyword, end with a call to action)",
   slug_exists:                      "slug is empty or invalid — write a lowercase hyphenated URL slug (only a-z, 0-9, hyphens; no spaces)",
   excerpt_exists:                   "excerpt is empty — write a 1–2 sentence plain-text summary of the article (no HTML)",
   // Content body
@@ -705,7 +705,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   focus_keyword_in_intro:           "focus keyword missing from the first paragraph of main_content — include it in the first sentence",
   focus_keyword_in_heading:         "focus keyword not found in any H2/H3 heading — naturally include it in at least one heading",
   seo_title_length_ok:              "seo_title is outside 45–65 characters — rewrite to fit within this range while keeping the focus keyword",
-  meta_description_length_ok:       "meta_description is outside 130–141 characters — rewrite to land in this exact range",
+  meta_description_length_ok:       "meta_description is outside 110–141 characters — rewrite to land in this range",
   no_dashes_in_title:               "seo_title contains a dash — rewrite the title without using dashes",
   // Structure
   word_count_in_range:              "total article word count is outside 1800–3500 words — expand thin sections or trim bloated ones",
