@@ -30,7 +30,7 @@ Your writing is authoritative, specific, and human. You write like a practitione
 SEO KEYWORD RULES (Yoast green target — every rule below is mandatory):
 - Place the exact focus keyword in: the first sentence of the introduction (main_content), the SEO title, the meta description, at least 2 H3 or H4 headings, and at least one key_takeaways item
 - Keyphrase density: use the focus keyword naturally approximately once every 100–150 words across the full article (roughly 1–2% density). Spread it evenly — intro, body sections, FAQ — never front-load it
-- The slug must contain the exact focus keyword in hyphenated form (e.g. focus keyword "UAE trade licence" → slug begins "uae-trade-licence-...")
+- The slug must contain the exact focus keyword in hyphenated form (e.g. focus keyword "UAE trade license" → slug begins "uae-trade-license-...")
 - Distribute secondary keywords across more_content_1 through more_content_6 without forcing them
 - Never stuff a keyword — if a sentence reads awkwardly, rephrase it or use a natural variation
 
@@ -43,7 +43,8 @@ READABILITY RULES (Yoast readability green target — every rule below is mandat
 - Subheading distribution: place an H3 or H4 at least every 300 words so readers and Yoast never see a wall of text
 
 TONE AND STYLE RULES:
-- UK English only: organisation, optimisation, licence (noun), authorised, centre, travelling, adviser
+- UK English only: organisation, optimisation, authorised, centre, travelling, adviser
+- Always write "license" (never "licence") — this is the site's mandatory house style, no exceptions
 - Sentence case for all headings — do NOT use American title case
 - All headings (H3, H4, H5) must be no longer than 8 words or 60 characters. If a heading exceeds this, rephrase it
 - Maximum 3-4 lines per paragraph. Each paragraph must start with a clear idea, then explain it properly
@@ -207,7 +208,7 @@ BLUEPRINT RULES:
 - focus_keyword: ${strategy ? `use exactly "${strategy.keyword_model.primary_keyword}" — this has been determined by the strategy engine` : "the single phrase this article should rank for in Google — 2 to 4 words, as a reader would actually type it into Google"}
 
 - seo_title: STRICT RULES — all must be met simultaneously:
-  1. Begin with the exact focus keyword as the first words (e.g. "UAE trade licence: complete guide" starts with "UAE trade licence")
+  1. Begin with the exact focus keyword as the first words (e.g. "UAE trade license: complete guide" starts with "UAE trade license")
   2. Exactly 50–60 characters including spaces — count precisely before returning
   3. After the focus keyword, add a power phrase that earns the click: "complete guide", "requirements and costs", "step-by-step guide", "what you need to know", "how it works", "explained" — pick the one that best matches search intent
   4. Sentence case only — capitalise only the first word and proper nouns
@@ -226,7 +227,7 @@ BLUEPRINT RULES:
   9. Never use: seamless, hassle-free, comprehensive, robust, tailored, one-stop, navigate, landscape, unlock, dive
 
 - slug: lowercase hyphenated only — STRICT RULES:
-  1. Start with the exact focus keyword hyphenated (e.g. "UAE trade licence" → starts with "uae-trade-licence")
+  1. Start with the exact focus keyword hyphenated (e.g. "UAE trade license" → starts with "uae-trade-license")
   2. Strip ALL stop words after the keyword (the, a, an, of, for, with, to, in, on, at, by, and, or, your, our)
   3. Total length: 3–5 words maximum — shorter is better for Google
   4. Only add 1 extra word after the focus keyword if it meaningfully disambiguates (e.g. "-guide", "-requirements", "-2025") — otherwise stop at the keyword itself
@@ -564,9 +565,9 @@ TOPIC-TO-SCENE GUIDE — use this to pick the right setting for each image:
 - DIFC / DFSA → DIFC Gate building exterior, glass towers, financial district walkway
 - ADGM / Abu Dhabi → Al Maryah Island skyline, ADGM square glass towers, waterfront
 - VARA / crypto / virtual assets → clean minimalist tech office, abstract digital network nodes, server room with cool blue lighting — NO coins or currency symbols
-- UAE mainland / trade licence → modern Dubai business district, government service centre, document signing
+- UAE mainland / trade license → modern Dubai business district, government service centre, document signing
 - Tax / corporate tax / VAT → financial documents spread on a desk, calculator, structured corporate paperwork
-- Banking / EMI / payment licence → modern private bank interior, vault corridor, payment terminal close-up
+- Banking / EMI / payment license → modern private bank interior, vault corridor, payment terminal close-up
 - Company formation / incorporation → corporate seal, certificate of incorporation on a desk, handshake in a modern lobby
 - Offshore / Seychelles / BVI → tropical island aerial with clean blue water, corporate office contrast with island backdrop
 - Cyprus / EU jurisdiction → Limassol or Nicosia modern skyline, Mediterranean light, EU-style corporate building
@@ -787,7 +788,7 @@ ${linksBlock}
 ${authorityLinksBlock}
 RULES:
 - Fix every issue listed above — do not skip any
-- British English throughout, no colons in headings, sentence case, no em dashes
+- British English throughout (except: always write "license" never "licence"), no colons in headings, sentence case, no em dashes
 - For main_content: minimum 300 words, at least 2 H3 subheadings, exactly 1 internal link + at least 1 external link
 - Sentence length across ALL fields you are fixing: hard maximum 20 words per sentence. Split any sentence at 18+ words. Target 12–16 words
 - Across all sections combined: target 7 to 9 external links (minimum 5) — use ONLY the APPROVED EXTERNAL AUTHORITY SOURCES listed above${brokenUrls && brokenUrls.length > 0 ? `\n- The following external URLs were found to be BROKEN — do NOT reuse any of them:\n${brokenUrls.map((u) => `  • ${u}`).join("\n")}` : ""}

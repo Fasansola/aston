@@ -99,6 +99,14 @@ function isTitleCase(str: string): boolean {
   return candidates.filter((w) => /^[A-Z]/.test(w)).length > candidates.length * 0.6;
 }
 
+// "licence" → "license" is a mandatory house-style exception to British English
+const HOUSE_STYLE_CORRECTIONS: Record<string, string> = {
+  licence:   "license",
+  licences:  "licenses",
+  licenced:  "licensed",
+  licencing: "licensing",
+};
+
 const US_SPELLINGS: Record<string, string> = {
   organization:  "organisation",
   organizations: "organisations",
@@ -586,7 +594,19 @@ export function applyAutoFixes(html: string, language?: string | null): AutoFixR
   });
   if (fixed !== beforeBold) appliedFixes.push("Removed bold formatting from body paragraphs");
 
-  // 2. Convert US spellings to British (English articles only)
+  // 2a. House style: licence → license (always, regardless of language)
+  let houseStyleFixed = false;
+  for (const [wrong, correct] of Object.entries(HOUSE_STYLE_CORRECTIONS)) {
+    const regex = new RegExp(`\\b${wrong}\\b`, "gi");
+    const next = fixed.replace(regex, (match) => {
+      const isCapital = match[0] === match[0].toUpperCase();
+      return isCapital ? correct.charAt(0).toUpperCase() + correct.slice(1) : correct;
+    });
+    if (next !== fixed) { fixed = next; houseStyleFixed = true; }
+  }
+  if (houseStyleFixed) appliedFixes.push("Applied house style: licence → license");
+
+  // 2b. Convert US spellings to British (English articles only)
   const isBritish = !language || language.toLowerCase().includes("english") || !language;
   if (isBritish) {
     let spellingFixed = false;

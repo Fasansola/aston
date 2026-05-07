@@ -99,7 +99,14 @@ const US_SPELLINGS = [
   "realize",
   "traveling",
   "modeling",
-  "licensed",  // US verb form — UK uses "licenced" (adj) but "licensed" is acceptable in some contexts
+];
+
+// House style violations — these must never appear regardless of language
+const HOUSE_STYLE_VIOLATIONS = [
+  "licence",    // must always be written as "license"
+  "licences",
+  "licenced",
+  "licencing",
 ];
 
 function hasColonInHeadings(html: string): boolean {
@@ -300,9 +307,13 @@ export function runQA(
   // US spelling check
   const plainAllLower = plainAll;
   const foundUS = US_SPELLINGS.filter((w) => plainAllLower.includes(w));
-  checks.no_us_spellings = foundUS.length === 0;
+  // House style check: "licence" must always be "license"
+  const foundHouseStyle = HOUSE_STYLE_VIOLATIONS.filter((w) => plainAllLower.includes(w));
+  checks.no_us_spellings = foundUS.length === 0 && foundHouseStyle.length === 0;
   if (foundUS.length > 0)
     warnings.push(`US spelling(s) found: ${foundUS.join(", ")} — use British English`);
+  if (foundHouseStyle.length > 0)
+    warnings.push(`House style violation: "${foundHouseStyle.join('", "')}" must be written as "license"`);
 
   // Key takeaways quality (must have at least 4 list items)
   const takeawayItems = (content.key_takeaways ?? "").match(/<li/gi) ?? [];

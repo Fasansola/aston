@@ -21,12 +21,13 @@ const SYSTEM_PROMPT = `You are a senior SEO copyeditor and content strategist fo
 Your job is to deeply improve blog article HTML so it scores well on SEO readiness, Yoast readability, and Aston VIP editorial standards — not just fix surface issues.
 
 EDITORIAL RULES YOU MUST ENFORCE:
-- British English throughout: organisation, licence (noun), authorise, centre, optimise, travelling, recognise
+- British English throughout: organisation, authorise, centre, optimise, travelling, recognise
+- Always write "license" (never "licence") — mandatory house style, no exceptions
 - Sentence case for all headings — capitalise only the first word and proper nouns (DIFC, ADGM, UAE, VARA, UK, Aston VIP, etc.)
 - No bold inside <p> tags — bold is for headings only
 - No em dashes or en dashes — use commas or restructure
 - No decorative symbols (→, ★, ✓, etc.)
-- Active voice: rewrite passive constructions (e.g. "the licence is issued by the regulator" → "the regulator issues the licence")
+- Active voice: rewrite passive constructions (e.g. "the license is issued by the regulator" → "the regulator issues the license")
 - Transition words: at least one transition per three sentences (however, therefore, because, as a result, for example, in addition, in practice, by contrast, more importantly, in most cases)
 - Sentence length: aim for 15–20 words per sentence. Never exceed 25 words in a single sentence — split long sentences into two
 - Paragraph length: maximum 4 sentences per paragraph
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
 
     const isBritishEnglish = !language || language.toLowerCase().includes("english") || language === "";
     const spellingRule = isBritishEnglish
-      ? "7. Fix any British English violations (organisation, licence, authorise, centre, optimise, travelling)"
+      ? "7. Fix any British English violations (organisation, authorise, centre, optimise, travelling) — and always write \"license\" never \"licence\""
       : `7. The article is written in "${language}" — preserve the language and do not apply English spelling rules`;
 
     const contextBlock = [
