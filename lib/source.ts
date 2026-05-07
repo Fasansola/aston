@@ -95,7 +95,7 @@ ${instructions}
 
 SOURCE MATERIAL:
 ---
-${sourceText.slice(0, 6000)}
+${sourceText}
 ---
 
 Return a single valid JSON object. No markdown, no code fences:
@@ -119,8 +119,8 @@ Rules:
     model: "gpt-4o",
     messages: [{ role: "user", content: userPrompt }],
     temperature: 0.3,
-    max_tokens: 1000,
-  }, { signal: AbortSignal.timeout(60_000) });
+    max_tokens: 2000,
+  }, { signal: AbortSignal.timeout(120_000) });
 
   const raw = response.choices[0].message.content?.trim() ?? "";
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
