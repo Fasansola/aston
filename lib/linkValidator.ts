@@ -208,8 +208,21 @@ async function safeFetch(url: string): Promise<FetchResult> {
 
     return { ok: res.ok, status: res.status, finalUrl: res.url };
   } catch (err: unknown) {
-    const isAbort = err instanceof Error && err.name === "AbortError";
-    return { ok: false, status: null, finalUrl: null, reason: isAbort ? "timeout" : "request_failed" };
+    if (err instanceof Error) {
+      if (err.name === "AbortError") {
+        return { ok: false, status: null, finalUrl: null, reason: "timeout" };
+      }
+      const msg = err.message.toLowerCase();
+      const code = (err as NodeJS.ErrnoException).code ?? "";
+      // DNS failure or connection refused → domain does not exist
+      if (
+        code === "ENOTFOUND" || msg.includes("enotfound") || msg.includes("getaddrinfo") ||
+        code === "ECONNREFUSED" || msg.includes("econnrefused")
+      ) {
+        return { ok: false, status: null, finalUrl: null, reason: "dns_failed" };
+      }
+    }
+    return { ok: false, status: null, finalUrl: null, reason: "request_failed" };
   } finally {
     clearTimeout(timeout);
   }
@@ -305,11 +318,22 @@ async function validateExternal(
 
   const res = await safeFetch(url);
 
+  if (res.reason === "dns_failed") {
+    return {
+      id, type: "external", status: "failed",
+      anchorText, url, finalUrl: null, httpStatus: null, authorityScore,
+      problem: `Domain "${domain}" does not exist — DNS lookup failed`,
+      suggestedFix: "Replace with a working authoritative source on the same topic",
+      blocking: true,
+      actions: ["find_better_source", "edit", "remove", "recheck"],
+    };
+  }
+
   if (res.reason === "timeout") {
     return {
       id, type: "external", status: "warning",
       anchorText, url, finalUrl: null, httpStatus: null, authorityScore,
-      problem: "Request timed out",
+      problem: "Request timed out — server may be slow or temporarily unavailable",
       suggestedFix: "Recheck this link before publishing",
       blocking: false,
       actions: ["recheck", "edit", "remove"],

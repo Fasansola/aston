@@ -38,15 +38,19 @@ const LINK_FIELDS: (keyof BlogContent)[] = [
 const EXTERNAL_HREF_RE = /href="(https?:\/\/(?!(?:www\.)?aston\.ae)[^"]+)"/gi;
 
 /**
- * Returns false ONLY for an explicit 404 response — the only signal that
- * reliably means "this page does not exist".
+ * Returns false (remove link) when we are confident the URL does not exist:
  *
- * 403 / 405 / 429 / 5xx = server responded but blocked the bot request.
- *   These pages almost certainly exist — government and regulator sites
- *   routinely block automated HEAD/GET requests via WAF/Cloudflare.
- *   Keeping the link is the right call.
+ * REMOVE:
+ *   404 — page definitively does not exist
+ *   DNS failure (ENOTFOUND) — domain does not exist at all
+ *   Connection refused (ECONNREFUSED) — nothing running at that address
  *
- * Timeout / network error = inconclusive. Keep the link.
+ * KEEP:
+ *   403 / 405 / 429 — server responded but blocked the bot; page likely exists
+ *     (government, regulator, and bank sites routinely do this via WAF)
+ *   5xx — server error, transient; don't penalise a real page for a bad moment
+ *   Timeout — inconclusive; slow servers should not lose their links
+ *   2xx / 3xx — link is live
  */
 async function headCheck(url: string, timeoutMs = 8000): Promise<boolean> {
   const controller = new AbortController();
@@ -58,10 +62,22 @@ async function headCheck(url: string, timeoutMs = 8000): Promise<boolean> {
       signal: controller.signal,
       headers: { "User-Agent": "Mozilla/5.0 (compatible; AstonBlogTool/1.0)" },
     });
-    // Only a 404 is definitive proof the page doesn't exist
+    // 404 = page definitively does not exist
     return res.status !== 404;
-  } catch {
-    // Timeout, DNS failure, network error — benefit of the doubt
+  } catch (err: unknown) {
+    if (err instanceof Error) {
+      const msg = err.message.toLowerCase();
+      const code = (err as NodeJS.ErrnoException).code ?? "";
+      // DNS lookup failed → domain does not exist
+      if (code === "ENOTFOUND" || msg.includes("enotfound") || msg.includes("getaddrinfo")) {
+        return false;
+      }
+      // Connection refused → nothing at that address
+      if (code === "ECONNREFUSED" || msg.includes("econnrefused")) {
+        return false;
+      }
+    }
+    // Timeout or other network error — benefit of the doubt
     return true;
   } finally {
     clearTimeout(timer);
