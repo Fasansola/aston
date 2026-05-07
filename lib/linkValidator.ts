@@ -266,6 +266,11 @@ async function validateInternal(
   };
 }
 
+// Domains known to be inaccessible — fail immediately without a network call
+const BLOCKED_DOMAINS = new Set([
+  "fsra.ae",  // ADGM FSRA — site inaccessible / consistently bot-blocked
+]);
+
 async function validateExternal(
   id: string,
   anchorText: string,
@@ -273,6 +278,18 @@ async function validateExternal(
   minAuthorityScore: number
 ): Promise<LinkIssue> {
   const domain = getDomain(url);
+
+  if (BLOCKED_DOMAINS.has(domain)) {
+    return {
+      id, type: "external", status: "failed",
+      anchorText, url, finalUrl: null, httpStatus: null, authorityScore: 0,
+      problem: `Domain "${domain}" is inaccessible — this site cannot be reached by visitors`,
+      suggestedFix: "Replace with an accessible alternative source on the same topic",
+      blocking: true,
+      actions: ["find_better_source", "edit", "remove", "recheck"],
+    };
+  }
+
   const authorityScore = scoreExternalDomain(domain);
 
   if (authorityScore < minAuthorityScore) {

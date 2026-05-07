@@ -16,6 +16,15 @@
 
 import type { BlogContent } from "./wordpress";
 
+/**
+ * Domains that are known to be inaccessible or return bot-blocking errors.
+ * These are stripped unconditionally — before authority scoring and before
+ * the HEAD-check pass — so they never appear in published posts.
+ */
+const BLOCKED_DOMAINS = new Set([
+  "fsra.ae",        // ADGM FSRA — site inaccessible / consistently bot-blocked
+]);
+
 const LINK_FIELDS: (keyof BlogContent)[] = [
   "main_content",
   "more_content_1",
@@ -106,7 +115,7 @@ export function enforceApprovedLinks(
 
     while ((m = EXTERNAL_HREF_RE.exec(html)) !== null) {
       const domain = extractDomain(m[1]);
-      if (!domain || !approvedDomains.has(domain)) {
+      if (!domain || BLOCKED_DOMAINS.has(domain) || !approvedDomains.has(domain)) {
         toStrip.push(m[1]);
       }
     }
