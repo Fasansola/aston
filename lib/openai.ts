@@ -600,14 +600,15 @@ Return as a single valid JSON object. No markdown, no code fences:
 }
 
 Alt text rules (SEO-optimised — all must be met):
-1. Write each alt text AFTER writing the image prompt — it must describe the exact visual scene depicted in that prompt, not just the article topic. If the prompt shows a DIFC glass tower at dusk, the alt text must mention DIFC and the tower, not just "UAE corporate finance".
-2. Be specific and visual: include the setting (named location or environment), the main subject or object, and any relevant action or context (e.g. "DIFC Gate building entrance framing a document signing desk in foreground" not "business office")
-3. Include the focus keyword "${content.focus_keyword}" naturally in at least 2 of the 4 alt texts — the featured image alt must always include it
-4. 10–15 words per alt text — enough to be useful to a screen reader, not so long it becomes a sentence
-5. All 4 alt texts must describe visually distinct scenes — no two should reference the same type of setting, object, or moment
-6. Include a named location or recognisable setting when the image prompt depicts one (e.g. "Al Maryah Island", "Frankfurt banking district", "Limassol harbour")
-7. No full stops, no quotes, no HTML
-8. Never start with "image of", "photo of", or "picture of" — start directly with the subject or setting`;
+1. Alt text is NOT a description of the image — it is a short SEO phrase about the article topic and focus keyword. Write it as a search-engine-friendly label, not a visual caption.
+2. Every alt text MUST include the focus keyword "${content.focus_keyword}" or a close natural variation of it — this is the primary SEO signal
+3. Each alt text should also weave in a secondary or related keyword from the article topic (jurisdiction, service type, regulator name, etc.) to build topical relevance
+4. 8–12 words per alt text — concise, keyword-rich, reads like a natural phrase a user might search
+5. All 4 alt texts must be distinct — vary the keyword combinations and phrasing across the four images so they cover different aspects of the topic
+6. No full stops, no quotes, no HTML
+7. Never start with "image of", "photo of", or "picture of" — start directly with the keyword phrase
+8. Examples of good alt text: "UAE trade license setup for mainland company formation", "DIFC financial services license requirements for fund managers", "Dubai crypto license VARA regulatory framework guide"
+9. Examples of bad alt text: "glass office tower at sunset", "businesspeople shaking hands in lobby", "documents on a desk with calculator"`;
 
   const response = await openai.chat.completions.create({
     model: "gpt-5.1",
