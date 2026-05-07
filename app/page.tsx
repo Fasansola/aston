@@ -734,6 +734,7 @@ export default function HomePage() {
   const [readinessResult, setReadinessResult] = useState<ReadinessResult | null>(null);
   const [isAutoFixing, setIsAutoFixing]       = useState(false);
   const [appliedFixes, setAppliedFixes]       = useState<string[]>([]);
+  const [wpSyncStatus, setWpSyncStatus]       = useState<"idle" | "syncing" | "synced" | "error">("idle");
 
   // Publish queue scheduling
   const [showQueuePublish, setShowQueuePublish]       = useState(false);
@@ -1069,14 +1070,23 @@ export default function HomePage() {
       };
     };
 
-    // Push link change to WordPress (fire-and-forget, non-blocking)
-    const syncToWordPress = (wpAction: "replace" | "remove", wpNewUrl?: string) => {
+    // Push link change to WordPress with status tracking
+    const syncToWordPress = async (wpAction: "replace" | "remove", wpNewUrl?: string) => {
       if (!result?.postId) return;
-      fetch("/api/update-post-links", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: result.postId, oldUrl: issue.url, action: wpAction, newUrl: wpNewUrl }),
-      }).catch(() => { /* non-fatal — user can manually fix in WP if needed */ });
+      setWpSyncStatus("syncing");
+      try {
+        const res = await fetch("/api/update-post-links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ postId: result.postId, oldUrl: issue.url, action: wpAction, newUrl: wpNewUrl }),
+        });
+        if (!res.ok) throw new Error("sync failed");
+        setWpSyncStatus("synced");
+        setTimeout(() => setWpSyncStatus("idle"), 4000);
+      } catch {
+        setWpSyncStatus("error");
+        setTimeout(() => setWpSyncStatus("idle"), 6000);
+      }
     };
 
     if (action === "remove") {
@@ -1927,14 +1937,25 @@ export default function HomePage() {
                   </svg>
                   Edit in WordPress
                 </a>
-                <a href={result.previewUrl} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 bg-white/[0.05] hover:bg-white/[0.08] border border-white/10 text-white/70 hover:text-white text-sm py-3 rounded-lg transition-all duration-200">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                  Preview Draft
-                </a>
+                <div className="relative">
+                  <a href={result.previewUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 bg-white/[0.05] hover:bg-white/[0.08] border border-white/10 text-white/70 hover:text-white text-sm py-3 rounded-lg transition-all duration-200 w-full">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    Preview Draft
+                  </a>
+                  {wpSyncStatus === "syncing" && (
+                    <p className="text-[10px] text-amber-400/70 text-center mt-1">Saving changes to WordPress…</p>
+                  )}
+                  {wpSyncStatus === "synced" && (
+                    <p className="text-[10px] text-emerald-400/70 text-center mt-1">✓ WordPress updated — safe to preview</p>
+                  )}
+                  {wpSyncStatus === "error" && (
+                    <p className="text-[10px] text-red-400/70 text-center mt-1">⚠ WordPress sync failed — edit manually in wp-admin</p>
+                  )}
+                </div>
               </div>
 
               <button onClick={handleReset} className="w-full text-sm text-white/30 hover:text-white/60 py-2 transition-colors duration-150">
