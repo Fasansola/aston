@@ -63,10 +63,13 @@ export async function GET(req: NextRequest) {
           },
         }
       );
+      const posts = Array.isArray(data) ? data : [];
       return NextResponse.json({
-        posts: data.map((p: Record<string, unknown>) => ({
+        posts: posts.map((p: Record<string, unknown>) => ({
           id:     p.id,
-          title:  (p.title as { rendered: string }).rendered,
+          title:  (p.title as { rendered?: string; raw?: string })?.rendered
+                  ?? (p.title as { rendered?: string; raw?: string })?.raw
+                  ?? String(p.title ?? ""),
           slug:   p.slug,
           status: p.status,
           date:   p.date,

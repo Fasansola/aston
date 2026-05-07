@@ -128,7 +128,7 @@ function WpPostPicker({ onSelect }: { onSelect: (title: string, content: string)
       const res = await fetch(`/api/fetch-wp-post?search=${encodeURIComponent(q)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Search failed");
-      setResults(data.posts ?? []);
+      setResults(Array.isArray(data.posts) ? data.posts : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Search failed");
       setResults([]);
