@@ -133,76 +133,86 @@ export async function POST(req: NextRequest) {
   (async () => {
     const MAX_TECH = 3;
 
+    // ── One-time setup (not retried) ─────────────────────────
+    // These steps are deterministic given the same inputs; repeating them on
+    // every tech retry wastes ~60-100 s of the 300 s Vercel wall-time budget.
+    let title: string;
+    let strategyTopic: string;
+    let strategy: Awaited<ReturnType<typeof generateStrategy>>;
+    let sourceBrief: SourceBrief;
+    let selectedLinks: Awaited<ReturnType<typeof selectLinks>>;
+    let blueprint: Awaited<ReturnType<typeof generateBlueprint>>;
+    let authorityLinks: Awaited<ReturnType<typeof mergeWithDiscovered>>;
+    let fileSlug: string;
+
+    try {
+      if (hasTopic) {
+        title = topic.trim();
+        strategyTopic = title;
+      } else {
+        const derived = await deriveTitle(customInstruction!, primary_country || undefined);
+        title = derived.title;
+        strategyTopic = derived.topic;
+        console.log(`[generate] Derived title: "${title}"`);
+      }
+
+      let research: ResearchBrief | undefined;
+      try {
+        research = await researchTopic(title, primary_country || undefined, customInstruction);
+      } catch (err) {
+        console.warn("[generate] Research step failed — continuing without SERP data:", err);
+      }
+
+      strategy = await generateStrategy({
+        topic:               strategyTopic,
+        audience:            audience || undefined,
+        primary_country:     primary_country || undefined,
+        secondary_countries: secondary_countries || undefined,
+        priority_service:    priority_service || undefined,
+        language:            language || undefined,
+        customPrompt:        customInstruction,
+        research,
+      });
+      console.log(`[generate] Strategy ready. Keyword: "${strategy.keyword_model.primary_keyword}"`);
+
+      if (mode === "topic_only") {
+        sourceBrief = emptyBrief();
+      } else {
+        sourceBrief = await processSourceInput(mode as Parameters<typeof processSourceInput>[0], title, sourceText);
+      }
+
+      selectedLinks = await selectLinks(title, language || undefined);
+      blueprint = await generateBlueprint(title, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined);
+      console.log(`[generate] Blueprint ready. Keyword: "${blueprint.focus_keyword}"`);
+
+      const jurisdictions = (strategy?.jurisdiction_map ?? []).map((j) => j.jurisdiction);
+      const curatedLinks = selectAuthorityLinks(`${title} ${strategy?.keyword_model.primary_keyword ?? ""}`, jurisdictions);
+      let discoveredLinks: Awaited<ReturnType<typeof findExternalAuthorityLinks>> = [];
+      try {
+        discoveredLinks = await findExternalAuthorityLinks(
+          title,
+          strategy?.keyword_model.primary_keyword ?? title,
+          jurisdictions
+        );
+        console.log(`[generate] Discovered ${discoveredLinks.length} external authority links`);
+      } catch (err) {
+        console.warn("[generate] External link discovery failed — using curated list only:", err);
+      }
+      authorityLinks = mergeWithDiscovered(curatedLinks, discoveredLinks);
+      fileSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
+    } catch (setupError: unknown) {
+      const msg = setupError instanceof Error ? setupError.message : String(setupError);
+      console.error(`[generate] Setup failed: ${msg}`);
+      await send({ type: "error", message: msg || "Failed during pipeline setup." });
+      return;
+    }
+
+    // ── Tech retry loop (content + images only) ───────────────
     for (let techAttempt = 1; techAttempt <= MAX_TECH; techAttempt++) {
 
       try {
-        // ── Derive title ──────────────────────────────────────
-        let title: string;
-        let strategyTopic: string;
-
-        if (hasTopic) {
-          title = topic.trim();
-          strategyTopic = title;
-        } else {
-          const derived = await deriveTitle(customInstruction!, primary_country || undefined);
-          title = derived.title;
-          strategyTopic = derived.topic;
-          console.log(`[generate] Derived title: "${title}"`);
-        }
-
-        // ── SEO research (non-fatal) ──────────────────────────
-        let research: ResearchBrief | undefined;
-        try {
-          research = await researchTopic(title, primary_country || undefined, customInstruction);
-        } catch (err) {
-          console.warn("[generate] Research step failed — continuing without SERP data:", err);
-        }
-
-        // ── Strategy ──────────────────────────────────────────
-        const strategy = await generateStrategy({
-          topic:               strategyTopic,
-          audience:            audience || undefined,
-          primary_country:     primary_country || undefined,
-          secondary_countries: secondary_countries || undefined,
-          priority_service:    priority_service || undefined,
-          language:            language || undefined,
-          customPrompt:        customInstruction,
-          research,
-        });
-        console.log(`[generate] Strategy ready. Keyword: "${strategy.keyword_model.primary_keyword}"`);
-
-        // ── Source brief ──────────────────────────────────────
-        let sourceBrief: SourceBrief;
-        if (mode === "topic_only") {
-          sourceBrief = emptyBrief();
-        } else {
-          sourceBrief = await processSourceInput(mode as Parameters<typeof processSourceInput>[0], title, sourceText);
-        }
-
-        // ── Links + blueprint (reused across QA retries) ──────
-        const selectedLinks = await selectLinks(title, language || undefined);
-        const blueprint = await generateBlueprint(title, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined);
-        console.log(`[generate] Blueprint ready. Keyword: "${blueprint.focus_keyword}"`);
-
-        // ── Authority links (curated + dynamically discovered) ─
-        const jurisdictions = (strategy?.jurisdiction_map ?? []).map((j) => j.jurisdiction);
-        const curatedLinks = selectAuthorityLinks(`${title} ${strategy?.keyword_model.primary_keyword ?? ""}`, jurisdictions);
-        let discoveredLinks: Awaited<ReturnType<typeof findExternalAuthorityLinks>> = [];
-        try {
-          discoveredLinks = await findExternalAuthorityLinks(
-            title,
-            strategy?.keyword_model.primary_keyword ?? title,
-            jurisdictions
-          );
-          console.log(`[generate] Discovered ${discoveredLinks.length} external authority links`);
-        } catch (err) {
-          console.warn("[generate] External link discovery failed ��� using curated list only:", err);
-        }
-        const authorityLinks = mergeWithDiscovered(curatedLinks, discoveredLinks);
-
         // ── QA retry loop ─────────────────────────────────────
         const MAX_QA   = 3;
-        const fileSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
 
         // State carried across retries so fix passes can build on prior work
         type ImageIds = { keypointOneImg: number; keypointTwoImg: number; postSplitImg: number; featuredImg: number };
