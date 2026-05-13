@@ -156,13 +156,22 @@ export async function POST(req: NextRequest) {
         console.log(`[generate] Derived title: "${title}"`);
       }
 
+      // ── Phase 1 (parallel): research + link pool + source brief ──
+      // None of these depend on each other; running them concurrently
+      // saves the sequential cost of whichever two finish first (~30s).
       let research: ResearchBrief | undefined;
-      try {
-        research = await researchTopic(title, primary_country || undefined, customInstruction);
-      } catch (err) {
-        console.warn("[generate] Research step failed — continuing without SERP data:", err);
-      }
+      [research, selectedLinks, sourceBrief] = await Promise.all([
+        researchTopic(title, primary_country || undefined, customInstruction).catch((err) => {
+          console.warn("[generate] Research step failed — continuing without SERP data:", err);
+          return undefined;
+        }),
+        selectLinks(title, language || undefined),
+        mode === "topic_only"
+          ? Promise.resolve(emptyBrief())
+          : processSourceInput(mode as Parameters<typeof processSourceInput>[0], title, sourceText),
+      ]);
 
+      // ── Strategy (needs research result) ─────────────────────────
       strategy = await generateStrategy({
         topic:               strategyTopic,
         audience:            audience || undefined,
@@ -175,29 +184,27 @@ export async function POST(req: NextRequest) {
       });
       console.log(`[generate] Strategy ready. Keyword: "${strategy.keyword_model.primary_keyword}"`);
 
-      if (mode === "topic_only") {
-        sourceBrief = emptyBrief();
-      } else {
-        sourceBrief = await processSourceInput(mode as Parameters<typeof processSourceInput>[0], title, sourceText);
-      }
-
-      selectedLinks = await selectLinks(title, language || undefined);
-      blueprint = await generateBlueprint(title, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined);
-      console.log(`[generate] Blueprint ready. Keyword: "${blueprint.focus_keyword}"`);
-
+      // ── Phase 2 (parallel): blueprint + authority link discovery ──
+      // generateBlueprint needs selectedLinks + strategy + sourceBrief (all ready).
+      // findExternalAuthorityLinks needs strategy keywords (just computed).
       const jurisdictions = (strategy?.jurisdiction_map ?? []).map((j) => j.jurisdiction);
       const curatedLinks = selectAuthorityLinks(`${title} ${strategy?.keyword_model.primary_keyword ?? ""}`, jurisdictions);
       let discoveredLinks: Awaited<ReturnType<typeof findExternalAuthorityLinks>> = [];
-      try {
-        discoveredLinks = await findExternalAuthorityLinks(
+
+      [blueprint, discoveredLinks] = await Promise.all([
+        generateBlueprint(title, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined),
+        findExternalAuthorityLinks(
           title,
           strategy?.keyword_model.primary_keyword ?? title,
           jurisdictions
-        );
-        console.log(`[generate] Discovered ${discoveredLinks.length} external authority links`);
-      } catch (err) {
-        console.warn("[generate] External link discovery failed — using curated list only:", err);
-      }
+        ).catch((err) => {
+          console.warn("[generate] External link discovery failed — using curated list only:", err);
+          return [];
+        }),
+      ]);
+      console.log(`[generate] Blueprint ready. Keyword: "${blueprint.focus_keyword}"`);
+      console.log(`[generate] Discovered ${discoveredLinks.length} external authority links`);
+
       authorityLinks = mergeWithDiscovered(curatedLinks, discoveredLinks);
       fileSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
     } catch (setupError: unknown) {
