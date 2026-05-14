@@ -302,7 +302,10 @@ export async function POST(req: NextRequest) {
           }
 
           const qa = runQA(content, imagePrompts, imageIds, title);
-          console.log(`[generate] QA attempt ${qaAttempt}: ${qa.status.toUpperCase()} (${qa.score}/100, ${qa.wordCount} words)`);
+          // Override the LLM's estimated read_mins with a value derived from the
+          // actual stripped word count — the LLM over-counts by including HTML markup.
+          content.read_mins = String(Math.max(1, Math.round(qa.wordCount / 200)));
+          console.log(`[generate] QA attempt ${qaAttempt}: ${qa.status.toUpperCase()} (${qa.score}/100, ${qa.wordCount} words, ${content.read_mins} min read)`);
 
           // Persist state for next retry
           prevContent      = content;
