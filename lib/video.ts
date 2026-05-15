@@ -80,13 +80,14 @@ ${langNote}`,
 /**
  * Generates a short video clip via Veo 2.
  * Polls until the operation is complete (up to `deadlineMs`).
- * Returns the GCS signed video URI for streaming to YouTube.
+ * Returns the video as a Buffer (Gemini API returns base64 bytes;
+ * Vertex AI returns a GCS URI which is fetched and buffered here).
  */
 export async function generateVeoVideo(
   prompt: string,
   onProgress: (msg: string) => void,
   deadlineMs = 240_000
-): Promise<string> {
+): Promise<Buffer> {
   const { GoogleGenAI } = await import("@google/genai");
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -112,16 +113,27 @@ export async function generateVeoVideo(
     if (Date.now() > deadline) {
       throw new Error("Veo 2 video generation timed out after 4 minutes.");
     }
-    const waitSecs = Math.min(15 + pollCount * 5, 30); // back off: 15s, 20s, 25s, 30s…
+    const waitSecs = Math.min(15 + pollCount * 5, 30);
     onProgress(`Generating video… (${Math.round((Date.now() - (deadline - deadlineMs)) / 1000)}s elapsed)`);
     await new Promise((r) => setTimeout(r, waitSecs * 1000));
     operation = await ai.operations.getVideosOperation({ operation });
     pollCount++;
   }
 
-  const uri = operation.response?.generatedVideos?.[0]?.video?.uri;
-  if (!uri) throw new Error("Veo 2 returned no video URI.");
-  return uri;
+  const videoObj = operation.response?.generatedVideos?.[0]?.video;
+  if (!videoObj) throw new Error("Veo 2 returned no video data.");
+
+  // Gemini API returns base64-encoded bytes; Vertex AI returns a GCS URI
+  if (videoObj.videoBytes) {
+    return Buffer.from(videoObj.videoBytes, "base64");
+  }
+  if (videoObj.uri) {
+    const res = await fetch(videoObj.uri);
+    if (!res.ok) throw new Error(`Failed to fetch video from URI: ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  }
+
+  throw new Error("Veo 2 response contained neither videoBytes nor uri.");
 }
 
 // ── 3. YouTube upload ─────────────────────────────────────────────────────────
@@ -136,22 +148,16 @@ function youtubeClient() {
 }
 
 /**
- * Streams the video from `videoUri` directly to YouTube.
+ * Uploads a video Buffer to YouTube.
  * Returns the full YouTube watch URL.
  */
 export async function uploadToYouTube(
-  videoUri: string,
+  videoBuffer: Buffer,
   title: string,
   description: string
 ): Promise<string> {
   const yt = youtubeClient();
-
-  // Stream directly from GCS to YouTube — no local buffer needed
-  const videoRes = await fetch(videoUri);
-  if (!videoRes.ok || !videoRes.body) {
-    throw new Error(`Failed to fetch video from Veo: ${videoRes.status}`);
-  }
-  const videoStream = Readable.fromWeb(videoRes.body as import("stream/web").ReadableStream);
+  const videoStream = Readable.from(videoBuffer);
 
   const res = await yt.videos.insert({
     part: ["snippet", "status"],
