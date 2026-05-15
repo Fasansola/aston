@@ -865,9 +865,12 @@ export default function HomePage() {
   const [publishStatus, setPublishStatus]           = useState<"idle" | "publishing" | "done" | "error">("idle");
   const [publishResults, setPublishResults]         = useState<PublishResultItem[]>([]);
 
-  const [videoStatus, setVideoStatus]     = useState<"idle" | "generating" | "done" | "error">("idle");
+  const [videoStatus, setVideoStatus]     = useState<"idle" | "generating" | "ready" | "uploading" | "uploaded" | "error">("idle");
   const [videoProgress, setVideoProgress] = useState("");
-  const [videoUrl, setVideoUrl]           = useState<string | null>(null);
+  const [videoElapsed, setVideoElapsed]   = useState(0);
+  const [videoBase64, setVideoBase64]     = useState<string | null>(null);
+  const [videoMime, setVideoMime]         = useState("video/mp4");
+  const [youtubeUrl, setYoutubeUrl]       = useState<string | null>(null);
 
   const startStepCycle = () => {
     setStepIndex(0);
@@ -1286,21 +1289,30 @@ export default function HomePage() {
     setCustomPrompt("");
     setVideoStatus("idle");
     setVideoProgress("");
-    setVideoUrl(null);
+    setVideoElapsed(0);
+    setVideoBase64(null);
+    setYoutubeUrl(null);
   };
 
   const handleGenerateVideo = async () => {
     if (!result) return;
     setVideoStatus("generating");
-    setVideoProgress("Starting video generation…");
-    setVideoUrl(null);
+    setVideoProgress("Writing video prompt…");
+    setVideoElapsed(0);
+    setVideoBase64(null);
+    setYoutubeUrl(null);
+
+    // Client-side elapsed timer — updates every second for smooth display
+    const timerStart = Date.now();
+    const timer = setInterval(() => {
+      setVideoElapsed(Math.round((Date.now() - timerStart) / 1000));
+    }, 1000);
 
     try {
       const res = await fetch("/api/generate-video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          postId:   result.postId,
           title:    result.title,
           keyword:  result.focusKeyword || result.strategy?.primaryKeyword || result.title,
           language: result.language || undefined,
@@ -1328,11 +1340,17 @@ export default function HomePage() {
           const line = part.replace(/^data: /, "").trim();
           if (!line) continue;
           try {
-            const event = JSON.parse(line) as { type: string; message?: string; youtubeUrl?: string };
-            if (event.type === "progress") setVideoProgress(event.message ?? "");
-            if (event.type === "done" && event.youtubeUrl) {
-              setVideoUrl(event.youtubeUrl);
-              setVideoStatus("done");
+            const event = JSON.parse(line) as {
+              type: string; message?: string;
+              videoBase64?: string; mimeType?: string;
+            };
+            if (event.type === "progress" && event.message) {
+              setVideoProgress(event.message);
+            }
+            if (event.type === "done" && event.videoBase64) {
+              setVideoBase64(event.videoBase64);
+              setVideoMime(event.mimeType ?? "video/mp4");
+              setVideoStatus("ready");
             }
             if (event.type === "error") {
               setVideoStatus("error");
@@ -1344,6 +1362,33 @@ export default function HomePage() {
     } catch (err) {
       setVideoStatus("error");
       setVideoProgress(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      clearInterval(timer);
+    }
+  };
+
+  const handleUploadToYouTube = async () => {
+    if (!result || !videoBase64) return;
+    setVideoStatus("uploading");
+
+    try {
+      const res = await fetch("/api/upload-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          postId:      result.postId,
+          title:       result.title,
+          videoBase64,
+          mimeType:    videoMime,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed.");
+      setYoutubeUrl(data.youtubeUrl);
+      setVideoStatus("uploaded");
+    } catch (err) {
+      setVideoStatus("error");
+      setVideoProgress(err instanceof Error ? err.message : "Upload failed.");
     }
   };
 
@@ -2174,7 +2219,9 @@ export default function HomePage() {
                   </svg>
                   <p className="text-xs font-medium text-white/50 uppercase tracking-wide">Video</p>
                 </div>
-                <div className="px-4 py-4">
+                <div className="px-4 py-4 space-y-4">
+
+                  {/* Idle — generate button */}
                   {videoStatus === "idle" && (
                     <button
                       onClick={handleGenerateVideo}
@@ -2187,49 +2234,87 @@ export default function HomePage() {
                     </button>
                   )}
 
+                  {/* Generating — progress bar + status */}
                   {videoStatus === "generating" && (
-                    <div className="flex items-center gap-3">
-                      <svg className="w-4 h-4 animate-spin text-[#C9A84C] shrink-0" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      <p className="text-sm text-white/50">{videoProgress || "Generating…"}</p>
-                    </div>
-                  )}
-
-                  {videoStatus === "done" && videoUrl && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
-                          <svg className="w-2.5 h-2.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        </div>
-                        <p className="text-sm text-white/60">Video uploaded to YouTube</p>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm text-white/50">{videoProgress || "Generating…"}</p>
+                        <p className="text-xs text-white/30 tabular-nums">{videoElapsed}s</p>
                       </div>
-                      <a
-                        href={videoUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 text-xs text-[#C9A84C]/80 hover:text-[#C9A84C] transition-colors font-mono break-all"
-                      >
-                        {videoUrl}
-                      </a>
-                      <p className="text-[10px] text-white/25">Video is unlisted on YouTube and embedded in the WordPress post via the <code className="text-white/35">video_url</code> ACF field.</p>
+                      {/* Estimated ~180s — bar fills linearly then pulses at 95% */}
+                      <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-[#C9A84C] rounded-full transition-all duration-1000 ease-linear"
+                          style={{ width: `${Math.min(videoElapsed / 180 * 95, 95)}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-white/20">Veo 2 typically takes 2–4 minutes</p>
                     </div>
                   )}
 
+                  {/* Ready — inline video preview + upload button */}
+                  {(videoStatus === "ready" || videoStatus === "uploading" || videoStatus === "uploaded") && videoBase64 && (
+                    <div className="space-y-3">
+                      <video
+                        src={`data:${videoMime};base64,${videoBase64}`}
+                        controls
+                        loop
+                        autoPlay
+                        muted
+                        className="w-full rounded-lg aspect-video bg-black"
+                      />
+
+                      {videoStatus === "ready" && (
+                        <button
+                          onClick={handleUploadToYouTube}
+                          className="w-full flex items-center justify-center gap-2 bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 hover:border-red-500/50 text-red-400 hover:text-red-300 text-sm py-2.5 rounded-lg transition-all duration-200"
+                        >
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                          </svg>
+                          Upload to YouTube
+                        </button>
+                      )}
+
+                      {videoStatus === "uploading" && (
+                        <div className="flex items-center justify-center gap-2 py-2">
+                          <svg className="w-4 h-4 animate-spin text-red-400" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          <p className="text-sm text-white/40">Uploading to YouTube…</p>
+                        </div>
+                      )}
+
+                      {videoStatus === "uploaded" && youtubeUrl && (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-3.5 h-3.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                              <svg className="w-2 h-2 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            </div>
+                            <p className="text-xs text-white/50">Uploaded · saved to WordPress</p>
+                          </div>
+                          <a href={youtubeUrl} target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-[#C9A84C]/70 hover:text-[#C9A84C] transition-colors font-mono break-all">
+                            {youtubeUrl}
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Error */}
                   {videoStatus === "error" && (
                     <div className="space-y-2">
                       <p className="text-sm text-red-400/80">{videoProgress || "Video generation failed."}</p>
-                      <button
-                        onClick={handleGenerateVideo}
-                        className="text-xs text-white/40 hover:text-white/70 transition-colors"
-                      >
+                      <button onClick={handleGenerateVideo} className="text-xs text-white/40 hover:text-white/70 transition-colors">
                         Try again
                       </button>
                     </div>
                   )}
+
                 </div>
               </div>
 
