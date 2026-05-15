@@ -141,15 +141,25 @@ export async function generateVeoVideo(
     throw new Error("Veo 2 returned no video data. Check Vercel logs for the full response.");
   }
 
-  console.log("[video] videoBytes present:", !!videoObj.videoBytes, "| uri present:", !!videoObj.uri);
+  console.log("[video] videoBytes present:", !!videoObj.videoBytes, "| uri:", videoObj.uri ?? "none");
 
-  // Gemini API returns base64-encoded bytes; Vertex AI returns a GCS URI
   if (videoObj.videoBytes) {
     return Buffer.from(videoObj.videoBytes, "base64");
   }
+
   if (videoObj.uri) {
-    const res = await fetch(videoObj.uri);
-    if (!res.ok) throw new Error(`Failed to fetch video from URI: ${res.status}`);
+    // Google API URIs require the API key — add it as a query param
+    const uri = videoObj.uri;
+    const fetchUrl = uri.includes("googleapis.com") && !uri.includes("key=")
+      ? `${uri}${uri.includes("?") ? "&" : "?"}key=${process.env.GEMINI_API_KEY}`
+      : uri;
+
+    console.log("[video] Fetching video from URI (domain):", new URL(fetchUrl).hostname);
+    const res = await fetch(fetchUrl);
+    if (!res.ok) {
+      console.error("[video] URI fetch failed:", res.status, res.statusText);
+      throw new Error(`Failed to fetch video from URI: ${res.status} ${res.statusText}`);
+    }
     return Buffer.from(await res.arrayBuffer());
   }
 
