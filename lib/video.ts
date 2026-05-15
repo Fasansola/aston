@@ -56,23 +56,27 @@ export async function generateVideoPrompt(
       {
         role: "system",
         content: `You write short video prompts for Google Veo 2, a text-to-video AI model.
-Rules:
+STRICT RULES — violations cause the video to be blocked:
+- ZERO humans, people, faces, silhouettes, shadows of people, hands, or any body part
+- ZERO text, signs, logos, labels, or readable words anywhere in the scene
+- Focus ONLY on: architecture, cityscapes, objects, nature, abstract motion, technology hardware (screens, keyboards), documents, maps, charts
 - 2–3 sentences max, purely visual description
-- Include camera movement, lighting mood, and setting
-- Professional / corporate / business aesthetic
-- No text, logos, signs, or readable words in scene
-- No specific people — use silhouettes, hands, or abstract business settings
-- Cinematic quality, 16:9 aspect ratio
+- Include camera movement (slow pan, aerial drift, dolly) and lighting mood
+- Professional / corporate / business aesthetic, cinematic 16:9
 ${langNote}`,
       },
       {
         role: "user",
-        content: `Write a Veo 2 video prompt for a blog article titled: "${title}"\nFocus keyword: "${keyword}"`,
+        content: `Write a Veo 2 video prompt for a blog article titled: "${title}"\nFocus keyword: "${keyword}"\n\nRemember: absolutely no people, hands, or silhouettes.`,
       },
     ],
   }, { signal: AbortSignal.timeout(30_000) });
 
-  return choices[0].message.content?.trim() ?? `Cinematic aerial view of a modern business district at golden hour, slow pan across glass skyscrapers, professional and aspirational mood.`;
+  const prompt = choices[0].message.content?.trim()
+    ?? `Cinematic slow aerial drift over a gleaming modern business district at golden hour, glass towers reflecting warm amber light, no people visible, professional and aspirational atmosphere.`;
+
+  console.log(`[video] Generated prompt: ${prompt}`);
+  return prompt;
 }
 
 // ── 2. Veo 2 video generation ─────────────────────────────────────────────────
@@ -103,6 +107,7 @@ export async function generateVeoVideo(
       resolution: "720p",
       personGeneration: "dont_allow",
       enhancePrompt: true,
+      negativePrompt: "people, person, human, face, hands, silhouette, body, crowd, man, woman, text, words, signs, logos",
     },
   });
 
