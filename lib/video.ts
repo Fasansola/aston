@@ -120,8 +120,23 @@ export async function generateVeoVideo(
     pollCount++;
   }
 
-  const videoObj = operation.response?.generatedVideos?.[0]?.video;
-  if (!videoObj) throw new Error("Veo 2 returned no video data.");
+  const response = operation.response;
+  console.log("[video] Veo operation complete. RAI filtered:", response?.raiMediaFilteredCount ?? 0);
+  console.log("[video] RAI reasons:", JSON.stringify(response?.raiMediaFilteredReasons ?? []));
+  console.log("[video] Generated videos count:", response?.generatedVideos?.length ?? 0);
+
+  if ((response?.raiMediaFilteredCount ?? 0) > 0) {
+    const reasons = response?.raiMediaFilteredReasons?.join(", ") || "unspecified policy";
+    throw new Error(`Veo 2 blocked the video due to content policy: ${reasons}. Try generating again with a different post topic.`);
+  }
+
+  const videoObj = response?.generatedVideos?.[0]?.video;
+  if (!videoObj) {
+    console.error("[video] Full operation response:", JSON.stringify(response));
+    throw new Error("Veo 2 returned no video data. Check Vercel logs for the full response.");
+  }
+
+  console.log("[video] videoBytes present:", !!videoObj.videoBytes, "| uri present:", !!videoObj.uri);
 
   // Gemini API returns base64-encoded bytes; Vertex AI returns a GCS URI
   if (videoObj.videoBytes) {
