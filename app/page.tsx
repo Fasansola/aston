@@ -865,6 +865,10 @@ export default function HomePage() {
   const [publishStatus, setPublishStatus]           = useState<"idle" | "publishing" | "done" | "error">("idle");
   const [publishResults, setPublishResults]         = useState<PublishResultItem[]>([]);
 
+  const [videoStatus, setVideoStatus]     = useState<"idle" | "generating" | "done" | "error">("idle");
+  const [videoProgress, setVideoProgress] = useState("");
+  const [videoUrl, setVideoUrl]           = useState<string | null>(null);
+
   const startStepCycle = () => {
     setStepIndex(0);
     let i = 0;
@@ -1280,6 +1284,67 @@ export default function HomePage() {
     setPriorityService("");
     setLanguage("");
     setCustomPrompt("");
+    setVideoStatus("idle");
+    setVideoProgress("");
+    setVideoUrl(null);
+  };
+
+  const handleGenerateVideo = async () => {
+    if (!result) return;
+    setVideoStatus("generating");
+    setVideoProgress("Starting video generation…");
+    setVideoUrl(null);
+
+    try {
+      const res = await fetch("/api/generate-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          postId:   result.postId,
+          title:    result.title,
+          keyword:  result.focusKeyword || result.strategy?.primaryKeyword || result.title,
+          language: result.language || undefined,
+        }),
+      });
+
+      if (!res.ok || !res.body) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        setVideoStatus("error");
+        setVideoProgress(err.error || "Video generation failed.");
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          const line = part.replace(/^data: /, "").trim();
+          if (!line) continue;
+          try {
+            const event = JSON.parse(line) as { type: string; message?: string; youtubeUrl?: string };
+            if (event.type === "progress") setVideoProgress(event.message ?? "");
+            if (event.type === "done" && event.youtubeUrl) {
+              setVideoUrl(event.youtubeUrl);
+              setVideoStatus("done");
+            }
+            if (event.type === "error") {
+              setVideoStatus("error");
+              setVideoProgress(event.message ?? "Video generation failed.");
+            }
+          } catch { /* ignore malformed chunks */ }
+        }
+      }
+    } catch (err) {
+      setVideoStatus("error");
+      setVideoProgress(err instanceof Error ? err.message : "Something went wrong.");
+    }
   };
 
   if (isAuthed === null) return (
@@ -2097,6 +2162,73 @@ export default function HomePage() {
                   )}
                   {wpSyncStatus === "error" && (
                     <p className="text-[10px] text-red-400/70 text-center mt-1">⚠ WordPress sync failed — edit manually in wp-admin</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Video generation */}
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+                <div className="px-4 py-3 border-b border-white/[0.05] flex items-center gap-2">
+                  <svg className="w-4 h-4 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
+                  </svg>
+                  <p className="text-xs font-medium text-white/50 uppercase tracking-wide">Video</p>
+                </div>
+                <div className="px-4 py-4">
+                  {videoStatus === "idle" && (
+                    <button
+                      onClick={handleGenerateVideo}
+                      className="w-full flex items-center justify-center gap-2 bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 hover:border-white/20 text-white/60 hover:text-white/90 text-sm py-3 rounded-lg transition-all duration-200"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
+                      </svg>
+                      Generate video for this post
+                    </button>
+                  )}
+
+                  {videoStatus === "generating" && (
+                    <div className="flex items-center gap-3">
+                      <svg className="w-4 h-4 animate-spin text-[#C9A84C] shrink-0" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      <p className="text-sm text-white/50">{videoProgress || "Generating…"}</p>
+                    </div>
+                  )}
+
+                  {videoStatus === "done" && videoUrl && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                          <svg className="w-2.5 h-2.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                        <p className="text-sm text-white/60">Video uploaded to YouTube</p>
+                      </div>
+                      <a
+                        href={videoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 text-xs text-[#C9A84C]/80 hover:text-[#C9A84C] transition-colors font-mono break-all"
+                      >
+                        {videoUrl}
+                      </a>
+                      <p className="text-[10px] text-white/25">Video is unlisted on YouTube and embedded in the WordPress post via the <code className="text-white/35">video_url</code> ACF field.</p>
+                    </div>
+                  )}
+
+                  {videoStatus === "error" && (
+                    <div className="space-y-2">
+                      <p className="text-sm text-red-400/80">{videoProgress || "Video generation failed."}</p>
+                      <button
+                        onClick={handleGenerateVideo}
+                        className="text-xs text-white/40 hover:text-white/70 transition-colors"
+                      >
+                        Try again
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
