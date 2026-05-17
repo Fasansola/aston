@@ -807,6 +807,9 @@ export default function HomePage() {
   const [topic, setTopic]           = useState("");
   const [mode, setMode]             = useState<GenerationMode>("topic_only");
   const [sourceText, setSourceText] = useState("");
+  const [sourceUrl, setSourceUrl]   = useState("");
+  const [fetchStatus, setFetchStatus] = useState<"idle" | "fetching" | "done" | "error">("idle");
+  const [fetchError, setFetchError] = useState("");
   const [status, setStatus]         = useState<Status>("idle");
   const [stepIndex, setStepIndex]   = useState(0);
   const [retryMessage, setRetryMessage] = useState<string | null>(null);
@@ -886,6 +889,31 @@ export default function HomePage() {
   const selectedMode = MODES.find((m) => m.id === mode)!;
   const needsSource  = mode !== "topic_only";
   const canGenerate  = (!!topic.trim() || !!customPrompt.trim()) && !!audience.trim() && (!needsSource || !!sourceText.trim());
+
+  const fetchSourceUrl = async () => {
+    if (!sourceUrl.trim()) return;
+    setFetchStatus("fetching");
+    setFetchError("");
+    setSourceText("");
+    try {
+      const res = await fetch("/api/fetch-source", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: sourceUrl.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setFetchStatus("error");
+        setFetchError(data.error ?? "Failed to fetch URL");
+      } else {
+        setSourceText(data.text);
+        setFetchStatus("done");
+      }
+    } catch {
+      setFetchStatus("error");
+      setFetchError("Network error — could not reach the server");
+    }
+  };
 
   const handleGenerate = async () => {
     if (!canGenerate || status === "loading") return;
@@ -1269,6 +1297,9 @@ export default function HomePage() {
     setRetryMessage(null);
     setTopic("");
     setSourceText("");
+    setSourceUrl("");
+    setFetchStatus("idle");
+    setFetchError("");
     setLinkValidationStatus("idle");
     setLinkValidation(null);
     setReadinessStatus("idle");
@@ -1849,9 +1880,45 @@ export default function HomePage() {
                     </div>
                   ) : (
                     <>
+                      {mode === "source_assisted" && (
+                        <div className="mb-3">
+                          <div className="flex gap-2">
+                            <input
+                              type="url"
+                              value={sourceUrl}
+                              onChange={(e) => {
+                                setSourceUrl(e.target.value);
+                                setFetchStatus("idle");
+                                setFetchError("");
+                              }}
+                              onKeyDown={(e) => { if (e.key === "Enter") fetchSourceUrl(); }}
+                              placeholder="Paste a URL to fetch content automatically…"
+                              className="flex-1 bg-white/[0.04] border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] transition-all duration-200"
+                            />
+                            <button
+                              onClick={fetchSourceUrl}
+                              disabled={!sourceUrl.trim() || fetchStatus === "fetching"}
+                              className="px-4 py-2.5 bg-white/[0.06] hover:bg-white/[0.1] disabled:opacity-30 disabled:cursor-not-allowed border border-white/10 rounded-lg text-white/70 text-sm transition-all duration-200 whitespace-nowrap"
+                            >
+                              {fetchStatus === "fetching" ? "Fetching…" : "Fetch"}
+                            </button>
+                          </div>
+                          {fetchStatus === "error" && (
+                            <p className="text-red-400 text-xs mt-1.5">{fetchError}</p>
+                          )}
+                          {fetchStatus === "done" && (
+                            <p className="text-[#C9A84C]/70 text-xs mt-1.5">
+                              Content fetched — {sourceText.trim().split(/\s+/).filter(Boolean).length.toLocaleString()} words extracted. You can edit below if needed.
+                            </p>
+                          )}
+                          {fetchStatus === "idle" && sourceUrl.trim() === "" && (
+                            <p className="text-white/20 text-xs mt-1.5">Or paste text directly below</p>
+                          )}
+                        </div>
+                      )}
                       <textarea
                         value={sourceText}
-                        onChange={(e) => setSourceText(e.target.value)}
+                        onChange={(e) => { setSourceText(e.target.value); if (fetchStatus === "done") setFetchStatus("idle"); }}
                         placeholder={selectedMode.placeholder}
                         rows={8}
                         className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
