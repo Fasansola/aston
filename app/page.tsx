@@ -1517,7 +1517,8 @@ export default function HomePage() {
                   onChange={(e) => setCustomPrompt(e.target.value)}
                   placeholder="e.g. I need a post about the German crypto market, what is legal and what is not, and how Aston VIP can help"
                   rows={5}
-                  className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-y transition-all duration-200"
+                  style={{ resize: "vertical" }}
+                  className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] transition-all duration-200"
                 />
                 <p className="text-white/20 text-xs mt-2">Use alone to let AI derive the title, or alongside a topic for extra guidance</p>
               </div>
