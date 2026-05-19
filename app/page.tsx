@@ -889,7 +889,7 @@ export default function HomePage() {
 
   const selectedMode = MODES.find((m) => m.id === mode)!;
   const needsSource  = mode !== "topic_only";
-  const canGenerate  = (!!topic.trim() || !!customPrompt.trim()) && !!audience.trim() && (!needsSource || !!sourceText.trim());
+  const canGenerate  = (!!topic.trim() || !!customPrompt.trim()) && (!needsSource || !!sourceText.trim());
 
   const fetchSourceUrl = async () => {
     if (!sourceUrl.trim()) return;
@@ -1585,7 +1585,7 @@ export default function HomePage() {
               {/* Audience — required */}
               <div>
                 <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
-                  Target Audience <span className="text-[#C9A84C]">*</span>
+                  Target Audience <span className="text-white/20 normal-case tracking-normal">(optional)</span>
                 </label>
                 <input
                   type="text"
