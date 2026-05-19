@@ -1493,7 +1493,17 @@ export default function HomePage() {
                   {MODES.map((m) => (
                     <button
                       key={m.id}
-                      onClick={() => setMode(m.id)}
+                      onClick={() => {
+                        setMode(m.id);
+                        if (m.id === "improve_existing") {
+                          setCustomPrompt("");
+                          setTopic("");
+                          setSourceText("");
+                          setSourceUrl("");
+                          setFetchStatus("idle");
+                          setFetchError("");
+                        }
+                      }}
                       className={`text-left px-3 py-2.5 rounded-lg border transition-all duration-150 ${
                         mode === m.id
                           ? "border-[#C9A84C]/60 bg-[#C9A84C]/10"
@@ -1507,37 +1517,41 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* Custom prompt */}
-              <div>
-                <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
-                  Custom prompt <span className="text-white/20 normal-case tracking-normal">(optional if topic set)</span>
-                </label>
-                <textarea
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                  placeholder="e.g. I need a post about the German crypto market, what is legal and what is not, and how Aston VIP can help"
-                  rows={5}
-                  style={{ resize: "vertical" }}
-                  className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] transition-all duration-200"
-                />
-                <p className="text-white/20 text-xs mt-2">Use alone to let AI derive the title, or alongside a topic for extra guidance</p>
-              </div>
+              {/* Custom prompt — hidden for improve_existing (not applicable to a specific post) */}
+              {mode !== "improve_existing" && (
+                <div>
+                  <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
+                    Custom prompt <span className="text-white/20 normal-case tracking-normal">(optional if topic set)</span>
+                  </label>
+                  <textarea
+                    value={customPrompt}
+                    onChange={(e) => setCustomPrompt(e.target.value)}
+                    placeholder="e.g. I need a post about the German crypto market, what is legal and what is not, and how Aston VIP can help"
+                    rows={5}
+                    style={{ resize: "vertical" }}
+                    className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] transition-all duration-200"
+                  />
+                  <p className="text-white/20 text-xs mt-2">Use alone to let AI derive the title, or alongside a topic for extra guidance</p>
+                </div>
+              )}
 
-              {/* Topic */}
-              <div>
-                <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
-                  Blog topic <span className="text-white/20 normal-case tracking-normal">(optional if custom prompt set)</span>
-                </label>
-                <textarea
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                  placeholder="e.g. How to set up a free zone company in Dubai"
-                  rows={2}
-                  className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
-                  onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
-                />
-                <p className="text-white/20 text-xs mt-2">Press ⌘ + Enter to generate</p>
-              </div>
+              {/* Topic — hidden for improve_existing (title is set automatically from the WP post picker) */}
+              {mode !== "improve_existing" && (
+                <div>
+                  <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
+                    Blog topic <span className="text-white/20 normal-case tracking-normal">(optional if custom prompt set)</span>
+                  </label>
+                  <textarea
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    placeholder="e.g. How to set up a free zone company in Dubai"
+                    rows={2}
+                    className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
+                    onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
+                  />
+                  <p className="text-white/20 text-xs mt-2">Press ⌘ + Enter to generate</p>
+                </div>
+              )}
 
               {/* Audience — required */}
               <div>
