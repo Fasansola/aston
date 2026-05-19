@@ -810,6 +810,7 @@ export default function HomePage() {
   const [sourceUrl, setSourceUrl]   = useState("");
   const [fetchStatus, setFetchStatus] = useState<"idle" | "fetching" | "done" | "error">("idle");
   const [fetchError, setFetchError] = useState("");
+  const [inputMode, setInputMode]   = useState<"title" | "prompt">("title");
   const [status, setStatus]         = useState<Status>("idle");
   const [stepIndex, setStepIndex]   = useState(0);
   const [retryMessage, setRetryMessage] = useState<string | null>(null);
@@ -1300,6 +1301,7 @@ export default function HomePage() {
     setSourceUrl("");
     setFetchStatus("idle");
     setFetchError("");
+    setInputMode("title");
     setLinkValidationStatus("idle");
     setLinkValidation(null);
     setReadinessStatus("idle");
@@ -1517,39 +1519,66 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* Custom prompt — hidden for improve_existing (not applicable to a specific post) */}
+              {/* Title / Prompt toggle — hidden for improve_existing */}
               {mode !== "improve_existing" && (
                 <div>
-                  <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
-                    Custom prompt <span className="text-white/20 normal-case tracking-normal">(optional if topic set)</span>
-                  </label>
-                  <textarea
-                    value={customPrompt}
-                    onChange={(e) => setCustomPrompt(e.target.value)}
-                    placeholder="e.g. I need a post about the German crypto market, what is legal and what is not, and how Aston VIP can help"
-                    rows={5}
-                    style={{ resize: "vertical" }}
-                    className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] transition-all duration-200"
-                  />
-                  <p className="text-white/20 text-xs mt-2">Use alone to let AI derive the title, or alongside a topic for extra guidance</p>
-                </div>
-              )}
+                  {/* Toggle */}
+                  <div className="flex items-center gap-1 mb-4 bg-white/[0.04] border border-white/10 rounded-lg p-1 w-fit">
+                    <button
+                      type="button"
+                      onClick={() => { setInputMode("title"); setCustomPrompt(""); }}
+                      className={`px-4 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
+                        inputMode === "title"
+                          ? "bg-[#C9A84C] text-black"
+                          : "text-white/40 hover:text-white/70"
+                      }`}
+                    >
+                      Title
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setInputMode("prompt"); setTopic(""); }}
+                      className={`px-4 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
+                        inputMode === "prompt"
+                          ? "bg-[#C9A84C] text-black"
+                          : "text-white/40 hover:text-white/70"
+                      }`}
+                    >
+                      Prompt
+                    </button>
+                  </div>
 
-              {/* Topic — hidden for improve_existing (title is set automatically from the WP post picker) */}
-              {mode !== "improve_existing" && (
-                <div>
-                  <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
-                    Blog topic <span className="text-white/20 normal-case tracking-normal">(optional if custom prompt set)</span>
-                  </label>
-                  <textarea
-                    value={topic}
-                    onChange={(e) => setTopic(e.target.value)}
-                    placeholder="e.g. How to set up a free zone company in Dubai"
-                    rows={2}
-                    className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
-                    onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
-                  />
-                  <p className="text-white/20 text-xs mt-2">Press ⌘ + Enter to generate</p>
+                  {inputMode === "title" ? (
+                    <div>
+                      <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
+                        Blog topic
+                      </label>
+                      <textarea
+                        value={topic}
+                        onChange={(e) => setTopic(e.target.value)}
+                        placeholder="e.g. How to set up a free zone company in Dubai"
+                        rows={2}
+                        className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
+                        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
+                      />
+                      <p className="text-white/20 text-xs mt-2">Press ⌘ + Enter to generate</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
+                        Custom prompt
+                      </label>
+                      <textarea
+                        value={customPrompt}
+                        onChange={(e) => setCustomPrompt(e.target.value)}
+                        placeholder="e.g. Write a highly authoritative article about DFSA tokenisation sandbox in DIFC, targeting institutional investors and fintech founders…"
+                        rows={5}
+                        style={{ resize: "vertical" }}
+                        className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] transition-all duration-200"
+                      />
+                      <p className="text-white/20 text-xs mt-2">AI derives the article title from your prompt</p>
+                    </div>
+                  )}
                 </div>
               )}
 
