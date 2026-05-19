@@ -244,10 +244,18 @@ export function runQA(
   if (!checks.focus_keyword_in_intro && kw)
     warnings.push(`Focus keyword "${content.focus_keyword}" not found in intro`);
 
-  // Focus keyword in at least one section heading
+  // Focus keyword in at least one section heading.
+  // Uses word-overlap (≥50% of keyword words present) so partial matches like
+  // "DFSA Tokenisation Sandbox" pass for keyword "dfsa tokenisation regulatory sandbox".
   const headings = extractHeadingText(bodyFields);
+  const kwWords = kw ? kw.split(/\s+/).filter(Boolean) : [];
+  const headingMatchesKw = (h: string) => {
+    if (!kwWords.length) return false;
+    const matched = kwWords.filter((w) => h.includes(w)).length;
+    return matched / kwWords.length >= 0.5;
+  };
   checks.focus_keyword_in_heading = kw
-    ? headings.some((h) => h.includes(kw))
+    ? headings.some(headingMatchesKw)
     : false;
   if (!checks.focus_keyword_in_heading && kw)
     warnings.push("Focus keyword not found in any section heading");

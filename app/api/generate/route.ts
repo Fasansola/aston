@@ -299,6 +299,25 @@ export async function POST(req: NextRequest) {
             imageIds     = prevImageIds!;
           }
 
+          // Auto-correct house style: "licence" variants → "license" regardless of AI output
+          const licenceMap: [RegExp, string][] = [
+            [/\blicenc(e)\b/gi, "licens$1"],
+            [/\blicenc(es)\b/gi, "licens$1"],
+            [/\blicenc(ed)\b/gi, "licens$1"],
+            [/\blicenc(ing)\b/gi, "licens$1"],
+          ];
+          const applyLicenceFix = (s: string) =>
+            licenceMap.reduce((acc, [re, rep]) => acc.replace(re, rep), s);
+          const contentKeys = [
+            "main_content","intro","conclusion","key_takeaways",
+            "keypoint_one","keypoint_two","seo_title","meta_description",
+          ] as const;
+          for (const key of contentKeys) {
+            if (typeof content[key] === "string") {
+              content[key] = applyLicenceFix(content[key] as string);
+            }
+          }
+
           const qa = runQA(content, imagePrompts, imageIds, title);
           // Override the LLM's estimated read_mins with a value derived from the
           // actual stripped word count — the LLM over-counts by including HTML markup.
