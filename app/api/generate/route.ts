@@ -98,9 +98,7 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (!audience?.trim()) {
-    return NextResponse.json({ error: "Please provide a target audience." }, { status: 400 });
-  }
+
   const validModes: GenerationMode[] = [
     "topic_only", "source_assisted", "improve_existing", "notes_to_article",
   ];
