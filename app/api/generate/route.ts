@@ -309,8 +309,11 @@ export async function POST(req: NextRequest) {
           const applyLicenceFix = (s: string) =>
             licenceMap.reduce((acc, [re, rep]) => acc.replace(re, rep), s);
           const contentKeys = [
-            "main_content","intro","conclusion","key_takeaways",
-            "keypoint_one","keypoint_two","seo_title","meta_description",
+            "main_content","more_content_1","more_content_2","more_content_3",
+            "more_content_4","more_content_5","more_content_6",
+            "keypoint_one","keypoint_two","quote_1","quote_2",
+            "key_takeaways","final_points","excerpt",
+            "seo_title","meta_description",
           ] as const;
           for (const key of contentKeys) {
             if (typeof content[key] === "string") {
