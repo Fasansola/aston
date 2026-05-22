@@ -207,13 +207,23 @@ Plan the structure of this blog post and return it as a single valid JSON object
 BLUEPRINT RULES:
 - focus_keyword: ${strategy ? `use exactly "${strategy.keyword_model.primary_keyword}" — this has been determined by the strategy engine` : "the single phrase this article should rank for in Google — 2 to 4 words, as a reader would actually type it into Google"}
 
-- seo_title: STRICT RULES — all must be met simultaneously:
-  1. Begin with the exact focus keyword as the first words (e.g. "UAE trade license: complete guide" starts with "UAE trade license")
+- seo_title: Write a title that makes a senior institutional adviser stop scrolling. STRICT RULES — all must be met simultaneously:
+  1. Contains the exact focus keyword — it does NOT need to be the first words; place it wherever it reads most naturally
   2. Exactly 50–60 characters including spaces — count precisely before returning
-  3. After the focus keyword, add a power phrase that earns the click: "complete guide", "requirements and costs", "step-by-step guide", "what you need to know", "how it works", "explained" — pick the one that best matches search intent
-  4. Sentence case only — capitalise only the first word and proper nouns
-  5. No site name, no pipes, no dashes, no question marks
-  6. The title must read as one natural, direct phrase — not a list, not a sentence with a verb
+  3. Sentence case only — capitalise only the first word and proper nouns
+  4. No site name, no pipes, no dashes, no question marks, no colons
+  5. One complete, natural phrase — no lists, no two clauses joined by punctuation
+  6. BANNED suffixes — never use: "complete guide", "explained", "step-by-step guide", "what you need to know", "how it works", "a guide", "overview", "everything you need to know", "all you need to know"
+  7. Write with practitioner authority — use constructions like:
+     - "Why [jurisdiction] is becoming the go-to for [topic]"
+     - "Inside [entity]'s [approach/framework] for [topic]"
+     - "What [topic] means for [institutional audience]"
+     - "[Topic] and what serious [founders/investors/operators] get wrong"
+     - "The institutional case for [topic] in [jurisdiction]"
+     - "How [jurisdiction/regulator] is redefining [topic]"
+     - "[Topic] eligibility, timelines and costs in [jurisdiction]"
+     - "Before you [action]: what [topic] actually requires"
+  8. Each title must feel written by a practitioner, not generated — specific, confident, commercially intelligent
 
 - meta_description: This appears verbatim on Google — it must be complete, punchy, and entice the reader to click. STRICT RULES — all must be met simultaneously:
   1. HARD MAXIMUM: 141 characters including spaces. This is an absolute ceiling — never exceed it under any circumstance. Count the characters in your final string before returning it. If your draft is 142 or more characters, rewrite the sentence with shorter words or remove a clause — do NOT truncate mid-word or mid-thought.
@@ -687,7 +697,7 @@ const CHECK_TO_FIELDS: Record<string, string[]> = {
 const CHECK_DESCRIPTIONS: Record<string, string> = {
   // Structural metadata
   focus_keyword_exists:             "focus_keyword is empty — write a short, specific keyword phrase (3–5 words) that this article targets",
-  seo_title_exists:                 "seo_title is empty — write an SEO-optimised title (45–65 chars) containing the focus keyword",
+  seo_title_exists:                 "seo_title is empty — write a creative, authority-signaling title (50–60 chars) that contains the focus keyword naturally (not necessarily first), uses sentence case, no dashes/colons, and avoids generic suffixes like 'explained', 'complete guide', 'step-by-step guide'",
   meta_description_exists:          "meta_description is empty — write it (110–141 chars, contain focus keyword, end with a call to action)",
   slug_exists:                      "slug is empty or invalid — write a lowercase hyphenated URL slug (only a-z, 0-9, hyphens; no spaces)",
   excerpt_exists:                   "excerpt is empty — write a 1–2 sentence plain-text summary of the article (no HTML)",
@@ -700,7 +710,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   final_points_exists:              "final_points is empty — write exactly 4 practical next steps",
   cta_exists:                       `more_content_4 is missing the contact CTA — end it with: <p>To discuss your situation, <a href="https://aston.ae/contact-us/">speak with our team</a>.</p>`,
   internal_links_sufficient:        "fewer than 7 internal links across the article — add more internal links from the provided list, spread across the listed sections",
-  focus_keyword_in_title:           "focus keyword not present in seo_title — rewrite the title to include it naturally",
+  focus_keyword_in_title:           "focus keyword not present in seo_title — rewrite the title so the focus keyword appears naturally anywhere in the phrase; keep it creative and authority-signaling, not a generic keyword + boilerplate suffix",
   // SEO/keyword
   focus_keyword_in_intro:           "focus keyword missing from the first paragraph of main_content — include it in the first sentence",
   focus_keyword_in_heading:         "focus keyword not found in any H2/H3 heading — naturally include it in at least one heading",
