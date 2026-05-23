@@ -90,7 +90,12 @@ ${langNote}`,
  */
 async function uploadHeyGenAudio(audioBuffer: Buffer): Promise<string> {
   const form = new FormData();
-  const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
+  // Slice into a guaranteed ArrayBuffer (Buffer.buffer is ArrayBufferLike which TypeScript rejects in Blob)
+  const arrayBuffer = audioBuffer.buffer.slice(
+    audioBuffer.byteOffset,
+    audioBuffer.byteOffset + audioBuffer.byteLength
+  ) as ArrayBuffer;
+  const blob = new Blob([arrayBuffer], { type: "audio/mpeg" });
   form.append("file", blob, "narration.mp3");
 
   const res = await fetch(`${HEYGEN_BASE}/v3/assets`, {
