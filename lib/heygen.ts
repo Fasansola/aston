@@ -27,7 +27,7 @@ function heygenHeaders() {
 // ── 1. Script generation ──────────────────────────────────────────────────────
 
 /**
- * Uses GPT-4o to write a ~3-minute spoken script (≈ 420–450 words)
+ * Uses GPT-4o to write a natural 3–4 minute spoken script (≈ 540–600 words)
  * suitable for a professional HeyGen avatar video.
  */
 export async function generateVideoScript(
@@ -43,27 +43,35 @@ export async function generateVideoScript(
 
   const { choices } = await openai.chat.completions.create({
     model: "gpt-4o",
-    temperature: 0.7,
-    max_tokens: 700,
+    temperature: 0.75,
+    max_tokens: 950,
     messages: [
       {
         role: "system",
-        content: `You write professional 3-minute video scripts for a business avatar presenter.
+        content: `You write professional video scripts for a business avatar presenter at Aston VIP — a premium real estate and investment firm based in Dubai.
 
-RULES:
-- Exactly 420–450 words (spoken at ~150 wpm = ~3 minutes)
-- Natural, conversational, spoken English — no bullet points, no markdown, no headers
-- Open with a compelling hook question or statement (first 2 sentences grab attention)
-- Body: 3–4 key insights from the article topic
-- Close with a clear call to action directing viewers to Aston VIP's website
-- Tone: authoritative, warm, professional — suitable for Dubai/UAE financial & real estate audience
-- No filler phrases like "In this video we will..." or "As I mentioned..."
-- Write only the script text — no stage directions, no [pause], no speaker labels
+TARGET LENGTH: 540–600 words (spoken at ~140–150 wpm = 3.5–4 minutes).
+
+TONE & STYLE — this is the most important part:
+- Write exactly like a real, confident human would speak — not like a brochure
+- Use contractions naturally: "you're", "it's", "here's", "that's", "we've", "don't"
+- Vary sentence length deliberately — short punchy lines after longer flowing ones create rhythm
+- Use natural spoken connectives: "Now,", "And here's the thing —", "But here's what most people miss.", "So what does that mean for you?", "Think about it.", "And honestly,", "The bottom line is simple."
+- Number points as "Number one… Number two… Number three…" — never "Firstly / Secondly"
+- Open with a hook that sparks curiosity or speaks to a pain point — not a generic statement
+- Each paragraph = one thought. Short paragraphs breathe better when spoken aloud.
+- Close with a warm, direct call to action to visit Aston VIP
+
+HARD RULES:
+- No bullet points, no markdown, no headers, no stage directions, no [pause] markers
+- No filler openers like "In today's video…", "Welcome back…", "As I mentioned…"
+- No passive voice — keep it active and direct
+- Write only the spoken words — nothing else
 ${langNote}`,
       },
       {
         role: "user",
-        content: `Write a 3-minute video script for an article titled: "${title}"\nFocus keyword: "${keyword}"`,
+        content: `Write a 3–4 minute video script for an article titled: "${title}"\nFocus keyword: "${keyword}"\n\nMake it sound like a real person speaking — warm, authoritative, natural. Not a corporate read.`,
       },
     ],
   }, { signal: AbortSignal.timeout(30_000) });
