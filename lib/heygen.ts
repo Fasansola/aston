@@ -111,7 +111,7 @@ export async function createHeyGenVideo(
     dimension: { width: 1280, height: 720 },
     aspect_ratio: "16:9",
     caption: false,
-    test: true, // watermarked free render — set to false once API credits are active
+    test: false,
   };
 
   const res = await fetch(`${HEYGEN_BASE}/v2/video/generate`, {
