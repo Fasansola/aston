@@ -121,14 +121,19 @@ export async function createHeyGenVideo(
     signal: AbortSignal.timeout(30_000),
   });
 
-  const json = await res.json() as { error?: string | null; data?: { video_id?: string } };
+  const json = await res.json() as { error?: unknown; data?: { video_id?: string } };
+
+  console.log(`[heygen] Create response (${res.status}):`, JSON.stringify(json));
 
   if (!res.ok || json.error) {
-    throw new Error(`HeyGen video creation failed: ${json.error ?? res.statusText}`);
+    const errMsg = typeof json.error === "string"
+      ? json.error
+      : JSON.stringify(json.error ?? { status: res.status, statusText: res.statusText });
+    throw new Error(`HeyGen video creation failed: ${errMsg}`);
   }
 
   const videoId = json.data?.video_id;
-  if (!videoId) throw new Error("HeyGen returned no video_id.");
+  if (!videoId) throw new Error(`HeyGen returned no video_id. Full response: ${JSON.stringify(json)}`);
 
   console.log(`[heygen] Video submitted — video_id: ${videoId}`);
   return videoId;
@@ -146,7 +151,7 @@ interface HeyGenStatusResponse {
     video_url?: string | null;
     thumbnail_url?: string | null;
     duration?: number | null;
-    error?: string | null;
+    error?: unknown;
   };
 }
 
@@ -176,7 +181,7 @@ export async function pollHeyGenVideo(
     const json = await res.json() as HeyGenStatusResponse;
     const { status, video_url, duration, error } = json.data ?? {};
 
-    console.log(`[heygen] Poll #${pollCount + 1} — status: ${status}`);
+    console.log(`[heygen] Poll #${pollCount + 1} — status: ${status} | full:`, JSON.stringify(json));
 
     if (status === "completed" && video_url) {
       console.log(`[heygen] Completed. Duration: ${duration}s | URL: ${video_url.slice(0, 80)}…`);
@@ -184,7 +189,10 @@ export async function pollHeyGenVideo(
     }
 
     if (status === "failed") {
-      throw new Error(`HeyGen rendering failed: ${error ?? "unknown reason"}`);
+      const errMsg = typeof error === "string"
+        ? error
+        : JSON.stringify(error ?? "unknown reason");
+      throw new Error(`HeyGen rendering failed: ${errMsg}`);
     }
 
     // Still processing — wait and update progress
