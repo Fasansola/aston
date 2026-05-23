@@ -82,47 +82,110 @@ ${langNote}`,
   return script;
 }
 
-// ── 2. Create HeyGen video ────────────────────────────────────────────────────
+// ── 2. Upload audio asset to HeyGen ──────────────────────────────────────────
 
 /**
- * Submits a script to HeyGen and returns the video_id.
- * Uses the avatar and voice configured in env vars.
+ * Uploads an MP3 Buffer to HeyGen's asset storage.
+ * Returns the asset_id for use in video creation.
+ */
+async function uploadHeyGenAudio(audioBuffer: Buffer): Promise<string> {
+  const form = new FormData();
+  const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
+  form.append("file", blob, "narration.mp3");
+
+  const res = await fetch(`${HEYGEN_BASE}/v3/assets`, {
+    method: "POST",
+    headers: {
+      // Do NOT set Content-Type — let fetch set it with the multipart boundary
+      "X-Api-Key": process.env.HEYGEN_API_KEY!,
+    },
+    body: form,
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  const json = await res.json() as Record<string, unknown>;
+  console.log(`[heygen] Asset upload response (${res.status}):`, JSON.stringify(json));
+
+  if (!res.ok) {
+    throw new Error(`HeyGen audio upload failed (${res.status}): ${JSON.stringify(json)}`);
+  }
+
+  const data = json.data as Record<string, unknown> | undefined;
+  const assetId =
+    (data?.asset_id as string | undefined) ??
+    (data?.id      as string | undefined) ??
+    (json.asset_id as string | undefined);
+
+  if (!assetId) {
+    throw new Error(`HeyGen returned no asset_id. Full response: ${JSON.stringify(json)}`);
+  }
+
+  console.log(`[heygen] Audio asset uploaded — asset_id: ${assetId}`);
+  return assetId;
+}
+
+// ── 3. Check Avatar V eligibility ─────────────────────────────────────────────
+
+/**
+ * Checks whether the given avatar look supports Avatar V.
+ * Falls back to Avatar IV if the check fails or engine is unsupported.
+ */
+async function checkAvatarVSupport(avatarId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${HEYGEN_BASE}/v3/avatars/looks/${avatarId}`, {
+      headers: heygenHeaders(),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) {
+      console.warn(`[heygen] Could not check Avatar V eligibility (${res.status}) — falling back to Avatar IV`);
+      return false;
+    }
+
+    const json = await res.json() as { data?: { supported_api_engines?: string[] } };
+    const engines: string[] = json.data?.supported_api_engines ?? [];
+    const supports = engines.includes("avatar_v");
+    console.log(`[heygen] Avatar ${avatarId} supported engines: [${engines.join(", ")}] | Avatar V: ${supports}`);
+    return supports;
+  } catch {
+    console.warn(`[heygen] Avatar V eligibility check failed — falling back to Avatar IV`);
+    return false;
+  }
+}
+
+// ── 4. Create HeyGen video (v3 API) ───────────────────────────────────────────
+
+/**
+ * Uploads audio to HeyGen, then creates a 1080p landscape avatar video.
+ * Uses Avatar V if the avatar look supports it, otherwise falls back to Avatar IV.
+ * Returns the video_id for polling.
  */
 export async function createHeyGenVideo(
-  script: string,
+  audioBuffer: Buffer,
   title?: string
 ): Promise<string> {
   const avatarId = process.env.HEYGEN_AVATAR_ID!;
-  const voiceId  = process.env.HEYGEN_VOICE_ID!;
 
-  const body = {
-    title: title?.slice(0, 100) ?? "Aston VIP Video",
-    video_inputs: [
-      {
-        character: {
-          type: "avatar",
-          avatar_id: avatarId,
-          avatar_style: "normal",
-        },
-        voice: {
-          type: "text",
-          input_text: script,
-          voice_id: voiceId,
-          speed: 1.05,
-        },
-        background: {
-          type: "color",
-          value: "#f8f8f8",
-        },
-      },
-    ],
-    dimension: { width: 1280, height: 720 },
-    aspect_ratio: "16:9",
-    caption: false,
-    test: false,
+  // Upload the ElevenLabs audio to HeyGen assets
+  const assetId = await uploadHeyGenAudio(audioBuffer);
+
+  // Check if this avatar look supports Avatar V
+  const supportsAvatarV = await checkAvatarVSupport(avatarId);
+  const engine = supportsAvatarV ? { type: "avatar_v" } : { type: "avatar_iv" };
+
+  const body: Record<string, unknown> = {
+    type:            "avatar",
+    avatar_id:       avatarId,
+    audio_asset_id:  assetId,
+    aspect_ratio:    "16:9",
+    resolution:      "1080p",
+    title:           title?.slice(0, 100) ?? "Aston VIP Video",
+    engine,
   };
 
-  const res = await fetch(`${HEYGEN_BASE}/v2/video/generate`, {
+  console.log(`[heygen] Creating v3 video — engine: ${engine.type}, resolution: 1080p, avatar: ${avatarId}`);
+
+  const res = await fetch(`${HEYGEN_BASE}/v3/videos`, {
     method: "POST",
     headers: heygenHeaders(),
     body: JSON.stringify(body),
@@ -130,8 +193,7 @@ export async function createHeyGenVideo(
   });
 
   const json = await res.json() as { error?: unknown; data?: { video_id?: string } };
-
-  console.log(`[heygen] Create response (${res.status}):`, JSON.stringify(json));
+  console.log(`[heygen] Create v3 response (${res.status}):`, JSON.stringify(json));
 
   if (!res.ok || json.error) {
     const errMsg = typeof json.error === "string"
@@ -147,71 +209,67 @@ export async function createHeyGenVideo(
   return videoId;
 }
 
-// ── 3. Poll until complete ────────────────────────────────────────────────────
+// ── 5. Poll until complete (v3 API) ───────────────────────────────────────────
 
-type HeyGenStatus = "pending" | "processing" | "waiting" | "completed" | "failed";
+type HeyGenStatus = "pending" | "processing" | "completed" | "failed";
 
-interface HeyGenStatusResponse {
-  code: number;
-  message: string;
+interface HeyGenV3StatusResponse {
   data: {
+    id: string;
     status: HeyGenStatus;
     video_url?: string | null;
     thumbnail_url?: string | null;
     duration?: number | null;
-    error?: unknown;
+    failure_code?: string | null;
+    failure_message?: string | null;
   };
 }
 
 /**
- * Polls HeyGen until the video is ready (or fails).
- * Returns the MP4 download URL.
- * Calls onProgress with status messages throughout.
+ * Polls HeyGen v3 until the video is ready (or fails / times out).
+ * Returns the MP4 download URL and duration.
  */
 export async function pollHeyGenVideo(
   videoId: string,
   onProgress: (msg: string) => void,
-  deadlineMs = 600_000 // 10 minutes
+  deadlineMs = 270_000 // 4.5 minutes — within Vercel's 300s limit
 ): Promise<{ videoUrl: string; duration: number }> {
-  const deadline = Date.now() + deadlineMs;
-  let pollCount = 0;
+  const deadline  = Date.now() + deadlineMs;
+  let pollCount   = 0;
 
   while (true) {
     if (Date.now() > deadline) {
-      throw new Error("HeyGen video rendering timed out after 10 minutes.");
+      throw new Error("HeyGen video rendering timed out. 1080p Avatar V videos can take 5–8 minutes — please try again.");
     }
 
-    const res = await fetch(
-      `${HEYGEN_BASE}/v1/video_status.get?video_id=${videoId}`,
-      { headers: heygenHeaders(), signal: AbortSignal.timeout(15_000) }
-    );
+    const res = await fetch(`${HEYGEN_BASE}/v3/videos/${videoId}`, {
+      headers: heygenHeaders(),
+      signal:  AbortSignal.timeout(15_000),
+    });
 
-    const json = await res.json() as HeyGenStatusResponse;
-    const { status, video_url, duration, error } = json.data ?? {};
+    const json         = await res.json() as HeyGenV3StatusResponse;
+    const { status, video_url, duration, failure_message, failure_code } = json.data ?? {};
 
-    console.log(`[heygen] Poll #${pollCount + 1} — status: ${status} | full:`, JSON.stringify(json));
+    console.log(`[heygen] Poll #${pollCount + 1} — status: ${status}`);
 
     if (status === "completed" && video_url) {
-      console.log(`[heygen] Completed. Duration: ${duration}s | URL: ${video_url.slice(0, 80)}…`);
+      console.log(`[heygen] Completed — duration: ${duration}s | URL: ${video_url.slice(0, 80)}…`);
       return { videoUrl: video_url, duration: duration ?? 0 };
     }
 
     if (status === "failed") {
-      const errMsg = typeof error === "string"
-        ? error
-        : JSON.stringify(error ?? "unknown reason");
+      const errMsg = failure_message ?? failure_code ?? "unknown reason";
       throw new Error(`HeyGen rendering failed: ${errMsg}`);
     }
 
-    // Still processing — wait and update progress
-    const elapsed = Math.round((Date.now() - (deadline - deadlineMs)) / 1000);
-    const waitSecs = pollCount < 4 ? 15 : 20;
+    const elapsed   = Math.round((Date.now() - (deadline - deadlineMs)) / 1000);
+    const waitSecs  = pollCount < 4 ? 15 : 20;
 
-    if (status === "processing") {
-      onProgress(`Rendering avatar video… (${elapsed}s elapsed)`);
-    } else {
-      onProgress(`Waiting in queue… (${elapsed}s elapsed)`);
-    }
+    onProgress(
+      status === "processing"
+        ? `Rendering 1080p avatar video… (${elapsed}s elapsed)`
+        : `In queue… (${elapsed}s elapsed)`
+    );
 
     await new Promise((r) => setTimeout(r, waitSecs * 1000));
     pollCount++;

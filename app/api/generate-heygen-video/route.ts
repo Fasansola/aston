@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { generateVideoScript, createHeyGenVideo, pollHeyGenVideo } from "@/lib/heygen";
+import { generateSpeech } from "@/lib/elevenlabs";
 
 export const maxDuration = 300;
 
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Either title or script is required." }, { status: 400 });
   }
 
-  const missingVars = ["HEYGEN_API_KEY", "HEYGEN_AVATAR_ID", "HEYGEN_VOICE_ID"]
+  const missingVars = ["HEYGEN_API_KEY", "HEYGEN_AVATAR_ID", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"]
     .filter((k) => !process.env[k]);
   if (missingVars.length > 0) {
     return NextResponse.json(
@@ -73,9 +74,15 @@ export async function POST(req: NextRequest) {
         await send({ type: "progress", message: "Script ready — submitting to HeyGen…", elapsedSecs: elapsedSecs() });
       }
 
-      // ── Step 2: create HeyGen video ─────────────────────────────
-      const videoId = await createHeyGenVideo(script, title?.trim());
-      await send({ type: "progress", message: "HeyGen is rendering your avatar video…", elapsedSecs: elapsedSecs() });
+      // ── Step 2: generate audio via ElevenLabs ──────────────────
+      await send({ type: "progress", message: "Generating voice audio with ElevenLabs…", elapsedSecs: elapsedSecs() });
+      const audioBuffer = await generateSpeech(script);
+      console.log(`[generate-heygen-video] Audio ready — ${(audioBuffer.length / 1024).toFixed(1)} KB`);
+
+      // ── Step 3: create HeyGen video ─────────────────────────────
+      await send({ type: "progress", message: "Uploading audio and submitting to HeyGen…", elapsedSecs: elapsedSecs() });
+      const videoId = await createHeyGenVideo(audioBuffer, title?.trim());
+      await send({ type: "progress", message: "HeyGen is rendering your 1080p avatar video…", elapsedSecs: elapsedSecs() });
 
       // ── Step 3: poll until done ─────────────────────────────────
       const { videoUrl, duration } = await pollHeyGenVideo(
@@ -84,7 +91,7 @@ export async function POST(req: NextRequest) {
           console.log(`[generate-heygen-video] ${msg}`);
           send({ type: "progress", message: msg, elapsedSecs: elapsedSecs() });
         },
-        240_000 // 4-min deadline (within the 5-min Vercel limit)
+        270_000 // 4.5-min deadline — within Vercel's 300s maxDuration
       );
 
       console.log(`[generate-heygen-video] Done in ${elapsedSecs()}s — ${videoUrl.slice(0, 80)}…`);
