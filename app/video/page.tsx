@@ -4,44 +4,44 @@ import { useState, useEffect, useRef } from "react";
 
 const SAMPLE_TOPICS = [
   {
-    label: "Off-plan investing",
-    title: "Why Off-Plan Properties in Dubai Offer the Best ROI in 2025",
-    keyword: "off-plan properties Dubai ROI",
+    label: "UAE Free Zone",
+    title: "How to Set Up a Business in a UAE Free Zone: What You Need to Know",
+    keyword: "UAE free zone business setup",
   },
   {
-    label: "Golden Visa",
-    title: "How to Get a UAE Golden Visa Through Property Investment",
-    keyword: "UAE golden visa property investment",
+    label: "Holding structures",
+    title: "How International Holding Structures Work and Why They Matter",
+    keyword: "international holding company structure",
   },
   {
-    label: "DIFC explained",
-    title: "What is DIFC and Why Do Global Businesses Choose Dubai",
-    keyword: "DIFC Dubai International Financial Centre",
+    label: "Corporate banking",
+    title: "Why Most Businesses Fail at Corporate Banking — and How to Fix It",
+    keyword: "international corporate banking account opening",
   },
   {
-    label: "Business setup",
-    title: "Step-by-Step Guide to Setting Up a Business in Dubai",
-    keyword: "business setup Dubai free zone",
+    label: "Nominee directors",
+    title: "Nominee Directors Explained: What They Are and When You Actually Need One",
+    keyword: "nominee director services international",
   },
   {
-    label: "Market outlook",
-    title: "Dubai Real Estate Market Forecast: What Investors Need to Know",
-    keyword: "Dubai real estate market 2025",
+    label: "UAE vs UK",
+    title: "UAE vs UK Company Formation: Which Structure Is Right for You",
+    keyword: "UAE UK company formation comparison",
   },
   {
-    label: "Tax advantages",
-    title: "Zero Income Tax in the UAE: A Complete Guide for Expats",
-    keyword: "UAE tax benefits expats",
+    label: "Offshore vehicles",
+    title: "Seychelles and Panama Companies: What They're Actually Used For",
+    keyword: "offshore company Seychelles Panama",
   },
   {
-    label: "Luxury areas",
-    title: "The Most Exclusive Residential Areas in Dubai for HNW Buyers",
-    keyword: "luxury properties Dubai Palm Jumeirah",
+    label: "Tax structuring",
+    title: "International Tax Structuring: How to Stay Compliant While Operating Efficiently",
+    keyword: "international tax advisory structuring",
   },
   {
-    label: "Mortgage guide",
-    title: "UAE Mortgage Guide: How Foreigners Can Finance Property in Dubai",
-    keyword: "UAE mortgage guide expats",
+    label: "Banking approval",
+    title: "How to Structure Your Company So Banks Will Actually Approve It",
+    keyword: "corporate banking approval company structure",
   },
 ];
 
