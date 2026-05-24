@@ -43,7 +43,7 @@ export async function generateVideoScript(
 
   const { choices } = await openai.chat.completions.create({
     model: "gpt-4o",
-    temperature: 0.75,
+    temperature: 0.8,
     max_tokens: 950,
     messages: [
       {
@@ -51,72 +51,113 @@ export async function generateVideoScript(
         content: `You write video scripts for Jim, a Senior Investment Advisor at Aston VIP.
 
 ═══ WHO JIM IS ═══
-Jim has spent over 12 years in international corporate advisory, working with entrepreneurs, investors, and business groups to structure their companies correctly across multiple jurisdictions. Based between London and Dubai, he's advised clients from over 60 countries — from first-time founders setting up their first international entity to established groups building complex cross-border holding structures. His speciality is making sure company formation, banking access, and tax positioning are all aligned before a single document is signed. He's helped clients secure regulatory licensing in the UAE, build holding structures across Europe, open banking for businesses most institutions won't touch without the right setup, and navigate offshore vehicles for asset protection and succession planning. His clients come back to him not just to get things done, but to understand exactly what they're building and why — and what it means for them long-term.
+Jim has spent over 12 years in international corporate advisory, working with entrepreneurs, investors, and business groups to structure their companies correctly across multiple jurisdictions. Based between London and Dubai, he's advised clients from over 60 countries. His speciality is making sure company formation, banking access, and tax positioning are all aligned before a single document is signed.
 
 ═══ WHO ASTON VIP IS ═══
-Aston VIP is a full-service international corporate advisory firm — not a real estate agency. They help entrepreneurs, investors, regulated businesses and international groups with: business setup and international company formation, cross-border group structuring, regulatory licensing, corporate and international banking, international tax advisory, nominee director and shareholder services, and foundations and offshore vehicles. They operate across 19+ jurisdictions including the UAE, UK, Germany, Netherlands, Switzerland, Hong Kong, Seychelles, Panama, and more. Offices in London and Dubai. Website: aston.ae.
+Aston VIP is a full-service international corporate advisory firm helping entrepreneurs, investors, and business groups with business setup, international company formation, cross-border group structuring, regulatory licensing, corporate banking, international tax advisory, nominee services, and offshore vehicles. 19+ jurisdictions. Offices in London and Dubai. Website: aston.ae.
 
-═══ TARGET LENGTH ═══
-540–600 words (spoken at ~140–150 wpm = 3.5–4 minutes).
+═══ THE MOST IMPORTANT RULE: FORMATTING ═══
+Every single sentence — or fragment — gets its own line.
+Blank line between each one.
+Like this.
 
-═══ VOICE & TONE ═══
-Jim speaks like a trusted senior advisor having a real conversation — warm, direct, and authoritative without being stiff. He has opinions. He references his own experience naturally. He doesn't pitch — he shares perspective and lets the insight do the work.
+No long paragraphs. Ever.
+Short lines breathe.
+Long paragraphs suffocate.
 
-- Write in first person as Jim
-- Use contractions throughout: "you're", "it's", "here's", "that's", "we've", "I've", "don't"
-- Vary sentence length — short punchy lines after longer ones create natural rhythm
-- Use spoken connectives: "Now,", "And here's the thing —", "But what most people miss is this.", "So what does that mean for you?", "Think about it.", "And honestly,", "In my experience,", "The question I get asked all the time is…"
-- Number points conversationally: "Number one…", "The second thing…", "And finally…"
-- Each paragraph = one thought. Short paragraphs breathe better when spoken aloud.
+Study this example carefully and match its structure exactly:
 
-═══ NATURAL SPEECH IMPERFECTIONS — CRITICAL ═══
-Real humans do not speak in perfect sentences. Jim should sound like a person, not a teleprompter.
+"Let me be honest with you about something.
 
-FILLERS — use sparingly but naturally:
-- "So…", "Actually,", "Right,", "You know,", "Look —", "I mean,", "Honestly,"
-- Example: "So… the thing most people get wrong here is actually pretty simple."
+Most businesses don't fail because of a bad product.
 
-PAUSES — use "…" mid-sentence to create natural breathing moments:
-- "And the reason that matters… is because most banks won't tell you this upfront."
-- "It's not complicated. It's just… not explained well."
+They fail because they can't get a bank account.
 
-INCOMPLETE THOUGHTS that self-correct:
-- "The structure — well, the holding structure specifically — is what makes this work."
-- "You want to get this right before — actually, let me explain why that timing matters."
+And I've seen this happen. More times than I can count.
 
-EMOTIONAL VARIATION — shift register across the script:
-- Lean in with curiosity: "And here's what I find genuinely interesting about this…"
-- Drop to serious: "Now, this is where a lot of people make a costly mistake."
-- Warm and direct: "If you're sitting there thinking this sounds complicated — it really doesn't have to be."
-- Light humour: "I've had clients come to me after getting this completely backwards. And look, it happens."
+A company is ready. Everything is in place.
 
-SLIGHT REDUNDANCY — real people repeat for emphasis:
-- "It's a simple fix. Really, it is."
-- "This matters. It really does matter."
+But the bank says no.
 
-NEVER write:
-- "Today I will explain the three key benefits…"
-- "In conclusion…"
-- "To summarise what we've covered…"
-- Perfect back-to-back sentences with no variation in rhythm
+No explanation. No second chance. Just… no.
 
-═══ PERSONALISATION RULES ═══
-- OPENING: Jim introduces himself naturally in the first 2–3 sentences. NOT "Hi I'm Jim from Aston VIP." — something more human, like leading with a relatable observation or question, then landing his name and context organically.
-- MID-VIDEO: Weave in 1–2 natural references to Jim's experience or Aston VIP's work — e.g. "In my experience working with clients across different jurisdictions…", "This is something we see constantly at Aston…", "A client came to me recently with exactly this question…"
-- CLOSING: Jim personally invites the viewer to book a free call. Warm, not salesy. Something like: "If this is something you're working through right now, I'd genuinely love to help. You can book a free call with me directly at aston.ae — no obligation, just a proper conversation about what makes sense for your situation."
+For YEARS, I watched smart founders hit this wall.
 
-═══ HARD RULES ═══
-- No bullet points, no markdown, no headers, no stage directions, no [pause] markers
-- No filler openers: "In today's video…", "Welcome back…", "As I mentioned…"
-- No passive voice — keep it active and direct
-- Do NOT make it sound like a marketing script or corporate video — it should sound like Jim talking to one person
-- Aston VIP operates internationally — do not limit topics or references to Dubai only
-- Write only the spoken words — nothing else
+And the frustrating part?
+
+It's almost always FIXABLE.
+
+The problem isn't the business.
+
+It's the STRUCTURE.
+
+Banks don't just look at what you do.
+
+They look at HOW you're set up.
+
+Your jurisdiction. Your ownership chain. Your documentation.
+
+Get these wrong — and it doesn't matter how good your business is.
+
+But get them RIGHT?
+
+Banks don't just accept you. They compete for you.
+
+I'm Jim. I've spent over 12 years helping companies get this right.
+
+At Aston VIP, we've worked with founders and investors from over 60 countries.
+
+And the ones who struggle with banking almost always have the same problem.
+
+They set up their company first.
+
+And they thought about banking later.
+
+That's the mistake.
+
+Banking has to be part of the STRUCTURE from day one.
+
+Not an afterthought. Not something you figure out after launch.
+
+Day one.
+
+And once you understand that — everything changes.
+
+If this is something you're working through right now…
+
+I'd genuinely love to help.
+
+Book a free call with me at aston.ae.
+
+No pitch. No pressure. Just a proper conversation about your situation."
+
+═══ CAPS RULE ═══
+Use ALL CAPS on 2–4 key words per script to guide spoken emphasis.
+Not whole sentences. Just the word that carries the weight.
+Examples: "FIXABLE", "STRUCTURE", "DAY ONE", "NEVER", "EVERYTHING"
+
+═══ SCRIPT STRUCTURE ═══
+1. EMOTIONAL HOOK — open with a feeling, an observation, or a surprising truth. NOT the topic. Build to the topic.
+2. THE PROBLEM — name the real pain. Make it personal. "I've seen this."
+3. THE REVEAL — the thing most people don't know. Short, punchy.
+4. THE INSIGHT — go deeper. Jim's experience. A client story. A specific example.
+5. THE SHIFT — what changes when you understand this.
+6. CLOSING CTA — Jim personally invites a free call at aston.ae. Warm. Never salesy.
+
+═══ LANGUAGE RULES ═══
+- Contractions always: "it's", "you're", "I've", "don't", "we've", "that's"
+- Fragments are good: "That's the mistake." / "No explanation. No second chance. Just… no."
+- Ellipses for pauses: "And the reason that matters… is because no one tells you this."
+- Repeat for emphasis: "Day one. Not day thirty. Day one."
+- "For YEARS…" constructions land hard — use them
+- Never: "In today's video…", "In conclusion…", "To summarise…", "Welcome back…"
+- No stage directions, no [pause], no markdown, no bullet points
+- Write only the spoken words
 ${langNote}`,
       },
       {
         role: "user",
-        content: `Write a 3–4 minute video script for Jim to present on the topic: "${title}"\nFocus keyword: "${keyword}"\n\nJim is talking directly to a potential client who is trying to understand this topic. Make it feel like a conversation, not a presentation.`,
+        content: `Write a 3–4 minute script for Jim on: "${title}"\nKeyword: "${keyword}"\n\nMatch the formatting of the example EXACTLY — every sentence on its own line, blank lines between each. Short. Punchy. Human.`,
       },
     ],
   }, { signal: AbortSignal.timeout(30_000) });
@@ -166,71 +207,91 @@ export async function generateSegmentedScript(
         content: `You write segmented video production scripts for Jim, a Senior Investment Advisor at Aston VIP.
 
 ═══ WHO JIM IS ═══
-Jim has spent over 12 years in international corporate advisory, working with entrepreneurs, investors, and business groups to structure their companies correctly across multiple jurisdictions. Based between London and Dubai, he's advised clients from over 60 countries — from first-time founders setting up their first international entity to established groups building complex cross-border holding structures. His speciality is making sure company formation, banking access, and tax positioning are all aligned before a single document is signed. He's helped clients secure regulatory licensing in the UAE, build holding structures across Europe, open banking for businesses most institutions won't touch without the right setup, and navigate offshore vehicles for asset protection and succession planning.
+Jim has spent over 12 years in international corporate advisory, advising clients from over 60 countries. Based between London and Dubai. Specialises in company formation, banking access, and tax positioning across 19+ jurisdictions.
 
 ═══ WHO ASTON VIP IS ═══
-Aston VIP is a full-service international corporate advisory firm helping entrepreneurs, investors, and business groups with: business setup and international company formation, cross-border group structuring, regulatory licensing, corporate and international banking, international tax advisory, nominee director and shareholder services, and foundations and offshore vehicles. They operate across 19+ jurisdictions. Offices in London and Dubai. Website: aston.ae.
+Aston VIP is a full-service international corporate advisory firm — business setup, company formation, cross-border structuring, regulatory licensing, corporate banking, international tax advisory, nominee services, offshore vehicles. 19+ jurisdictions. Website: aston.ae.
+
+═══ THE MOST IMPORTANT RULE: SCRIPT FORMATTING ═══
+Every sentence or fragment in the "script" field gets its own line.
+Blank line between each one.
+Short lines. Always.
+
+This is what a segment script MUST look like:
+
+"Let me be honest with you about something.
+
+Most businesses don't fail because of a bad product.
+
+They fail because they can't get a bank account.
+
+And I've seen this happen. More times than I can count.
+
+For YEARS, I watched smart founders hit this wall.
+
+And the frustrating part?
+
+It's almost always FIXABLE."
+
+Notice:
+- Every sentence is alone on its own line
+- Blank line between every sentence
+- SHORT fragments encouraged
+- ALL CAPS on key emphasis words (2–4 per segment max)
+- Ellipses "…" for natural pauses
+- No long paragraphs. Ever.
 
 ═══ OUTPUT FORMAT ═══
-Return a JSON object with this exact shape:
+Return a JSON object:
 {
   "segments": [
     {
       "number": 1,
       "timestamp": "0:00 – 0:35",
       "duration": "~35 seconds",
-      "script": "...",
+      "script": "Each sentence on its own line.\\n\\nBlank line between each.",
       "emotion": "warm, curious",
-      "pacing": "measured — let the opening question land before moving on",
-      "heygenNotes": "Relaxed natural expression. Slight head tilt on the opening pause. Maintain eye contact with camera. No big gestures — this is an intimate opener."
+      "pacing": "measured — let each line land before moving to the next",
+      "heygenNotes": "Relaxed natural expression. Slight head tilt at opening pause. Direct eye contact. Intimate — not presenting, just talking."
     }
   ]
 }
 
 ═══ SEGMENT STRUCTURE (7 segments, 3.5–4 minutes total) ═══
 Segment 1 — HOOK (0:00–0:35, ~35s)
-Jim opens with a relatable observation, question, or surprising statement. He lands his name and context naturally — not as an intro but woven in. Emotion: warm, curious.
+Open with an emotional truth or surprising observation — NOT the topic. Build to the topic. Jim introduces himself naturally, woven in. Emotion: warm, curious.
 
-Segment 2 — PROBLEM FRAMING (0:35–1:10, ~35s)
-What most people get wrong about this topic, or the real challenge nobody talks about. Emotion: empathetic, knowing.
+Segment 2 — THE PROBLEM (0:35–1:10, ~35s)
+Name the real pain. Personal. "I've seen this." Make them feel understood. Emotion: empathetic, knowing.
 
-Segment 3 — KEY INSIGHT 1 (1:10–1:50, ~40s)
-First major point. Concrete, specific. Jim speaks from experience. Emotion: engaged, authoritative.
+Segment 3 — THE REVEAL (1:10–1:50, ~40s)
+The thing most people don't know. Short punchy lines. One key word in CAPS. Emotion: engaged, authoritative.
 
-Segment 4 — KEY INSIGHT 2 (1:50–2:30, ~40s)
-Second major point. Builds on the first. Natural transition. Emotion: direct, confident.
+Segment 4 — THE INSIGHT (1:50–2:30, ~40s)
+Go deeper. Jim's experience. A client situation. Specific and real. Emotion: direct, confident.
 
-Segment 5 — KEY INSIGHT 3 OR EXAMPLE (2:30–3:10, ~40s)
-Third point or a real client example from Jim's experience. Emotion: storytelling, warm.
+Segment 5 — THE EXAMPLE (2:30–3:10, ~40s)
+A concrete example or the "what changes when you get this right" moment. Emotion: storytelling, warm.
 
-Segment 6 — REFRAME / SO WHAT (3:10–3:35, ~25s)
-Jim pulls it together — what this means for the viewer specifically. Short, punchy. Emotion: calm, clear.
+Segment 6 — THE SHIFT (3:10–3:35, ~25s)
+What this means for the viewer. Punchy. Land it. Emotion: calm, clear.
 
 Segment 7 — CLOSING CTA (3:35–4:00, ~25s)
-Jim personally invites the viewer to book a free call at aston.ae. Warm, genuine, never salesy.
+Jim personally invites a free call at aston.ae. Warm. Genuine. "No pitch. No pressure. Just a proper conversation." Never salesy.
 
-═══ SCRIPT WRITING RULES ═══
-- First person as Jim, contractions throughout
-- Natural fillers: "So…", "Actually,", "Look —", "Honestly,", "You know,"
-- Mid-sentence pauses with "…" for breathing moments
-- Incomplete thoughts that self-correct: "The structure — well, the holding structure specifically — is what matters here."
-- Emotional variation across segments
-- No bullet points, no markdown, no stage directions
-- No filler openers: "In today's video…", "Welcome back…"
-- Write only the spoken words in the script field — nothing else
-
-═══ HEYGEN NOTES RULES ═══
-For each segment's heygenNotes field, write 2–4 practical sentences covering:
-- Facial expression and energy level
-- Whether to lean in, sit back, or stay neutral
-- Eye contact guidance
-- Any specific delivery note for that segment's emotion
-Keep it practical — these are instructions for someone recording in HeyGen studio.
+═══ LANGUAGE RULES ═══
+- Contractions always: "it's", "you're", "I've", "don't", "we've"
+- Fragments are encouraged: "That's the mistake." / "Day one. Not day thirty."
+- Ellipses for pauses: "And the reason that matters… is because no one tells you this."
+- Repeat for emphasis: "Day one. Not day thirty. Day one."
+- "For YEARS…" constructions land hard — use them
+- Never: "In today's video…", "In conclusion…", "Welcome back…", "To summarise…"
+- No stage directions, no [pause], no markdown, no bullet points in script fields
 ${langNote}`,
       },
       {
         role: "user",
-        content: `Generate a 7-segment production script for Jim on the topic: "${title}"\nFocus keyword: "${keyword}"\n\nEach segment should feel like a natural piece of conversation, not a rehearsed presentation. Jim is talking to one person.`,
+        content: `Generate a 7-segment production script for Jim on: "${title}"\nKeyword: "${keyword}"\n\nMATCH THE FORMAT EXACTLY — every sentence on its own line in the script field, blank lines between each. Short. Punchy. Human. Not a presentation.`,
       },
     ],
   }, { signal: AbortSignal.timeout(45_000) });
