@@ -127,6 +127,134 @@ ${langNote}`,
   return script;
 }
 
+// ── 1b. Segmented script generation ──────────────────────────────────────────
+
+export interface ScriptSegment {
+  number:      number;
+  timestamp:   string;   // e.g. "0:00 – 0:35"
+  duration:    string;   // e.g. "~35 seconds"
+  script:      string;   // spoken words for this segment
+  emotion:     string;   // e.g. "warm, curious"
+  pacing:      string;   // e.g. "measured — let the opening land before moving on"
+  heygenNotes: string;   // HeyGen studio production instructions
+}
+
+/**
+ * Generates a segmented production script — 6–7 short clips of 25–40 seconds each.
+ * Each segment includes the spoken script + HeyGen studio instructions.
+ * Returns a structured array ready for display and manual HeyGen studio use.
+ */
+export async function generateSegmentedScript(
+  title: string,
+  keyword: string,
+  language?: string
+): Promise<ScriptSegment[]> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const langNote = language && language !== "en"
+    ? `The article targets a ${language}-speaking audience. Write the script in ${language}.`
+    : "";
+
+  const { choices } = await openai.chat.completions.create({
+    model: "gpt-4o",
+    temperature: 0.75,
+    max_tokens: 2000,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content: `You write segmented video production scripts for Jim, a Senior Investment Advisor at Aston VIP.
+
+═══ WHO JIM IS ═══
+Jim has spent over 12 years in international corporate advisory, working with entrepreneurs, investors, and business groups to structure their companies correctly across multiple jurisdictions. Based between London and Dubai, he's advised clients from over 60 countries — from first-time founders setting up their first international entity to established groups building complex cross-border holding structures. His speciality is making sure company formation, banking access, and tax positioning are all aligned before a single document is signed. He's helped clients secure regulatory licensing in the UAE, build holding structures across Europe, open banking for businesses most institutions won't touch without the right setup, and navigate offshore vehicles for asset protection and succession planning.
+
+═══ WHO ASTON VIP IS ═══
+Aston VIP is a full-service international corporate advisory firm helping entrepreneurs, investors, and business groups with: business setup and international company formation, cross-border group structuring, regulatory licensing, corporate and international banking, international tax advisory, nominee director and shareholder services, and foundations and offshore vehicles. They operate across 19+ jurisdictions. Offices in London and Dubai. Website: aston.ae.
+
+═══ OUTPUT FORMAT ═══
+Return a JSON object with this exact shape:
+{
+  "segments": [
+    {
+      "number": 1,
+      "timestamp": "0:00 – 0:35",
+      "duration": "~35 seconds",
+      "script": "...",
+      "emotion": "warm, curious",
+      "pacing": "measured — let the opening question land before moving on",
+      "heygenNotes": "Relaxed natural expression. Slight head tilt on the opening pause. Maintain eye contact with camera. No big gestures — this is an intimate opener."
+    }
+  ]
+}
+
+═══ SEGMENT STRUCTURE (7 segments, 3.5–4 minutes total) ═══
+Segment 1 — HOOK (0:00–0:35, ~35s)
+Jim opens with a relatable observation, question, or surprising statement. He lands his name and context naturally — not as an intro but woven in. Emotion: warm, curious.
+
+Segment 2 — PROBLEM FRAMING (0:35–1:10, ~35s)
+What most people get wrong about this topic, or the real challenge nobody talks about. Emotion: empathetic, knowing.
+
+Segment 3 — KEY INSIGHT 1 (1:10–1:50, ~40s)
+First major point. Concrete, specific. Jim speaks from experience. Emotion: engaged, authoritative.
+
+Segment 4 — KEY INSIGHT 2 (1:50–2:30, ~40s)
+Second major point. Builds on the first. Natural transition. Emotion: direct, confident.
+
+Segment 5 — KEY INSIGHT 3 OR EXAMPLE (2:30–3:10, ~40s)
+Third point or a real client example from Jim's experience. Emotion: storytelling, warm.
+
+Segment 6 — REFRAME / SO WHAT (3:10–3:35, ~25s)
+Jim pulls it together — what this means for the viewer specifically. Short, punchy. Emotion: calm, clear.
+
+Segment 7 — CLOSING CTA (3:35–4:00, ~25s)
+Jim personally invites the viewer to book a free call at aston.ae. Warm, genuine, never salesy.
+
+═══ SCRIPT WRITING RULES ═══
+- First person as Jim, contractions throughout
+- Natural fillers: "So…", "Actually,", "Look —", "Honestly,", "You know,"
+- Mid-sentence pauses with "…" for breathing moments
+- Incomplete thoughts that self-correct: "The structure — well, the holding structure specifically — is what matters here."
+- Emotional variation across segments
+- No bullet points, no markdown, no stage directions
+- No filler openers: "In today's video…", "Welcome back…"
+- Write only the spoken words in the script field — nothing else
+
+═══ HEYGEN NOTES RULES ═══
+For each segment's heygenNotes field, write 2–4 practical sentences covering:
+- Facial expression and energy level
+- Whether to lean in, sit back, or stay neutral
+- Eye contact guidance
+- Any specific delivery note for that segment's emotion
+Keep it practical — these are instructions for someone recording in HeyGen studio.
+${langNote}`,
+      },
+      {
+        role: "user",
+        content: `Generate a 7-segment production script for Jim on the topic: "${title}"\nFocus keyword: "${keyword}"\n\nEach segment should feel like a natural piece of conversation, not a rehearsed presentation. Jim is talking to one person.`,
+      },
+    ],
+  }, { signal: AbortSignal.timeout(45_000) });
+
+  const raw = choices[0].message.content?.trim() ?? "";
+  if (!raw) throw new Error("GPT returned empty segmented script.");
+
+  let parsed: { segments: ScriptSegment[] };
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("GPT returned invalid JSON for segmented script.");
+  }
+
+  const segments = parsed.segments;
+  if (!Array.isArray(segments) || segments.length === 0) {
+    throw new Error("GPT returned no segments.");
+  }
+
+  const totalWords = segments.reduce((acc, s) => acc + s.script.split(/\s+/).filter(Boolean).length, 0);
+  console.log(`[heygen] Segmented script — ${segments.length} segments, ${totalWords} words total`);
+  return segments;
+}
+
 // ── 2. Upload audio asset to HeyGen ──────────────────────────────────────────
 
 /**

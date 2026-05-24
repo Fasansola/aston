@@ -3,15 +3,15 @@
  * ─────────────────────────────────────────────────────────────
  * POST /api/generate-script
  *
- * Generates a natural spoken-word video script from a title + keyword.
- * Returns plain JSON — no streaming needed (GPT responds in ~5–10s).
+ * Generates a segmented production script from a title + keyword.
+ * Returns 7 segments with script text + HeyGen studio instructions per segment.
  *
- * Body:  { title: string, keyword?: string, language?: string }
- * Returns: { script: string, wordCount: number }
+ * Body:    { title: string, keyword?: string, language?: string }
+ * Returns: { segments: ScriptSegment[], totalWords: number }
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { generateVideoScript } from "@/lib/heygen";
+import { generateSegmentedScript } from "@/lib/heygen";
 
 export const maxDuration = 60;
 
@@ -34,16 +34,19 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const script = await generateVideoScript(
+    const segments = await generateSegmentedScript(
       title.trim(),
       keyword?.trim() || title.trim(),
       language || undefined
     );
 
-    const wordCount = script.split(/\s+/).filter(Boolean).length;
-    console.log(`[generate-script] Done — ${wordCount} words`);
+    const totalWords = segments.reduce(
+      (acc, s) => acc + s.script.split(/\s+/).filter(Boolean).length,
+      0
+    );
 
-    return NextResponse.json({ script, wordCount });
+    console.log(`[generate-script] Done — ${segments.length} segments, ${totalWords} words`);
+    return NextResponse.json({ segments, totalWords });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[generate-script] Failed: ${msg}`);
