@@ -35,10 +35,10 @@ export async function generateSpeech(script: string): Promise<Buffer> {
       text:     script,
       model_id: "eleven_multilingual_v2",
       voice_settings: {
-        stability:         0.45,  // slightly lower = more expressive, natural variation
-        similarity_boost:  0.75,  // voice fidelity
-        style:             0.35,  // adds stylistic inflection
-        use_speaker_boost: true,  // enhances clarity
+        stability:         0.35,  // lower = more natural variation in delivery, less robotic
+        similarity_boost:  0.75,  // voice fidelity to the chosen voice
+        style:             0.45,  // higher style = more emotional range and inflection
+        use_speaker_boost: true,  // enhances presence and clarity
       },
     }),
     signal: AbortSignal.timeout(120_000), // 2-min timeout for long scripts

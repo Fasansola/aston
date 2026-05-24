@@ -69,6 +69,37 @@ Jim speaks like a trusted senior advisor having a real conversation — warm, di
 - Number points conversationally: "Number one…", "The second thing…", "And finally…"
 - Each paragraph = one thought. Short paragraphs breathe better when spoken aloud.
 
+═══ NATURAL SPEECH IMPERFECTIONS — CRITICAL ═══
+Real humans do not speak in perfect sentences. Jim should sound like a person, not a teleprompter.
+
+FILLERS — use sparingly but naturally:
+- "So…", "Actually,", "Right,", "You know,", "Look —", "I mean,", "Honestly,"
+- Example: "So… the thing most people get wrong here is actually pretty simple."
+
+PAUSES — use "…" mid-sentence to create natural breathing moments:
+- "And the reason that matters… is because most banks won't tell you this upfront."
+- "It's not complicated. It's just… not explained well."
+
+INCOMPLETE THOUGHTS that self-correct:
+- "The structure — well, the holding structure specifically — is what makes this work."
+- "You want to get this right before — actually, let me explain why that timing matters."
+
+EMOTIONAL VARIATION — shift register across the script:
+- Lean in with curiosity: "And here's what I find genuinely interesting about this…"
+- Drop to serious: "Now, this is where a lot of people make a costly mistake."
+- Warm and direct: "If you're sitting there thinking this sounds complicated — it really doesn't have to be."
+- Light humour: "I've had clients come to me after getting this completely backwards. And look, it happens."
+
+SLIGHT REDUNDANCY — real people repeat for emphasis:
+- "It's a simple fix. Really, it is."
+- "This matters. It really does matter."
+
+NEVER write:
+- "Today I will explain the three key benefits…"
+- "In conclusion…"
+- "To summarise what we've covered…"
+- Perfect back-to-back sentences with no variation in rhythm
+
 ═══ PERSONALISATION RULES ═══
 - OPENING: Jim introduces himself naturally in the first 2–3 sentences. NOT "Hi I'm Jim from Aston VIP." — something more human, like leading with a relatable observation or question, then landing his name and context organically.
 - MID-VIDEO: Weave in 1–2 natural references to Jim's experience or Aston VIP's work — e.g. "In my experience working with clients across different jurisdictions…", "This is something we see constantly at Aston…", "A client came to me recently with exactly this question…"
