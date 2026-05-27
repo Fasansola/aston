@@ -32,13 +32,22 @@ const WP_HEADERS  = {
 const PER_PAGE   = 25; // images per batch — keeps each request well under 300s
 const OPENAI     = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// GPT-4o vision only accepts these formats — AVIF, SVG, BMP, TIFF etc. will be skipped
+const SUPPORTED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+
 // ── Fetch one page of WP media ─────────────────────────────────────────────
 async function fetchMediaPage(page: number) {
   const url = new URL(`${WP_URL}/wp-json/wp/v2/media`);
   url.searchParams.set("per_page",   String(PER_PAGE));
   url.searchParams.set("page",       String(page));
   url.searchParams.set("media_type", "image");
-  url.searchParams.set("_fields",    "id,alt_text,source_url,title,slug");
+  url.searchParams.set("_fields",    "id,alt_text,source_url,title,slug,mime_type");
 
   const res = await fetch(url.toString(), {
     headers: WP_HEADERS,
@@ -50,7 +59,7 @@ async function fetchMediaPage(page: number) {
 
   const items      = await res.json() as {
     id: number; alt_text: string; source_url: string;
-    title: { rendered: string }; slug: string;
+    title: { rendered: string }; slug: string; mime_type: string;
   }[];
   const totalPages = parseInt(res.headers.get("X-WP-TotalPages") ?? "1", 10);
   const totalMedia = parseInt(res.headers.get("X-WP-Total")      ?? "0", 10);
@@ -129,10 +138,22 @@ export async function POST(req: NextRequest) {
   try {
     const { items, totalPages, totalMedia } = await fetchMediaPage(page);
 
-    // Find items missing alt text on this page
-    const missing = items.filter(m => !m.alt_text?.trim());
+    // Find items missing alt text AND in a format GPT-4o can read
+    const missing = items.filter(m =>
+      !m.alt_text?.trim() && SUPPORTED_MIME_TYPES.has(m.mime_type?.toLowerCase())
+    );
 
-    const results: { id: number; url: string; altText: string; status: "ok" | "skipped" | "error"; error?: string }[] = [];
+    // Track unsupported formats so the UI can show a count
+    const unsupported = items.filter(m =>
+      !m.alt_text?.trim() && !SUPPORTED_MIME_TYPES.has(m.mime_type?.toLowerCase())
+    );
+
+    const results: { id: number; url: string; altText: string; status: "ok" | "skipped" | "unsupported" | "error"; error?: string }[] = [];
+
+    // Add unsupported format items directly — no GPT call
+    for (const item of unsupported) {
+      results.push({ id: item.id, url: item.source_url, altText: "", status: "unsupported", error: item.mime_type });
+    }
 
     // Process missing items concurrently (3 at a time to stay safe)
     const CONCURRENCY = 3;

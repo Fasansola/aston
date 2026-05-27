@@ -11,10 +11,11 @@ type ResultItem = {
 };
 
 type RunStats = {
-  updated:  number;
-  skipped:  number;
-  errors:   number;
-  pages:    number;
+  updated:     number;
+  skipped:     number;
+  unsupported: number;
+  errors:      number;
+  pages:       number;
 };
 
 type Stage = "idle" | "running" | "done" | "error";
@@ -24,7 +25,7 @@ export default function AltTextBackfillPage() {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages]   = useState(0);
   const [totalMedia, setTotalMedia]   = useState(0);
-  const [stats, setStats]         = useState<RunStats>({ updated: 0, skipped: 0, errors: 0, pages: 0 });
+  const [stats, setStats]         = useState<RunStats>({ updated: 0, skipped: 0, unsupported: 0, errors: 0, pages: 0 });
   const [log, setLog]             = useState<ResultItem[]>([]);
   const [error, setError]         = useState("");
   const abortRef                  = useRef(false);
@@ -44,10 +45,11 @@ export default function AltTextBackfillPage() {
     setTotalPages(0);
 
     let page = 1;
-    let cumUpdated = 0;
-    let cumSkipped = 0;
-    let cumErrors  = 0;
-    let pagesRun   = 0;
+    let cumUpdated     = 0;
+    let cumSkipped     = 0;
+    let cumUnsupported = 0;
+    let cumErrors      = 0;
+    let pagesRun       = 0;
 
     while (true) {
       if (abortRef.current) break;
@@ -84,16 +86,17 @@ export default function AltTextBackfillPage() {
       setCurrentPage(data.currentPage);
       pagesRun++;
 
-      const updated = data.results.filter(r => r.status === "ok").length;
-      const skipped = data.results.filter(r => r.status === "skipped").length;
-      const errors  = data.results.filter(r => r.status === "error").length;
+      const updated     = data.results.filter(r => r.status === "ok").length;
+      const skipped     = data.results.filter(r => r.status === "skipped").length;
+      const unsupported = data.results.filter(r => r.status === "unsupported").length;
+      const errors      = data.results.filter(r => r.status === "error").length;
 
-      cumUpdated += updated;
-      cumSkipped += skipped;
-      cumErrors  += errors;
+      cumUpdated     += updated;
+      cumSkipped     += skipped;
+      cumErrors      += errors;
 
-      setStats({ updated: cumUpdated, skipped: cumSkipped, errors: cumErrors, pages: pagesRun });
-      addLog(data.results.filter(r => r.status !== "skipped")); // only show updated/errors
+      setStats({ updated: cumUpdated, skipped: cumSkipped, unsupported: cumUnsupported += unsupported, errors: cumErrors, pages: pagesRun });
+      addLog(data.results.filter(r => r.status !== "skipped" && r.status !== "unsupported"));
 
       if (!data.nextPage) break;
       page = data.nextPage;
@@ -153,11 +156,12 @@ export default function AltTextBackfillPage() {
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-5 py-5 space-y-4">
 
             {/* Stats row */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-3">
               {[
-                { label: "Updated",  value: stats.updated,  colour: "text-emerald-400" },
-                { label: "Skipped",  value: stats.skipped,  colour: "text-white/30"    },
-                { label: "Errors",   value: stats.errors,   colour: "text-red-400"     },
+                { label: "Updated",     value: stats.updated,     colour: "text-emerald-400" },
+                { label: "Skipped",     value: stats.skipped,     colour: "text-white/30"    },
+                { label: "Unsupported", value: stats.unsupported, colour: "text-amber-400"   },
+                { label: "Errors",      value: stats.errors,      colour: "text-red-400"     },
               ].map(s => (
                 <div key={s.label} className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-3 text-center">
                   <p className={`text-xl font-semibold tabular-nums ${s.colour}`}>{s.value}</p>
