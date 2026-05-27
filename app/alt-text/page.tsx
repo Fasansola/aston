@@ -6,7 +6,7 @@ type ResultItem = {
   id: number;
   url: string;
   altText: string;
-  status: "ok" | "skipped" | "error";
+  status: "ok" | "skipped" | "unsupported" | "error";
   error?: string;
 };
 
