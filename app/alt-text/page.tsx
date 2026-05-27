@@ -40,7 +40,7 @@ export default function AltTextBackfillPage() {
     setStage("running");
     setLog([]);
     setError("");
-    setStats({ updated: 0, skipped: 0, errors: 0, pages: 0 });
+    setStats({ updated: 0, skipped: 0, unsupported: 0, errors: 0, pages: 0 });
     setCurrentPage(0);
     setTotalPages(0);
 
