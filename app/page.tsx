@@ -689,7 +689,7 @@ function ReadinessPanel({
       ? { label: "Ready with warnings", color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20" }
       : { label: "Blocked — fix issues before publishing", color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" };
 
-  const hasAutoFixes = result.subscores.some((s) => s.autoFixAvailable);
+  const hasAutoFixes = result.warnings > 0 || result.blockingErrors > 0;
   const orderedSubscores = SUBSCORE_ORDER.map((k) => result.subscores.find((s) => s.key === k)).filter(Boolean) as ReadinessSubscore[];
 
   return (
