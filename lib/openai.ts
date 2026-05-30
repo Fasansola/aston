@@ -383,6 +383,109 @@ function buildDomainContext(title: string, customPrompt?: string): string {
   return `\nSPECIALIST DOMAIN KNOWLEDGE (treat this as your source of truth for specific facts, names, and figures in this article — do not contradict it, do not invent alternatives):\n${blocks}\n`;
 }
 
+// ── Visual SEO block system ───────────────────────────────────
+/**
+ * Detects [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], and [VISUAL SEO BLOCK]
+ * markers in the custom prompt and returns rendering instructions for the
+ * content generator.
+ *
+ * Infographics/flowcharts/checklists → styled HTML div blocks (CSS classes
+ * applied by the WordPress theme, no JS needed).
+ *
+ * Charts → Chart.js canvas with data stored in data-* attributes so a single
+ * init script on the page handles all instances.
+ */
+function buildVisualBlockInstructions(customPrompt?: string): string {
+  if (!customPrompt?.trim()) return "";
+
+  const text = customPrompt;
+  const hasInfographic  = /\[INFOGRAPHIC(?: IDEA)?\]/i.test(text);
+  const hasFlowchart    = /\[FLOWCHART\]/i.test(text);
+  const hasChart        = /\[CHART\]/i.test(text);
+  const hasVisualBlock  = /\[VISUAL SEO BLOCK\]/i.test(text);
+
+  if (!hasInfographic && !hasFlowchart && !hasChart && !hasVisualBlock) return "";
+
+  const parts: string[] = [];
+
+  parts.push(`VISUAL SEO BLOCKS — MANDATORY RENDERING INSTRUCTIONS:
+The custom instructions above contain visual block markers. You MUST render each one as described below and place it inside the most relevant content section (more_content_1 through more_content_6). Do not place visual blocks in main_content, key_takeaways, FAQ, or final_points.
+Each block must contain real, article-specific data derived from the section it sits in — not placeholder text.`);
+
+  if (hasInfographic || hasVisualBlock) {
+    parts.push(`
+[INFOGRAPHIC IDEA] and [VISUAL SEO BLOCK] → render as an infographic-style HTML block:
+
+<div class="aston-visual-block aston-infographic">
+  <p class="aston-visual-block__label">Key insight</p>
+  <h4 class="aston-visual-block__title">[Insert a short, specific title for this infographic]</h4>
+  <ul>
+    <li>[Specific point 1 — include a named entity, figure, or requirement]</li>
+    <li>[Specific point 2]</li>
+    <li>[Specific point 3]</li>
+    <li>[Specific point 4]</li>
+    <li>[Add more items as needed — minimum 4, maximum 8]</li>
+  </ul>
+</div>
+
+Rules:
+- Fill with the actual data relevant to that infographic's title from the custom instructions
+- Each list item must be a complete, specific fact — not a heading or label
+- Place the block after the paragraph that introduces the topic it covers`);
+  }
+
+  if (hasFlowchart) {
+    parts.push(`
+[FLOWCHART] → render as a numbered step-flow HTML block:
+
+<div class="aston-visual-block aston-flowchart">
+  <p class="aston-visual-block__label">Process overview</p>
+  <h4 class="aston-visual-block__title">[Insert the flowchart title from the custom instructions]</h4>
+  <ol>
+    <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
+    <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
+    <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
+    <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
+    <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
+  </ol>
+</div>
+
+Rules:
+- Derive the steps from the context described in the custom instructions
+- Each step must be actionable and specific — not a generic label
+- Use the actual process described (e.g. Company Formation → Compliance Review → KYC Submission → Risk Assessment → Banking Approval)
+- Place the block at the point in the section where the process is introduced`);
+  }
+
+  if (hasChart) {
+    parts.push(`
+[CHART] → render as a Chart.js canvas block using data-* attributes:
+
+<div class="aston-chart-block">
+  <h4 class="aston-chart-block__title">[Insert the chart title from the custom instructions]</h4>
+  <p class="aston-chart-block__subtitle">[One sentence describing what this chart shows]</p>
+  <canvas
+    class="aston-chartjs"
+    data-chart-type="[bar OR horizontalBar OR pie OR doughnut — choose the best fit]"
+    data-chart-labels='["Label 1", "Label 2", "Label 3"]'
+    data-chart-values='[30, 55, 80]'
+    data-chart-colors='["#C9A84C", "#8B7536", "#5a4a2f"]'
+    data-chart-label="[Dataset description]"
+    height="220">
+  </canvas>
+</div>
+
+Rules:
+- Use real, meaningful data — derive values from the article topic (e.g. risk scoring, approval rates, fee comparisons, market share)
+- labels[] and values[] must have the same number of elements
+- colors[]: use the Aston gold palette (#C9A84C, #B8963E, #8B7536, #5a4a2f, #D4B86A, #E8C96A) — one colour per data point
+- data-chart-type: use "bar" for comparisons, "horizontalBar" for ranked lists, "pie" or "doughnut" for proportions
+- Place the block directly after the paragraph that introduces the comparison or data it visualises`);
+  }
+
+  return `\nVISUAL BLOCKS:\n${parts.join("\n")}\n`;
+}
+
 // ── Step 1: Generate structure blueprint ──────────────────────
 
 /**
@@ -677,32 +780,10 @@ ${subs}`;
     .map((q, i) => `  Q${i + 1}: ${q}`)
     .join("\n");
 
-  // Detect visual SEO block markers in the custom prompt
-  const hasVisualBlocks = customPrompt && /\[INFOGRAPHIC|FLOWCHART|CHART|VISUAL SEO BLOCK|CHECKLIST\]/i.test(customPrompt);
+  const visualBlockInstructions = buildVisualBlockInstructions(customPrompt);
 
   const customPromptContentBlock = customPrompt?.trim()
-    ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the entire article):\n${customPrompt.trim()}\n${hasVisualBlocks ? `
-VISUAL SEO BLOCK RENDERING RULES (mandatory):
-The custom instructions above reference visual SEO blocks such as [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], [VISUAL SEO BLOCK], or [CHECKLIST].
-You MUST render each one as a styled HTML block in the appropriate content section using EXACTLY this format:
-
-<div class="visual-seo-block">
-<p class="vsb-label">[Type of visual — e.g. "Infographic idea" or "Approval flowchart" or "Risk comparison chart"]</p>
-<p class="vsb-title">[Descriptive title for the visual, e.g. "Why bank applications get rejected"]</p>
-<ul>
-<li>[First item or step]</li>
-<li>[Second item or step]</li>
-<li>[Third item or step — continue until all key points are covered]</li>
-</ul>
-</div>
-
-Rules:
-- Render the block in the section that is most relevant to the visual's content
-- Replace the [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], [VISUAL SEO BLOCK], or [CHECKLIST] placeholder with the actual rendered block — do not leave the raw placeholder text
-- Each block must contain a <p class="vsb-title"> title and a <ul><li> list of 4–8 specific, factual items
-- The items must be concrete and advisory-level — real information a compliance team would use
-- Do NOT add the vsb-label or vsb-title inside the <ul>
-` : ""}\n`
+    ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the entire article):\n${customPrompt.trim()}\n`
     : "";
 
   const languageContentBlock = isNonEnglish(language)
@@ -712,7 +793,7 @@ Rules:
   const domainContext = buildDomainContext(title, customPrompt);
 
   const userPrompt = `Blog title: "${title}"
-${languageContentBlock}${domainContext}${strategyContentBlock}${customPromptContentBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}${authorityLinksBlock}
+${languageContentBlock}${domainContext}${strategyContentBlock}${customPromptContentBlock}${visualBlockInstructions}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}${authorityLinksBlock}
 You have already planned the structure. Now write the full article following the blueprint exactly.
 The headings, section angles, and word targets below are fixed — do not change them.
 
