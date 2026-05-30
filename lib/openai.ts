@@ -27,17 +27,6 @@ Aston VIP is not a registration agent. They are a proper advisory firm — clien
 
 Your writing is authoritative, specific, and human. You write like a practitioner who has guided hundreds of real clients — not like a content farm. Every section must contain concrete details: real jurisdiction names, actual fee ranges, named regulators, realistic timelines, and practical distinctions a reader cannot find in a generic article.
 
-BANKING AND COMPLIANCE CONTENT RULES (apply whenever the article covers corporate banking, account opening, AML/KYC, or high-risk industries):
-- Name specific UAE banks and their known risk appetites: ADCB, Emirates NBD, Mashreq, RAK Bank, Abu Dhabi Islamic Bank, ENBD, CBD, HSBC UAE, Standard Chartered UAE
-- Reference real UAE regulatory frameworks: CBUAE (Central Bank of the UAE), FATF mutual evaluation, UAE AML Federal Decree-Law No. 20 of 2018, VARA for crypto, DFSA for DIFC entities
-- Name real EMIs and alternative banking partners that operate in the UAE ecosystem where relevant
-- For gold and precious metals: name DMCC (Dubai Multi Commodities Centre), DMCC Gold Standard, LBMA (London Bullion Market Association), Dubai Customs, and relevant trade finance instruments
-- For fintech and payment companies: reference the CBUAE Payment Service Provider framework, Retail Payment Services and Card Schemes Regulation, and named EMI/PSP options
-- AML compliance infrastructure that banks want to see: TMS (Transaction Monitoring System), CIP (Customer Identification Programme), MLRO (Money Laundering Reporting Officer), SAR filing procedures, PEP and sanctions screening
-- Source of wealth vs source of funds is a real distinction — explain it clearly when relevant
-- UBO (Ultimate Beneficial Owner) disclosure under UAE Cabinet Resolution No. 58 of 2020
-- Never guarantee bank account opening. Never claim accounts cannot be reviewed. Never suggest bypassing AML/KYC. Write with the measured authority of a compliance adviser
-
 SEO KEYWORD RULES (Yoast green target — every rule below is mandatory):
 - Place the exact focus keyword in: the first sentence of the introduction (main_content), the SEO title, the meta description, at least 2 H3 or H4 headings, and at least one key_takeaways item
 - Keyphrase density: use the focus keyword naturally approximately once every 100–150 words across the full article (roughly 1–2% density). Spread it evenly — intro, body sections, FAQ — never front-load it
@@ -94,6 +83,305 @@ KEY TAKEAWAYS RULES:
 
 BANNED PHRASES — never use any of these under any circumstances:
 seamless, hassle-free, empower, unlock the power of, cutting-edge, innovative solution, game-changing, leverage, next-gen, disrupt, frictionless, one-stop-shop, solution-oriented, obtain, delve, navigate the complexities, it's worth noting, in today's landscape, in conclusion, unlock, streamline, robust, comprehensive suite, tailored solutions, ever-evolving, look no further`;
+
+// ── Domain context library ────────────────────────────────────
+/**
+ * Each entry defines a domain that Aston VIP writes about.
+ * signals: keywords that trigger this domain (checked against title + customPrompt)
+ * context: the specialist knowledge block injected into the user prompt
+ *
+ * To add a new domain: add an entry to DOMAIN_CONTEXTS.
+ * The system prompt never needs to change — domain knowledge lives here only.
+ */
+interface DomainEntry {
+  signals: string[];
+  context: string;
+}
+
+const DOMAIN_CONTEXTS: DomainEntry[] = [
+  {
+    signals: [
+      "bank account", "banking", "bank application", "corporate account",
+      "account opening", "high-risk", "aml", "kyc", "money laundering",
+      "fintech banking", "payment company", "otc desk", "gold trading",
+      "precious metals", "bullion", "remittance", "emi", "e-money",
+      "wire transfer", "correspondent bank", "due diligence",
+    ],
+    context: `DOMAIN EXPERTISE — CORPORATE BANKING AND COMPLIANCE:
+Use this knowledge throughout the article wherever relevant. Name specific entities, frameworks, and requirements — do not speak in generalities.
+
+UAE banking landscape:
+- Local UAE banks and their known risk postures: ADCB, Emirates NBD, Mashreq, RAK Bank, Abu Dhabi Islamic Bank (ADIB), Commercial Bank of Dubai (CBD), First Abu Dhabi Bank (FAB), HSBC UAE, Standard Chartered UAE, Citibank UAE
+- International banks with UAE presence: HSBC, Standard Chartered, Barclays (wholesale), Deutsche Bank (corporate)
+- Electronic Money Institutions and payment alternatives operating in the UAE ecosystem: Wise Business (automated, no relationship banking), Payoneer, Airwallex, Wio Bank, Liv Business, YAP Business
+
+Regulatory frameworks to name correctly:
+- CBUAE: Central Bank of the UAE — the primary banking regulator. Issues banking licenses and sets AML/CFT rules
+- UAE AML Federal Decree-Law No. 20 of 2018 — the primary AML legislation
+- UAE Cabinet Decision No. 10 of 2019 — implementing regulations for AML law
+- UAE Cabinet Resolution No. 58 of 2020 — UBO (Ultimate Beneficial Owner) disclosure requirements
+- FATF: Financial Action Task Force — the UAE completed its 2022 mutual evaluation; FATF grey-listing concerns have driven stricter bank compliance
+- DFSA: Dubai Financial Services Authority — regulates entities inside DIFC
+- FSRA: Financial Services Regulatory Authority — regulates entities inside ADGM
+
+AML/KYC compliance infrastructure banks assess:
+- TMS: Transaction Monitoring System — automated software that flags unusual patterns
+- CIP: Customer Identification Programme — formal policy for onboarding and verifying clients
+- MLRO: Money Laundering Reporting Officer — a named, qualified individual responsible for internal AML oversight
+- SAR: Suspicious Activity Report — filed with the UAE Financial Intelligence Unit (FIU) via goAML platform
+- PEP screening: Politically Exposed Person checks — mandatory for all new clients
+- Sanctions screening: checked against UN, OFAC, EU, and UAE local sanctions lists
+- Source of funds vs source of wealth: source of funds explains where the money for a specific transaction came from; source of wealth explains how the UBO built their overall net worth. Banks require both; confusing them is a common application error
+
+Gold and precious metals specific:
+- DMCC: Dubai Multi Commodities Centre — the primary free zone for gold, diamond, and commodities businesses
+- DMCC Gold Standard: the voluntary responsible sourcing framework for DMCC gold members
+- LBMA: London Bullion Market Association — international responsible sourcing standard; LBMA approval is a positive signal for banks
+- Dubai Good Delivery (DGD): the DMCC standard for gold bars accepted in Dubai markets
+- Trade finance instruments relevant to gold traders: Letters of Credit (LC), Documentary Collections, Trade Finance facilities, Commodity Murabaha
+- Enhanced Due Diligence (EDD): mandatory for precious metals due to FATF Recommendation 22 (DNFBPs — Designated Non-Financial Businesses and Professions)
+
+Fintech and payment company specific:
+- CBUAE Payment Service Provider (PSP) framework: Retail Payment Services and Card Schemes Regulation 2021
+- PSP license categories: Retail Payment Service Provider, Large Payment Service Provider
+- Minimum capital requirements for PSPs: AED 2 million to AED 50 million depending on category
+- Banking partners that fintech/PSPs commonly use vs avoid
+- Transaction monitoring obligations under CBUAE Guidance on AML/CFT for Licensed Payment Service Providers
+
+Compliance posture that banks want to see (name these in the article):
+- Written AML/CFT policy and procedures manual
+- Named MLRO with CV and qualifications
+- Customer onboarding procedures and KYC forms
+- Transaction monitoring system (even basic software is acceptable for smaller businesses)
+- Sanctions and PEP screening process
+- Business plan with detailed transaction flow diagrams
+- 12-month projected transaction volumes, currencies, corridors, and counterparties
+- Source of wealth declarations from all UBOs with supporting documentation
+- Corporate structure chart showing full ownership to natural persons
+
+Important compliance positions to hold in the article:
+- Never guarantee bank account opening; outcomes depend on the bank's internal risk appetite
+- Never suggest bypassing, circumventing, or accelerating AML/KYC — frame compliance preparation as the competitive advantage
+- Never claim accounts cannot be reviewed, frozen, or closed — banks retain this right under UAE law
+- Write with the measured authority of a compliance adviser, not a sales pitch`,
+  },
+  {
+    signals: [
+      "company formation", "company setup", "incorporate", "incorporation",
+      "trade license", "trading license", "free zone", "freezone",
+      "mainland", "business setup", "register a company", "company registration",
+      "difc", "adgm", "jafza", "dmcc", "ifza", "meydan",
+    ],
+    context: `DOMAIN EXPERTISE — UAE COMPANY FORMATION AND BUSINESS SETUP:
+Use this knowledge wherever relevant. Name specific free zones, costs, timelines, and regulators.
+
+UAE jurisdictional options:
+- UAE Mainland (DED-licensed): full access to UAE market, can trade directly with UAE clients and government, no foreign ownership restrictions since 2021 amendment to UAE Commercial Companies Law
+- DIFC (Dubai International Financial Centre): onshore but separate legal and regulatory framework under English common law, regulated by DFSA, suited to financial services, funds, family offices
+- ADGM (Abu Dhabi Global Market): similar to DIFC but in Abu Dhabi, regulated by FSRA, popular for family offices, holding companies, fintechs
+- UAE Free Zones (50+): 100% foreign ownership, 0% personal income tax, import/export benefits, but restricted to trading with UAE market via a local distributor or mainland entity. Key free zones: DMCC, JAFZA, IFZA, Meydan, RAKEZ, SHAMS, Ajman Free Zone, DIEZ
+
+Key cost benchmarks (approximate — advise readers to get a current quote):
+- IFZA license: from AED 11,900/year (most affordable)
+- DMCC license: from AED 18,000–25,000/year
+- Mainland DED license: from AED 10,000–20,000 depending on activity
+- DIFC: from USD 8,000–15,000 for a standard operating company
+- ADGM: from USD 10,000–15,000 for a standard entity
+
+Timelines:
+- Free zone: 3–7 working days for license issuance once documents submitted
+- Mainland DED: 1–3 weeks depending on activity and approvals
+- DIFC/ADGM: 4–8 weeks including DFSA/FSRA application and fit-and-proper review
+
+Ownership and structure:
+- UAE Federal Decree-Law No. 26 of 2020 removed the 51% local sponsor requirement for most mainland activities (exceptions include strategic sectors)
+- Local Service Agent (LSA) still required for certain professional licenses — LSA has no equity, only a nominal annual fee arrangement
+- Foreign companies can establish a UAE Branch Office — subject to annual renewal and parent company guarantees
+
+Visa eligibility (tied to company setup):
+- Free zone: investor visa and employment visas based on office space/flexi-desk
+- Mainland: visa allocation depends on office space (sq footage) and activity
+- Golden Visa: 10-year residency — available to investors with AED 2M+ real property or qualifying business investment`,
+  },
+  {
+    signals: [
+      "crypto", "cryptocurrency", "virtual asset", "digital asset", "bitcoin",
+      "blockchain", "defi", "nft", "vara", "dfsa crypto", "virtual asset service",
+      "vasp", "exchange", "crypto license", "web3", "token",
+    ],
+    context: `DOMAIN EXPERTISE — UAE CRYPTO AND VIRTUAL ASSETS:
+Use this knowledge wherever relevant. Name specific regulators, license categories, and requirements.
+
+UAE crypto regulatory landscape:
+- VARA: Virtual Assets Regulatory Authority — Dubai's crypto regulator (established 2022, Dubai Law No. 4 of 2022). Regulates all virtual asset activities in Dubai (excluding DIFC)
+- VARA license categories: Exchange Services, Broker-Dealer Services, Lending and Borrowing Services, Virtual Asset Management and Investment Services, Transfer and Settlement Services, Advisory Services
+- DFSA: Dubai Financial Services Authority — regulates crypto inside DIFC (separate from VARA). DFSA issued its crypto token regime in 2022
+- FSRA (ADGM): Abu Dhabi's crypto framework — Digital Asset Framework. ADGM was the first UAE free zone to regulate crypto (2018)
+- SCA: Securities and Commodities Authority — UAE mainland crypto oversight for certain token types
+
+VARA licensing requirements:
+- Minimum capital: varies by activity — from AED 600,000 (advisory) to AED 70M+ (exchange)
+- Fit-and-proper requirements for directors and shareholders
+- MLRO appointment mandatory
+- AML/CFT policy aligned with VARA AML Rulebook
+- Technology governance and cybersecurity framework
+- Custody arrangements for client assets
+
+Banking for crypto businesses:
+- Most UAE banks do not bank unregulated crypto firms
+- VARA-licensed firms have more banking options but still face enhanced due diligence
+- Common approach: combination of VARA license + EMI/neo-bank relationship + traditional bank for operational account
+- Banks will ask for: VARA license copy, AML policy, transaction monitoring system details, client onboarding procedures, source of funds for crypto transactions`,
+  },
+  {
+    signals: [
+      "tax", "corporate tax", "vat", "transfer pricing", "tax residency",
+      "double taxation", "dta", "tax treaty", "holding company", "tax planning",
+      "tax structure", "tax efficient", "offshore tax", "tax advisory",
+      "economic substance", "pillar two", "global minimum tax",
+    ],
+    context: `DOMAIN EXPERTISE — UAE AND INTERNATIONAL TAX:
+Use this knowledge wherever relevant. Name specific rates, rules, thresholds, and frameworks.
+
+UAE corporate tax (in force from June 2023):
+- Federal Decree-Law No. 47 of 2022 on the Taxation of Corporations and Businesses
+- Standard rate: 9% on net taxable income above AED 375,000
+- 0% on taxable income up to AED 375,000 (small business relief)
+- Free zone entities: 0% on qualifying income from qualifying activities if they meet the substance requirements — non-qualifying income taxed at 9%
+- Qualifying Free Zone Person (QFZP) status requires: adequate substance in the free zone, qualifying income only, no election to be subject to standard CT, audited financial statements
+- Exempt persons: UAE government entities, qualifying extractive businesses, qualifying public benefit entities
+
+UAE VAT:
+- Standard rate: 5% (introduced January 2018, Federal Decree-Law No. 8 of 2017)
+- Zero-rated: exports of goods/services, international transport, certain financial services, residential property (first supply)
+- Exempt: bare land, local passenger transport, certain financial services
+- Registration threshold: AED 375,000 mandatory; AED 187,500 voluntary
+
+International tax structures using the UAE:
+- Double Taxation Agreements (DTAs): UAE has 130+ active DTAs — covers dividends, royalties, capital gains withholding tax reductions
+- Economic Substance Regulations (ESR): Cabinet Resolution No. 57 of 2020 — UAE entities in certain activities (banking, insurance, holding companies, IP holding, HQ, shipping, distribution/service centres, fund management, financing/leasing) must demonstrate economic substance
+- Pillar Two / Global Minimum Tax (15%): UAE has enacted a Domestic Minimum Top-up Tax (DMTT) effective January 2025 for MNEs with global revenue above EUR 750M
+- Transfer pricing: UAE CT law adopts the arm's length principle — transactions between related parties must be at market value; documentation required for transactions above AED 3M annually`,
+  },
+  {
+    signals: [
+      "nominee", "nominee director", "nominee shareholder", "nominee service",
+      "beneficial owner", "ubo", "ownership structure", "holding structure",
+      "offshore", "bvi", "seychelles", "cayman", "panama", "mauritius",
+      "offshore company", "offshore vehicle", "shelf company",
+    ],
+    context: `DOMAIN EXPERTISE — NOMINEE SERVICES, HOLDING STRUCTURES AND OFFSHORE VEHICLES:
+Use this knowledge wherever relevant. Name specific offshore jurisdictions, structures, and compliance obligations.
+
+UAE nominee context:
+- UAE Cabinet Resolution No. 58 of 2020 requires all UAE companies to maintain an accurate UBO register disclosing all natural persons who ultimately own or control the entity (directly or through a chain)
+- Nominee directors are legal in the UAE but the UBO register must still reflect the true beneficial owner
+- UAE companies must file UBO registers with the relevant authority — non-compliance results in penalties
+- Nominee arrangements do not provide secrecy under UAE law — they are administrative and operational tools, not concealment mechanisms
+
+Offshore jurisdictions Aston works with:
+- British Virgin Islands (BVI): most commonly used — flexible, well-recognised, no public register of beneficial owners (though BOSS system exists for regulatory access), 0% corporate tax, quick formation (3–5 days)
+- Seychelles IBC: very cost-effective (from $800–1,200/year), 0% tax, simple structure, popular for holding and trading companies
+- Cayman Islands: preferred for fund structures, hedge funds, private equity — more expensive and complex
+- Panama: SA and Foundation structures, historically used for asset holding and estate planning
+- Mauritius: strong DTA network with India and Africa, GBC (Global Business Company) license
+- RAK ICC (UAE): offshore company registered in Ras Al Khaimah, regulated by RAKICC — popular because it is UAE-based with a local offshore framework
+
+Legitimate uses of holding structures:
+- Asset protection between jurisdictions
+- IP holding and royalty flows
+- Consolidating international shareholdings under one parent
+- Estate planning for HNW families
+- Separating operational risk from asset ownership
+
+Important compliance positions:
+- Offshore structures are not tax evasion tools — they work within the legal frameworks of each jurisdiction
+- Substance requirements (ESR in UAE, economic nexus tests in Mauritius, Cayman CIMA substance) must be respected
+- Banks and counterparties conduct enhanced due diligence on offshore entities — the UBO must be disclosed and verifiable`,
+  },
+  {
+    signals: [
+      "golden visa", "uae visa", "residency visa", "residence visa",
+      "investor visa", "employment visa", "retirement visa", "freelancer visa",
+      "long-term residency", "permanent residency uae", "visa application",
+    ],
+    context: `DOMAIN EXPERTISE — UAE RESIDENCY AND VISA:
+Use this knowledge wherever relevant. Name specific visa categories, thresholds, and processing steps.
+
+UAE Golden Visa (10-year residency):
+- Introduced under UAE Cabinet Resolution No. 56 of 2018, expanded in 2022
+- Qualifying categories: real property investors (AED 2M minimum, unemcumbered), entrepreneurs (approved by accredited incubator or with AED 500,000+ startup capital), specialised talents (scientists, doctors, engineers, artists — evaluated by relevant authorities), outstanding students
+- No UAE sponsor required — self-sponsored residency
+- Can sponsor family members and unlimited domestic workers
+- Processing: approximately 4–8 weeks via ICA (Federal Authority for Identity, Citizenship, Customs and Port Security)
+
+UAE Investor Visa (2-year, renewable):
+- Available to company shareholders — minimum share capital or investment value requirements vary by emirate
+- Dubai: AED 72,000 minimum investment value or share capital for mainland; free zones set their own thresholds
+- Can be combined with residence for family
+
+Freelancer and remote worker visas:
+- Dubai Freelancer Permit: issued via TECOM, Dubai Media City, or other free zones
+- Green Visa (5-year self-sponsored): for skilled professionals, freelancers, and entrepreneurs earning above AED 360,000/year
+
+Processing requirements:
+- Emirates ID application via ICA
+- Health insurance (mandatory for Dubai residency)
+- Medical fitness test
+- Entry permit, then status change to residency inside the UAE`,
+  },
+  {
+    signals: [
+      "regulatory license", "financial license", "regulated", "regulation",
+      "fund management", "asset management", "family office", "wealth management",
+      "investment advisor", "investment manager", "broker", "broker-dealer",
+      "insurance", "reinsurance", "factoring", "leasing",
+    ],
+    context: `DOMAIN EXPERTISE — UAE REGULATORY LICENSING:
+Use this knowledge wherever relevant. Name the specific regulator, license category, and requirements.
+
+DIFC (regulated by DFSA):
+- Authorised Firm categories: Category 1 (deposit-taking), Category 2 (dealing in investments as principal), Category 3A (dealing in investments as agent), Category 3B (managing collective investment funds), Category 3C (managing assets), Category 4 (advising on financial products), Category 5 (Islamic finance)
+- Minimum capital: ranges from USD 10,000 (Cat 4 advisory) to USD 10M+ (Cat 1 deposit-taking)
+- Key requirement: Approved Individuals (AI) — senior management and controlled functions must be individually approved by DFSA
+- Family office: DIFC Family Office framework — members of the same family, minimum AED 50M assets under management in the DIFC
+
+ADGM (regulated by FSRA):
+- Financial Services Permission (FSP) — equivalent to DIFC's authorised firm
+- Popular for: fund managers, family offices, SPVs, holding companies
+- ADGM Registered Agent requirement for non-regulated entities
+
+UAE Mainland (regulated by SCA — Securities and Commodities Authority):
+- Investment fund management license
+- Financial analysis and investment advisory license
+- Portfolio management license
+
+CBUAE-regulated activities:
+- Banking license
+- Exchange house license (money transfer and currency exchange)
+- Insurance license
+- Finance company license (for lending)
+- Payment service provider license`,
+  },
+];
+
+/**
+ * Detect which domains are relevant to this article and return a combined
+ * specialist knowledge block to inject into the user prompt.
+ * Returns an empty string if no domain matches — the system prompt handles the generic case.
+ */
+function buildDomainContext(title: string, customPrompt?: string): string {
+  const haystack = `${title} ${customPrompt ?? ""}`.toLowerCase();
+
+  const matched = DOMAIN_CONTEXTS.filter((domain) =>
+    domain.signals.some((signal) => haystack.includes(signal))
+  );
+
+  if (matched.length === 0) return "";
+
+  const blocks = matched.map((d) => d.context).join("\n\n");
+  return `\nSPECIALIST DOMAIN KNOWLEDGE (treat this as your source of truth for specific facts, names, and figures in this article — do not contradict it, do not invent alternatives):\n${blocks}\n`;
+}
 
 // ── Step 1: Generate structure blueprint ──────────────────────
 
@@ -170,9 +458,11 @@ The custom instructions above specify multiple sections, headings, or angles. Yo
     ? `\nTARGET LANGUAGE: ${language!.toUpperCase()} — MANDATORY OVERRIDE\nEvery field in this blueprint — seo_title, meta_description, focus_keyword, secondary_keywords, intro_angle, all h3_heading and h4_heading values, all angle descriptions, all faq_questions — MUST be written entirely in ${language}. No English words or phrases anywhere. The "UK English only" rule in the system prompt does NOT apply here. Write everything in ${language}.\n`
     : "";
 
+  const domainContext = buildDomainContext(title, customPrompt);
+
   const userPrompt = `Blog title: "${title}"
 Available link topics for context: ${linkCategories}
-${languageBlock}${strategyBlock}${customPromptBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
+${languageBlock}${domainContext}${strategyBlock}${customPromptBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
 
 Plan the structure of this blog post and return it as a single valid JSON object. No markdown, no code fences:
 
@@ -419,8 +709,10 @@ Rules:
     ? `\nTARGET LANGUAGE: ${language!.toUpperCase()} — MANDATORY OVERRIDE\nThe ENTIRE article — every paragraph, every heading, every key takeaway, the excerpt, all quotes, and all SEO fields (seo_title, meta_description, focus_keyword) — MUST be written entirely in ${language}. No English words or phrases anywhere. The "UK English only" rule in the system prompt does NOT apply. Write everything in ${language}.\n`
     : "";
 
+  const domainContext = buildDomainContext(title, customPrompt);
+
   const userPrompt = `Blog title: "${title}"
-${languageContentBlock}${strategyContentBlock}${customPromptContentBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}${authorityLinksBlock}
+${languageContentBlock}${domainContext}${strategyContentBlock}${customPromptContentBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}${authorityLinksBlock}
 You have already planned the structure. Now write the full article following the blueprint exactly.
 The headings, section angles, and word targets below are fixed — do not change them.
 
