@@ -861,21 +861,21 @@ more_content_1:
 - Use EXACTLY this H3: "${blueprint.sections[0]?.h3_heading ?? ""}"
 - Follow the angle: ${blueprint.sections[0]?.angle ?? ""}
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
-- Target ~${blueprint.sections[0]?.target_words ?? 380} words — HIT THIS TARGET, do not write less
+- Target ~${blueprint.sections[0]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Must include at least one: specific cost/fee in AED or USD, named regulatory body, realistic timeline, or jurisdiction comparison
-- If a visual SEO block was requested for this section's topic, render it here using the visual block format above
+${visualBlockInstructions ? "- VISUAL BLOCKS: if any [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], or [VISUAL SEO BLOCK] from the custom instructions relates to this section's topic, YOU MUST render it here using EXACTLY the HTML format defined in the VISUAL BLOCKS section above. Do not skip it." : ""}
 - Use 1-2 secondary keywords naturally
-- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>, <div class="visual-seo-block">, <p class="vsb-label">, <p class="vsb-title">
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
 more_content_2:
 - Use EXACTLY this H3: "${blueprint.sections[1]?.h3_heading ?? ""}"
 - Follow the angle: ${blueprint.sections[1]?.angle ?? ""}
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
-- Target ~${blueprint.sections[1]?.target_words ?? 380} words — HIT THIS TARGET, do not write less
+- Target ~${blueprint.sections[1]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Must include a bulleted or numbered list of at least 5 concrete items with facts, figures, or named details
-- If a visual SEO block was requested for this section's topic, render it here using the visual block format above
+${visualBlockInstructions ? "- VISUAL BLOCKS: if any [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], or [VISUAL SEO BLOCK] from the custom instructions relates to this section's topic, YOU MUST render it here using EXACTLY the HTML format defined in the VISUAL BLOCKS section above. Do not skip it." : ""}
 - Use 1-2 secondary keywords naturally
-- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>, <div class="visual-seo-block">, <p class="vsb-label">, <p class="vsb-title">
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
 quote_1:
 Short, punchy, practical advice from more_content_1 or more_content_2. Max 2 sentences. No em dashes. Actionable. Must sound like it came from a senior compliance adviser, not a marketing page.
@@ -884,11 +884,11 @@ more_content_3:
 - Use EXACTLY this H3: "${blueprint.sections[2]?.h3_heading ?? ""}"
 - Follow the angle: ${blueprint.sections[2]?.angle ?? ""}
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
-- Target ~${blueprint.sections[2]?.target_words ?? 380} words — HIT THIS TARGET, do not write less
+- Target ~${blueprint.sections[2]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Include at least one real-world scenario as a short narrative (e.g. "A gold trading company registered in DMCC approached three banks over six months...")
-- If a visual SEO block was requested for this section's topic, render it here using the visual block format above
+${visualBlockInstructions ? "- VISUAL BLOCKS: if any [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], or [VISUAL SEO BLOCK] from the custom instructions relates to this section's topic, YOU MUST render it here using EXACTLY the HTML format defined in the VISUAL BLOCKS section above. Do not skip it." : ""}
 - Use 1-2 secondary keywords naturally
-- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>, <div class="visual-seo-block">, <p class="vsb-label">, <p class="vsb-title">
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
 keypoint_two:
 A single compelling sentence (max 25 words) from the key insight of more_content_3. Plain text only — no markdown, no asterisks, no bold tags. No em dashes. No question marks. Different from keypoint_one.
@@ -897,7 +897,7 @@ more_content_4:
 - Use EXACTLY this H3: "${blueprint.sections[3]?.h3_heading ?? "Aston VIP's role in your process"}"
 - Follow the angle: ${blueprint.sections[3]?.angle ?? ""}
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
-- Target ~${blueprint.sections[3]?.target_words ?? 380} words — HIT THIS TARGET, do not write less
+- Target ~${blueprint.sections[3]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Describe Aston's end-to-end involvement specific to this topic — name the actual steps: pre-banking review, KYC file preparation, UBO documentation, compliance policy drafting, bank matching, introduction to relationship managers
 - DO NOT describe Aston generically. Every H4 must describe a specific, distinct phase of Aston's involvement
 - Include the mandatory disclaimer: "We do not guarantee bank account approvals. Our role is to ensure clients are properly prepared and introduced to institutions that align with their business profile."
@@ -923,11 +923,11 @@ more_content_6:
 - Use EXACTLY this H3: "${blueprint.sections[4]?.h3_heading ?? ""}"
 - Follow the angle: ${blueprint.sections[4]?.angle ?? ""}
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
-- Target ~${blueprint.sections[4]?.target_words ?? 320} words — HIT THIS TARGET, do not write less
+- Target ~${blueprint.sections[4]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - This is a distinct fifth body section — do not repeat themes from more_content_4
-- If a visual SEO block was requested for this section's topic, render it here using the visual block format above
+${visualBlockInstructions ? "- VISUAL BLOCKS: if any [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], or [VISUAL SEO BLOCK] from the custom instructions relates to this section's topic, YOU MUST render it here using EXACTLY the HTML format defined in the VISUAL BLOCKS section above. Do not skip it." : ""}
 - Use 1-2 secondary keywords naturally
-- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>, <div class="visual-seo-block">, <p class="vsb-label">, <p class="vsb-title">
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
 final_points:
 HTML <ul><li> list of exactly 4 practical next steps. Start each with a verb. Specific, advisory-level, and actionable — tailored to this article's topic.
