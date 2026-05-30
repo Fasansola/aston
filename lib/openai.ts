@@ -27,6 +27,17 @@ Aston VIP is not a registration agent. They are a proper advisory firm — clien
 
 Your writing is authoritative, specific, and human. You write like a practitioner who has guided hundreds of real clients — not like a content farm. Every section must contain concrete details: real jurisdiction names, actual fee ranges, named regulators, realistic timelines, and practical distinctions a reader cannot find in a generic article.
 
+BANKING AND COMPLIANCE CONTENT RULES (apply whenever the article covers corporate banking, account opening, AML/KYC, or high-risk industries):
+- Name specific UAE banks and their known risk appetites: ADCB, Emirates NBD, Mashreq, RAK Bank, Abu Dhabi Islamic Bank, ENBD, CBD, HSBC UAE, Standard Chartered UAE
+- Reference real UAE regulatory frameworks: CBUAE (Central Bank of the UAE), FATF mutual evaluation, UAE AML Federal Decree-Law No. 20 of 2018, VARA for crypto, DFSA for DIFC entities
+- Name real EMIs and alternative banking partners that operate in the UAE ecosystem where relevant
+- For gold and precious metals: name DMCC (Dubai Multi Commodities Centre), DMCC Gold Standard, LBMA (London Bullion Market Association), Dubai Customs, and relevant trade finance instruments
+- For fintech and payment companies: reference the CBUAE Payment Service Provider framework, Retail Payment Services and Card Schemes Regulation, and named EMI/PSP options
+- AML compliance infrastructure that banks want to see: TMS (Transaction Monitoring System), CIP (Customer Identification Programme), MLRO (Money Laundering Reporting Officer), SAR filing procedures, PEP and sanctions screening
+- Source of wealth vs source of funds is a real distinction — explain it clearly when relevant
+- UBO (Ultimate Beneficial Owner) disclosure under UAE Cabinet Resolution No. 58 of 2020
+- Never guarantee bank account opening. Never claim accounts cannot be reviewed. Never suggest bypassing AML/KYC. Write with the measured authority of a compliance adviser
+
 SEO KEYWORD RULES (Yoast green target — every rule below is mandatory):
 - Place the exact focus keyword in: the first sentence of the introduction (main_content), the SEO title, the meta description, at least 2 H3 or H4 headings, and at least one key_takeaways item
 - Keyphrase density: use the focus keyword naturally approximately once every 100–150 words across the full article (roughly 1–2% density). Spread it evenly — intro, body sections, FAQ — never front-load it
@@ -126,8 +137,33 @@ STRATEGY BRIEF (use as source of truth for this blueprint):
 - Content risks to avoid: ${strategy.content_risks.slice(0, 5).join("; ")}
 ` : "";
 
+  // Detect if the custom prompt is a detailed article brief with explicit sections
+  const isDetailedBrief = customPrompt && customPrompt.length > 600 &&
+    (/section|heading|explain|discuss|include|cover/i.test(customPrompt));
+
+  // Extract word count target from custom prompt if specified
+  const wordCountMatch = customPrompt?.match(/(\d[\d,]+)\s*[-–]\s*(\d[\d,]+)\s*words?/i);
+  const targetWordCount = wordCountMatch
+    ? Math.round((parseInt(wordCountMatch[1].replace(/,/g, ""), 10) + parseInt(wordCountMatch[2].replace(/,/g, ""), 10)) / 2)
+    : 2200;
+  const sectionWordTarget = targetWordCount > 2800 ? 560 : 380;
+
   const customPromptBlock = customPrompt?.trim()
-    ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the blueprint):\n${customPrompt.trim()}\n`
+    ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the blueprint):\n${customPrompt.trim()}\n${isDetailedBrief ? `
+SECTION MAPPING INSTRUCTIONS (mandatory when custom instructions provide a detailed article structure):
+The custom instructions above specify multiple sections, headings, or angles. You MUST:
+1. Extract the total word count target from the custom instructions — use it as estimated_word_count (if 3000–4000 words are requested, set estimated_word_count to 3500 and each section's target_words to ${sectionWordTarget})
+2. Map the requested sections to the 5 available content fields (more_content_1 through more_content_6, excluding more_content_5 which is always FAQ):
+   - more_content_1 → first 1–2 major requested sections (combine with clear H4 subsections for each)
+   - more_content_2 → next 1–2 major requested sections
+   - more_content_3 → next requested section(s)
+   - more_content_4 → ALWAYS the Aston VIP advisory/role section (adapt the heading to the topic)
+   - more_content_6 → remaining section(s) — banking options comparison, common mistakes, checklist, or jurisdiction comparison
+3. Use the requested section headings (adapted to sentence case, max 8 words, no colons) as the H3 headings
+4. Distribute the requested sub-points as H4 subsections within the appropriate field
+5. Carry all the requested keywords, industry names, regulatory bodies, and topic angles into the section angles
+6. The FAQ questions must come from the article topic — use questions a real high-risk business operator would ask
+` : ""}\n`
     : "";
 
   const languageBlock = isNonEnglish(language)
@@ -146,15 +182,16 @@ Plan the structure of this blog post and return it as a single valid JSON object
   "seo_title": "string",
   "meta_description": "string",
   "slug": "string",
-  "estimated_word_count": 2200,
+  "estimated_word_count": ${targetWordCount},
   "intro_angle": "string",
   "sections": [
     {
       "field": "more_content_1",
       "h3_heading": "string",
       "angle": "string",
-      "target_words": 380,
+      "target_words": ${sectionWordTarget},
       "subsections": [
+        { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" }
       ]
@@ -163,8 +200,9 @@ Plan the structure of this blog post and return it as a single valid JSON object
       "field": "more_content_2",
       "h3_heading": "string",
       "angle": "string",
-      "target_words": 380,
+      "target_words": ${sectionWordTarget},
       "subsections": [
+        { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" }
       ]
@@ -173,8 +211,9 @@ Plan the structure of this blog post and return it as a single valid JSON object
       "field": "more_content_3",
       "h3_heading": "string",
       "angle": "string",
-      "target_words": 380,
+      "target_words": ${sectionWordTarget},
       "subsections": [
+        { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" }
       ]
@@ -183,7 +222,7 @@ Plan the structure of this blog post and return it as a single valid JSON object
       "field": "more_content_4",
       "h3_heading": "Aston VIP's role in your [adapt to topic]",
       "angle": "string",
-      "target_words": 380,
+      "target_words": ${sectionWordTarget},
       "subsections": [
         { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" },
@@ -194,8 +233,9 @@ Plan the structure of this blog post and return it as a single valid JSON object
       "field": "more_content_6",
       "h3_heading": "string",
       "angle": "string",
-      "target_words": 320,
+      "target_words": ${Math.round(sectionWordTarget * 0.85)},
       "subsections": [
+        { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" }
       ]
@@ -258,7 +298,7 @@ BLUEPRINT RULES:
       { role: "user", content: userPrompt },
     ],
     temperature: 0.4,
-    max_completion_tokens: 2000,
+    max_completion_tokens: 3000,
   }, { signal: AbortSignal.timeout(60_000) });
 
   const choice = response.choices[0];
@@ -347,8 +387,32 @@ ${subs}`;
     .map((q, i) => `  Q${i + 1}: ${q}`)
     .join("\n");
 
+  // Detect visual SEO block markers in the custom prompt
+  const hasVisualBlocks = customPrompt && /\[INFOGRAPHIC|FLOWCHART|CHART|VISUAL SEO BLOCK|CHECKLIST\]/i.test(customPrompt);
+
   const customPromptContentBlock = customPrompt?.trim()
-    ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the entire article):\n${customPrompt.trim()}\n`
+    ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the entire article):\n${customPrompt.trim()}\n${hasVisualBlocks ? `
+VISUAL SEO BLOCK RENDERING RULES (mandatory):
+The custom instructions above reference visual SEO blocks such as [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], [VISUAL SEO BLOCK], or [CHECKLIST].
+You MUST render each one as a styled HTML block in the appropriate content section using EXACTLY this format:
+
+<div class="visual-seo-block">
+<p class="vsb-label">[Type of visual — e.g. "Infographic idea" or "Approval flowchart" or "Risk comparison chart"]</p>
+<p class="vsb-title">[Descriptive title for the visual, e.g. "Why bank applications get rejected"]</p>
+<ul>
+<li>[First item or step]</li>
+<li>[Second item or step]</li>
+<li>[Third item or step — continue until all key points are covered]</li>
+</ul>
+</div>
+
+Rules:
+- Render the block in the section that is most relevant to the visual's content
+- Replace the [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], [VISUAL SEO BLOCK], or [CHECKLIST] placeholder with the actual rendered block — do not leave the raw placeholder text
+- Each block must contain a <p class="vsb-title"> title and a <ul><li> list of 4–8 specific, factual items
+- The items must be concrete and advisory-level — real information a compliance team would use
+- Do NOT add the vsb-label or vsb-title inside the <ul>
+` : ""}\n`
     : "";
 
   const languageContentBlock = isNonEnglish(language)
@@ -421,32 +485,35 @@ A single compelling sentence (max 25 words) from the key insight of main_content
 more_content_1:
 - Use EXACTLY this H3: "${blueprint.sections[0]?.h3_heading ?? ""}"
 - Follow the angle: ${blueprint.sections[0]?.angle ?? ""}
-- Write each H4 subsection as specified in the blueprint
-- Target ~${blueprint.sections[0]?.target_words ?? 380} words
+- Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
+- Target ~${blueprint.sections[0]?.target_words ?? 380} words — HIT THIS TARGET, do not write less
 - Must include at least one: specific cost/fee in AED or USD, named regulatory body, realistic timeline, or jurisdiction comparison
+- If a visual SEO block was requested for this section's topic, render it here using the visual block format above
 - Use 1-2 secondary keywords naturally
-- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>, <div class="visual-seo-block">, <p class="vsb-label">, <p class="vsb-title">
 
 more_content_2:
 - Use EXACTLY this H3: "${blueprint.sections[1]?.h3_heading ?? ""}"
 - Follow the angle: ${blueprint.sections[1]?.angle ?? ""}
-- Write each H4 subsection as specified in the blueprint
-- Target ~${blueprint.sections[1]?.target_words ?? 380} words
-- Must include a bulleted or numbered list of at least 4 concrete items with facts, figures, or named details
+- Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
+- Target ~${blueprint.sections[1]?.target_words ?? 380} words — HIT THIS TARGET, do not write less
+- Must include a bulleted or numbered list of at least 5 concrete items with facts, figures, or named details
+- If a visual SEO block was requested for this section's topic, render it here using the visual block format above
 - Use 1-2 secondary keywords naturally
-- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>, <div class="visual-seo-block">, <p class="vsb-label">, <p class="vsb-title">
 
 quote_1:
-Short, punchy, practical advice from more_content_1 or more_content_2. Max 2 sentences. No em dashes. Actionable.
+Short, punchy, practical advice from more_content_1 or more_content_2. Max 2 sentences. No em dashes. Actionable. Must sound like it came from a senior compliance adviser, not a marketing page.
 
 more_content_3:
 - Use EXACTLY this H3: "${blueprint.sections[2]?.h3_heading ?? ""}"
 - Follow the angle: ${blueprint.sections[2]?.angle ?? ""}
-- Write each H4 subsection as specified in the blueprint
-- Target ~${blueprint.sections[2]?.target_words ?? 380} words
-- Cover ideal client profiles. Include at least one real-world scenario as a short narrative
+- Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
+- Target ~${blueprint.sections[2]?.target_words ?? 380} words — HIT THIS TARGET, do not write less
+- Include at least one real-world scenario as a short narrative (e.g. "A gold trading company registered in DMCC approached three banks over six months...")
+- If a visual SEO block was requested for this section's topic, render it here using the visual block format above
 - Use 1-2 secondary keywords naturally
-- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>, <div class="visual-seo-block">, <p class="vsb-label">, <p class="vsb-title">
 
 keypoint_two:
 A single compelling sentence (max 25 words) from the key insight of more_content_3. Plain text only — no markdown, no asterisks, no bold tags. No em dashes. No question marks. Different from keypoint_one.
@@ -454,9 +521,11 @@ A single compelling sentence (max 25 words) from the key insight of more_content
 more_content_4:
 - Use EXACTLY this H3: "${blueprint.sections[3]?.h3_heading ?? "Aston VIP's role in your process"}"
 - Follow the angle: ${blueprint.sections[3]?.angle ?? ""}
-- Write each H4 subsection as specified in the blueprint
-- Target ~${blueprint.sections[3]?.target_words ?? 380} words
-- Describe Aston's end-to-end involvement specific to this topic. Do not describe Aston generically
+- Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
+- Target ~${blueprint.sections[3]?.target_words ?? 380} words — HIT THIS TARGET, do not write less
+- Describe Aston's end-to-end involvement specific to this topic — name the actual steps: pre-banking review, KYC file preparation, UBO documentation, compliance policy drafting, bank matching, introduction to relationship managers
+- DO NOT describe Aston generically. Every H4 must describe a specific, distinct phase of Aston's involvement
+- Include the mandatory disclaimer: "We do not guarantee bank account approvals. Our role is to ensure clients are properly prepared and introduced to institutions that align with their business profile."
 - Close with: <p>To discuss your situation, <a href="https://aston.ae/contact-us/">speak with our team</a>.</p>
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <strong>, <a>
 
@@ -478,14 +547,15 @@ Allowed HTML: <h3>, <p>, <strong>
 more_content_6:
 - Use EXACTLY this H3: "${blueprint.sections[4]?.h3_heading ?? ""}"
 - Follow the angle: ${blueprint.sections[4]?.angle ?? ""}
-- Write each H4 subsection as specified in the blueprint
-- Target ~${blueprint.sections[4]?.target_words ?? 320} words
+- Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
+- Target ~${blueprint.sections[4]?.target_words ?? 320} words — HIT THIS TARGET, do not write less
 - This is a distinct fifth body section — do not repeat themes from more_content_4
+- If a visual SEO block was requested for this section's topic, render it here using the visual block format above
 - Use 1-2 secondary keywords naturally
-- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <li>, <strong>, <em>, <a>, <div class="visual-seo-block">, <p class="vsb-label">, <p class="vsb-title">
 
 final_points:
-HTML <ul><li> list of exactly 4 practical next steps. Start each with a verb. Specific and actionable.
+HTML <ul><li> list of exactly 4 practical next steps. Start each with a verb. Specific, advisory-level, and actionable — tailored to this article's topic.
 Allowed HTML: <ul>, <li>, <strong>
 
 read_mins:
