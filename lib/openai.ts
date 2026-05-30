@@ -533,11 +533,13 @@ STRATEGY BRIEF (use as source of truth for this blueprint):
     (/section|heading|explain|discuss|include|cover/i.test(customPrompt));
 
   // Extract word count target from custom prompt if specified
+  // Default raised to 3,000 — produces richer, more detailed articles without a brief
   const wordCountMatch = customPrompt?.match(/(\d[\d,]+)\s*[-–]\s*(\d[\d,]+)\s*words?/i);
   const targetWordCount = wordCountMatch
     ? Math.round((parseInt(wordCountMatch[1].replace(/,/g, ""), 10) + parseInt(wordCountMatch[2].replace(/,/g, ""), 10)) / 2)
-    : 2200;
-  const sectionWordTarget = targetWordCount > 2800 ? 560 : 380;
+    : 3000;
+  // Section word target scales with the total: 500w for standard, 620w for long-form (3500+)
+  const sectionWordTarget = targetWordCount >= 3500 ? 620 : targetWordCount >= 2800 ? 560 : 500;
 
   const customPromptBlock = customPrompt?.trim()
     ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the blueprint):\n${customPrompt.trim()}\n${isDetailedBrief ? `
@@ -691,7 +693,7 @@ BLUEPRINT RULES:
       { role: "user", content: userPrompt },
     ],
     temperature: 0.4,
-    max_completion_tokens: 3000,
+    max_completion_tokens: 5000,
   }, { signal: AbortSignal.timeout(60_000) });
 
   const choice = response.choices[0];
@@ -949,8 +951,8 @@ ${linksBlock}`;
       { role: "user", content: userPrompt },
     ],
     temperature: 0.6,
-    max_completion_tokens: 32000,
-  }, { signal: AbortSignal.timeout(180_000) });
+    max_completion_tokens: 64000,
+  }, { signal: AbortSignal.timeout(240_000) });
 
   const choice = response.choices[0];
   if (choice.finish_reason === "length") {
@@ -1070,7 +1072,7 @@ Alt text rules (SEO-optimised — all must be met):
       { role: "user", content: userPrompt },
     ],
     temperature: 0.5,
-    max_completion_tokens: 2000,
+    max_completion_tokens: 3000,
   }, { signal: AbortSignal.timeout(60_000) });
 
   const choice = response.choices[0];
@@ -1266,8 +1268,8 @@ The "internal_links_used" and "external_links_used" arrays must include ALL link
       { role: "user", content: prompt },
     ],
     temperature: 0.5,
-    max_completion_tokens: 12000,
-  }, { signal: AbortSignal.timeout(90_000) });
+    max_completion_tokens: 20000,
+  }, { signal: AbortSignal.timeout(120_000) });
 
   if (response.choices[0]?.finish_reason === "length") {
     throw new Error("fixBlogContent response was cut off — increase max_completion_tokens");
