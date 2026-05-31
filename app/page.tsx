@@ -57,6 +57,12 @@ interface GenerateResult {
     external: Array<{ anchor: string; url: string }>;
   };
   postId?: number;
+  imageIds?: {
+    keypointOneImg: number;
+    keypointTwoImg: number;
+    postSplitImg:   number;
+    featuredImg:    number;
+  };
   articleHtml?: string;
   excerpt?: string;
   tags?: string[];
@@ -849,6 +855,10 @@ export default function HomePage() {
   const [appliedFixes, setAppliedFixes]       = useState<string[]>([]);
   const [wpSyncStatus, setWpSyncStatus]       = useState<"idle" | "syncing" | "synced" | "error">("idle");
 
+  // Delete post
+  const [deleteState, setDeleteState] = useState<"idle" | "confirming" | "deleting" | "deleted" | "error">("idle");
+  const [deleteError, setDeleteError] = useState("");
+
   // Publish queue scheduling
   const [showQueuePublish, setShowQueuePublish]       = useState(false);
   const [queueScheduledFor, setQueueScheduledFor]     = useState("");
@@ -1149,6 +1159,34 @@ export default function HomePage() {
       setIsAutoFixing(false);
     }
   };
+
+  const handleDeletePost = async () => {
+    if (!result?.postId) return;
+    setDeleteState("deleting");
+    setDeleteError("");
+    try {
+      const res = await fetch("/api/delete-post", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postId: result.postId, imageIds: result.imageIds }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.errors?.join(", ") || data.error || "Delete failed");
+      }
+      setDeleteState("deleted");
+      // Clear the result so the UI resets to the generate form
+      setTimeout(() => {
+        setResult(null);
+        setDeleteState("idle");
+        setDeleteError("");
+      }, 2000);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Delete failed");
+      setDeleteState("error");
+    }
+  };
+
 
   const runLinkValidation = async (links: Array<{ anchor: string; url: string }>, currentResult?: GenerateResult) => {
     if (!links.length) return;
@@ -2321,6 +2359,73 @@ export default function HomePage() {
                   )}
                 </div>
               </div>
+
+              {/* Delete post */}
+              {result.postId && deleteState !== "deleted" && (
+                <div className="space-y-2">
+                  {deleteState === "idle" && (
+                    <button
+                      onClick={() => setDeleteState("confirming")}
+                      className="w-full flex items-center justify-center gap-2 bg-transparent hover:bg-red-500/10 border border-white/[0.07] hover:border-red-500/30 text-white/30 hover:text-red-400 text-sm py-2.5 rounded-lg transition-all duration-200"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      Delete this post
+                    </button>
+                  )}
+
+                  {deleteState === "confirming" && (
+                    <div className="rounded-lg border border-red-500/20 bg-red-500/[0.04] px-4 py-3 space-y-3">
+                      <p className="text-xs text-red-400 font-medium">Delete this post and all 4 images permanently?</p>
+                      <p className="text-[11px] text-white/35">This cannot be undone. The draft and its media files will be removed from WordPress.</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleDeletePost}
+                          className="flex-1 bg-red-500/80 hover:bg-red-500 text-white text-xs font-semibold py-2 rounded-lg transition-colors"
+                        >
+                          Yes, delete everything
+                        </button>
+                        <button
+                          onClick={() => setDeleteState("idle")}
+                          className="flex-1 bg-white/[0.05] hover:bg-white/[0.08] text-white/50 text-xs font-medium py-2 rounded-lg transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {deleteState === "deleting" && (
+                    <div className="flex items-center justify-center gap-2 py-2.5">
+                      <svg className="w-3.5 h-3.5 text-red-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      <p className="text-xs text-red-400/70">Deleting post and images…</p>
+                    </div>
+                  )}
+
+                  {deleteState === "error" && (
+                    <div className="rounded-lg border border-red-500/20 bg-red-500/[0.04] px-4 py-3 space-y-2">
+                      <p className="text-xs text-red-400">{deleteError || "Delete failed — try again or remove manually in WordPress."}</p>
+                      <button
+                        onClick={() => setDeleteState("idle")}
+                        className="text-[11px] text-white/30 hover:text-white/60 transition-colors"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {deleteState === "deleted" && (
+                <div className="flex items-center justify-center gap-2 py-2.5">
+                  <span className="text-emerald-400 text-xs">✓</span>
+                  <p className="text-xs text-emerald-400/70">Post and images deleted. Resetting…</p>
+                </div>
+              )}
 
               {/* Video generation */}
               <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">

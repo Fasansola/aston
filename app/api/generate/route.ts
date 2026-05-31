@@ -370,6 +370,7 @@ export async function POST(req: NextRequest) {
             type:        "done",
             success:     true,
             postId:      post.id,
+            imageIds,
             mode,
             title,
             slug:         content.slug,
