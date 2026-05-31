@@ -989,6 +989,7 @@ export default function HomePage() {
             clearInterval(interval);
             setRetryMessage(null);
             const data = event as unknown as GenerateResult;
+            console.log("[generate] done event postId:", (event as Record<string, unknown>).postId);
             setResult(data);
             setStatus("success");
             completed = true;
@@ -2366,7 +2367,7 @@ export default function HomePage() {
                   {deleteState === "idle" && (
                     <button
                       onClick={() => setDeleteState("confirming")}
-                      className="w-full flex items-center justify-center gap-2 bg-transparent hover:bg-red-500/10 border border-white/[0.07] hover:border-red-500/30 text-white/30 hover:text-red-400 text-sm py-2.5 rounded-lg transition-all duration-200"
+                      className="w-full flex items-center justify-center gap-2 bg-transparent hover:bg-red-500/10 border border-white/20 hover:border-red-500/40 text-white/50 hover:text-red-400 text-sm py-2.5 rounded-lg transition-all duration-200"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
