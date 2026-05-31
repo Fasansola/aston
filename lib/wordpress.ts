@@ -25,65 +25,6 @@ const BASE_HEADERS = {
   "User-Agent": "AstonBlogTool/1.0 (Vercel; +https://aston.ae)",
 };
 
-// ── Chart.js self-loading init script ────────────────────────
-/**
- * Returns a self-contained <script> block that:
- *  1. Checks if Chart.js is already on the page
- *  2. If not, dynamically loads Chart.js v4 from jsDelivr CDN
- *  3. Initialises every <canvas class="aston-chartjs"> element by reading
- *     its data-* attributes (chart-type, chart-labels, chart-values, etc.)
- *
- * Appended to more_content_6 only when the post contains at least one chart.
- * Chart.js v4 dropped the "horizontalBar" type — we translate it to
- * type:"bar" + indexAxis:"y" automatically.
- */
-const CHARTJS_INIT_SCRIPT = `
-<script>
-(function(){
-  function initAstonCharts(){
-    var els=document.querySelectorAll('canvas.aston-chartjs');
-    if(!els.length)return;
-    els.forEach(function(c){
-      if(c.dataset.astonInit)return;
-      c.dataset.astonInit='1';
-      var t=c.dataset.chartType||'bar';
-      var horizontal=t==='horizontalBar';
-      var type=horizontal?'bar':t;
-      var labels=JSON.parse(c.dataset.chartLabels||'[]');
-      var values=JSON.parse(c.dataset.chartValues||'[]');
-      var colors=JSON.parse(c.dataset.chartColors||'["#C9A84C"]');
-      var lbl=c.dataset.chartLabel||'';
-      new Chart(c,{
-        type:type,
-        data:{labels:labels,datasets:[{label:lbl,data:values,backgroundColor:colors,borderColor:colors,borderWidth:1}]},
-        options:{
-          indexAxis:horizontal?'y':'x',
-          responsive:true,
-          plugins:{legend:{display:type==='pie'||type==='doughnut'}}
-        }
-      });
-    });
-  }
-  function loadAndInit(){
-    if(typeof Chart!=='undefined'){initAstonCharts();return;}
-    var s=document.createElement('script');
-    s.src='https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
-    s.onload=initAstonCharts;
-    document.head.appendChild(s);
-  }
-  if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',loadAndInit);}
-  else{loadAndInit();}
-})();
-</script>`;
-
-/**
- * Scans all ACF content fields for chart canvases.
- * Returns the init script if any are found, empty string otherwise.
- */
-function maybeChartScript(fields: Record<string, string>): string {
-  const combined = Object.values(fields).join("");
-  return combined.includes("aston-chartjs") ? CHARTJS_INIT_SCRIPT : "";
-}
 
 // ── Language normalisation ────────────────────────────────────
 // Polylang uses 2-letter ISO slugs. The tool accepts full names or codes.
@@ -301,16 +242,7 @@ export async function createWordPressPost(
           post_split_img:   imageIds.postSplitImg,
           Final_Points:     content.final_points,
           more_content_5:   content.more_content_5,
-          // Append Chart.js init script to more_content_6 if any chart canvases exist in the post
-          more_content_6:   content.more_content_6 + maybeChartScript({
-            main_content:   assembled.main_content,
-            more_content_1: assembled.more_content_1,
-            more_content_2: content.more_content_2,
-            more_content_3: assembled.more_content_3,
-            more_content_4: assembled.more_content_4,
-            more_content_5: content.more_content_5,
-            more_content_6: content.more_content_6,
-          }),
+          more_content_6:   content.more_content_6,
         },
       },
       { headers: BASE_HEADERS, timeout: 45_000 }
