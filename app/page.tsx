@@ -1162,7 +1162,11 @@ export default function HomePage() {
   };
 
   const handleDeletePost = async () => {
-    if (!result?.postId) return;
+    if (!result?.postId) {
+      setDeleteError("Post ID not found — please delete this post manually in WordPress.");
+      setDeleteState("error");
+      return;
+    }
     setDeleteState("deleting");
     setDeleteError("");
     try {
@@ -2362,7 +2366,7 @@ export default function HomePage() {
               </div>
 
               {/* Delete post */}
-              {result.postId && deleteState !== "deleted" && (
+              {deleteState !== "deleted" && (
                 <div className="space-y-2">
                   {deleteState === "idle" && (
                     <button
