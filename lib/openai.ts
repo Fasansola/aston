@@ -385,62 +385,82 @@ function buildDomainContext(title: string, customPrompt?: string): string {
 
 // ── Visual SEO block system ───────────────────────────────────
 /**
- * Detects [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], and [VISUAL SEO BLOCK]
- * markers in the custom prompt and returns rendering instructions for the
- * content generator.
+ * Always injects infographic + chart instructions into every post — these are
+ * mandatory for SEO regardless of the custom prompt.
  *
- * Infographics/flowcharts/checklists → styled HTML div blocks (CSS classes
- * applied by the WordPress theme, no JS needed).
+ * Flowchart is only added when [FLOWCHART] is explicitly in the custom prompt
+ * since it only suits process/step-by-step articles.
  *
- * Charts → Chart.js canvas with data stored in data-* attributes so a single
- * init script on the page handles all instances.
+ * Infographics → styled HTML div blocks (CSS classes, no JS needed).
+ * Charts → Chart.js canvas with data stored in data-* attributes.
  */
 function buildVisualBlockInstructions(customPrompt?: string): string {
-  if (!customPrompt?.trim()) return "";
-
-  const text = customPrompt;
-  const hasInfographic  = /\[INFOGRAPHIC(?: IDEA)?\]/i.test(text);
-  const hasFlowchart    = /\[FLOWCHART\]/i.test(text);
-  const hasChart        = /\[CHART\]/i.test(text);
-  const hasVisualBlock  = /\[VISUAL SEO BLOCK\]/i.test(text);
-
-  if (!hasInfographic && !hasFlowchart && !hasChart && !hasVisualBlock) return "";
+  const text = customPrompt || "";
+  const hasFlowchart = /\[FLOWCHART\]/i.test(text);
 
   const parts: string[] = [];
 
-  parts.push(`VISUAL SEO BLOCKS — MANDATORY RENDERING INSTRUCTIONS:
-The custom instructions above contain visual block markers. You MUST render each one as described below and place it inside the most relevant content section (more_content_1 through more_content_6). Do not place visual blocks in main_content, key_takeaways, FAQ, or final_points.
-Each block must contain real, article-specific data derived from the section it sits in — not placeholder text.`);
+  parts.push(`VISUAL SEO BLOCKS — MANDATORY FOR EVERY ARTICLE:
+Every article MUST include at least ONE infographic block and at least ONE chart block. This is not optional — these visual elements are required on every post for SEO regardless of the custom instructions.
+Place visual blocks inside the most relevant content sections (more_content_1 through more_content_6). Never place them in main_content, key_takeaways, FAQ, or final_points.
+Each block must contain real, article-specific data derived from the section it sits in — never placeholder text or generic examples.`);
 
-  if (hasInfographic || hasVisualBlock) {
-    parts.push(`
-[INFOGRAPHIC IDEA] and [VISUAL SEO BLOCK] → render as an infographic-style HTML block:
+  // ── Infographic (always included) ──────────────────────────
+  parts.push(`
+INFOGRAPHIC BLOCK (mandatory — include at least one per article):
+Choose the most data-rich section of the article and render an infographic there. The title and content must be specific to the article topic.
 
 <div class="aston-visual-block aston-infographic">
   <p class="aston-visual-block__label">Key insight</p>
-  <h4 class="aston-visual-block__title">[Insert a short, specific title for this infographic]</h4>
+  <h4 class="aston-visual-block__title">[Specific title relevant to this article section]</h4>
   <ul>
-    <li>[Specific point 1 — include a named entity, figure, or requirement]</li>
-    <li>[Specific point 2]</li>
-    <li>[Specific point 3]</li>
-    <li>[Specific point 4]</li>
-    <li>[Add more items as needed — minimum 4, maximum 8]</li>
+    <li>[Specific fact 1 — include named entities, figures, or requirements]</li>
+    <li>[Specific fact 2]</li>
+    <li>[Specific fact 3]</li>
+    <li>[Specific fact 4]</li>
+    <li>[Specific fact 5 — add more as needed, minimum 4, maximum 8]</li>
   </ul>
 </div>
 
 Rules:
-- Fill with the actual data relevant to that infographic's title from the custom instructions
 - Each list item must be a complete, specific fact — not a heading or label
+- Derive all items from real information about the article topic (fees, timelines, requirements, named regulators, jurisdictions, steps)
 - Place the block after the paragraph that introduces the topic it covers`);
-  }
 
+  // ── Chart (always included) ─────────────────────────────────
+  parts.push(`
+CHART BLOCK (mandatory — include at least one per article):
+Find a section with comparable data — rankings, fee ranges, timelines, approval rates, market share, risk scores, or any measurable comparison — and render a chart there.
+
+<div class="aston-chart-block">
+  <h4 class="aston-chart-block__title">[Specific chart title relevant to this article]</h4>
+  <p class="aston-chart-block__subtitle">[One sentence describing what this chart shows]</p>
+  <canvas
+    class="aston-chartjs"
+    data-chart-type="[bar OR horizontalBar OR pie OR doughnut — choose the best fit for the data]"
+    data-chart-labels='["Label 1", "Label 2", "Label 3"]'
+    data-chart-values='[30, 55, 80]'
+    data-chart-colors='["#C9A84C", "#B8963E", "#8B7536", "#5a4a2f", "#D4B86A"]'
+    data-chart-label="[Short dataset description]"
+    height="220">
+  </canvas>
+</div>
+
+Rules:
+- Use real, meaningful data — derive values from the article topic (e.g. fee comparisons, jurisdiction rankings, approval timelines, risk levels)
+- labels[] and values[] must have the same number of elements
+- colors[]: use Aston gold palette — one colour per data point (#C9A84C, #B8963E, #8B7536, #5a4a2f, #D4B86A, #E8C96A)
+- data-chart-type: "bar" for side-by-side comparisons, "horizontalBar" for ranked lists, "pie" or "doughnut" for proportions
+- Place the chart directly after the paragraph that introduces the data it visualises`);
+
+  // ── Flowchart (only when explicitly requested) ──────────────
   if (hasFlowchart) {
     parts.push(`
-[FLOWCHART] → render as a numbered step-flow HTML block:
+FLOWCHART BLOCK (requested in custom instructions):
 
 <div class="aston-visual-block aston-flowchart">
   <p class="aston-visual-block__label">Process overview</p>
-  <h4 class="aston-visual-block__title">[Insert the flowchart title from the custom instructions]</h4>
+  <h4 class="aston-visual-block__title">[Flowchart title from the custom instructions]</h4>
   <ol>
     <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
     <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
@@ -451,36 +471,9 @@ Rules:
 </div>
 
 Rules:
-- Derive the steps from the context described in the custom instructions
 - Each step must be actionable and specific — not a generic label
-- Use the actual process described (e.g. Company Formation → Compliance Review → KYC Submission → Risk Assessment → Banking Approval)
+- Derive steps from the actual process described in the article (e.g. Application → KYC → Risk Review → Approval → Onboarding)
 - Place the block at the point in the section where the process is introduced`);
-  }
-
-  if (hasChart) {
-    parts.push(`
-[CHART] → render as a Chart.js canvas block using data-* attributes:
-
-<div class="aston-chart-block">
-  <h4 class="aston-chart-block__title">[Insert the chart title from the custom instructions]</h4>
-  <p class="aston-chart-block__subtitle">[One sentence describing what this chart shows]</p>
-  <canvas
-    class="aston-chartjs"
-    data-chart-type="[bar OR horizontalBar OR pie OR doughnut — choose the best fit]"
-    data-chart-labels='["Label 1", "Label 2", "Label 3"]'
-    data-chart-values='[30, 55, 80]'
-    data-chart-colors='["#C9A84C", "#8B7536", "#5a4a2f"]'
-    data-chart-label="[Dataset description]"
-    height="220">
-  </canvas>
-</div>
-
-Rules:
-- Use real, meaningful data — derive values from the article topic (e.g. risk scoring, approval rates, fee comparisons, market share)
-- labels[] and values[] must have the same number of elements
-- colors[]: use the Aston gold palette (#C9A84C, #B8963E, #8B7536, #5a4a2f, #D4B86A, #E8C96A) — one colour per data point
-- data-chart-type: use "bar" for comparisons, "horizontalBar" for ranked lists, "pie" or "doughnut" for proportions
-- Place the block directly after the paragraph that introduces the comparison or data it visualises`);
   }
 
   return `\nVISUAL BLOCKS:\n${parts.join("\n")}\n`;
@@ -863,7 +856,7 @@ more_content_1:
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
 - Target ~${blueprint.sections[0]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Must include at least one: specific cost/fee in AED or USD, named regulatory body, realistic timeline, or jurisdiction comparison
-${visualBlockInstructions ? "- VISUAL BLOCKS: if any [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], or [VISUAL SEO BLOCK] from the custom instructions relates to this section's topic, YOU MUST render it here using EXACTLY the HTML format defined in the VISUAL BLOCKS section above. Do not skip it." : ""}
+- VISUAL BLOCKS: place one of the mandatory infographic or chart blocks here if this section contains data, statistics, comparisons, or a process that suits a visual. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
@@ -873,7 +866,7 @@ more_content_2:
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
 - Target ~${blueprint.sections[1]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Must include a bulleted or numbered list of at least 5 concrete items with facts, figures, or named details
-${visualBlockInstructions ? "- VISUAL BLOCKS: if any [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], or [VISUAL SEO BLOCK] from the custom instructions relates to this section's topic, YOU MUST render it here using EXACTLY the HTML format defined in the VISUAL BLOCKS section above. Do not skip it." : ""}
+- VISUAL BLOCKS: place one of the mandatory infographic or chart blocks here if this section contains data, statistics, comparisons, or a process that suits a visual. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
@@ -886,7 +879,7 @@ more_content_3:
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
 - Target ~${blueprint.sections[2]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Include at least one real-world scenario as a short narrative (e.g. "A gold trading company registered in DMCC approached three banks over six months...")
-${visualBlockInstructions ? "- VISUAL BLOCKS: if any [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], or [VISUAL SEO BLOCK] from the custom instructions relates to this section's topic, YOU MUST render it here using EXACTLY the HTML format defined in the VISUAL BLOCKS section above. Do not skip it." : ""}
+- VISUAL BLOCKS: place one of the mandatory infographic or chart blocks here if this section contains data, statistics, comparisons, or a process that suits a visual. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
@@ -925,7 +918,7 @@ more_content_6:
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
 - Target ~${blueprint.sections[4]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - This is a distinct fifth body section — do not repeat themes from more_content_4
-${visualBlockInstructions ? "- VISUAL BLOCKS: if any [INFOGRAPHIC IDEA], [FLOWCHART], [CHART], or [VISUAL SEO BLOCK] from the custom instructions relates to this section's topic, YOU MUST render it here using EXACTLY the HTML format defined in the VISUAL BLOCKS section above. Do not skip it." : ""}
+- VISUAL BLOCKS: place one of the mandatory infographic or chart blocks here if this section contains data, statistics, comparisons, or a process that suits a visual. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
