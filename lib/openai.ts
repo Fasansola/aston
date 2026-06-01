@@ -1156,7 +1156,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   meta_description_length_ok:       "meta_description is outside 110–141 characters — rewrite to land in this range",
   no_dashes_in_title:               "seo_title contains a dash — rewrite the title without using dashes",
   // Structure
-  word_count_in_range:              "total article word count is outside 1800–3500 words — expand thin sections or trim bloated ones",
+  word_count_in_range:              "total article word count is outside 2100–4500 words — expand thin sections or trim bloated ones",
   h3_count_sufficient:              "fewer than 4 H3 subheadings in the article — add subheadings to break up long sections",
   h4_count_sufficient:              "fewer than 6 H4 subheadings in the article — add H4 sub-points under existing H3 sections",
   keypoints_exist:                  "one or both keypoint callout boxes are empty — write them",
