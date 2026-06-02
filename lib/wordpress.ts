@@ -126,6 +126,45 @@ export async function uploadImageToWordPress(
   return { id: mediaId, url: mediaUrl };
 }
 
+/**
+ * Uploads any media file (audio, video, etc.) to the WordPress media library.
+ * Unlike uploadImageToWordPress, the contentType is passed in rather than hardcoded.
+ */
+export async function uploadMediaToWordPress(
+  buffer: Buffer,
+  filename: string,
+  mimeType: string
+): Promise<{ id: number; url: string }> {
+  const form = new FormData();
+  form.append("file", buffer, { filename, contentType: mimeType });
+
+  let response;
+  try {
+    response = await axios.post(`${WP_URL}/wp-json/wp/v2/media`, form, {
+      headers: {
+        Authorization: `Basic ${WP_AUTH}`,
+        "User-Agent": "AstonBlogTool/1.0 (Vercel; +https://aston.ae)",
+        ...form.getHeaders(),
+      },
+      timeout: 60_000,
+    });
+  } catch (err: unknown) {
+    if (axios.isAxiosError(err)) {
+      const detail = JSON.stringify(err.response?.data ?? err.message);
+      throw new Error(`WP media upload failed (${err.response?.status}): ${detail}`);
+    }
+    throw err;
+  }
+
+  const mediaId  = response.data?.id;
+  const mediaUrl = response.data?.source_url ?? "";
+  if (!mediaId) {
+    throw new Error(`WP media upload: no ID returned. Response: ${JSON.stringify(response.data)}`);
+  }
+
+  return { id: mediaId, url: mediaUrl };
+}
+
 
 // ── Category auto-assignment ───────────────────────────────────
 // Canonical English category IDs from aston.ae/wp-json/wp/v2/categories

@@ -229,3 +229,14 @@ export async function updatePostVideoUrl(
     { headers: BASE_HEADERS, timeout: 15_000 }
   );
 }
+
+export async function updatePostAudioUrl(
+  postId: number,
+  audioUrl: string
+): Promise<void> {
+  await axios.post(
+    `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
+    { acf: { audio_url: audioUrl } },
+    { headers: BASE_HEADERS, timeout: 15_000 }
+  );
+}

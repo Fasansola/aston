@@ -821,6 +821,7 @@ export default function HomePage() {
   const [stepIndex, setStepIndex]   = useState(0);
   const [retryMessage, setRetryMessage] = useState<string | null>(null);
   const [result, setResult]         = useState<GenerateResult | null>(null);
+  const [blogContent, setBlogContent] = useState<Record<string, string> | null>(null);
   const [error, setError]           = useState("");
 
   const [customPrompt, setCustomPrompt] = useState("");
@@ -885,6 +886,11 @@ export default function HomePage() {
   const [videoBase64, setVideoBase64]     = useState<string | null>(null);
   const [videoMime, setVideoMime]         = useState("video/mp4");
   const [youtubeUrl, setYoutubeUrl]       = useState<string | null>(null);
+
+  const [audioStatus, setAudioStatus]     = useState<"idle" | "generating" | "done" | "error">("idle");
+  const [audioProgress, setAudioProgress] = useState("");
+  const [audioElapsed, setAudioElapsed]   = useState(0);
+  const [audioUrl, setAudioUrl]           = useState<string | null>(null);
 
   const startStepCycle = () => {
     setStepIndex(0);
@@ -991,6 +997,16 @@ export default function HomePage() {
             const data = event as unknown as GenerateResult;
             console.log("[generate] done event postId:", (event as Record<string, unknown>).postId);
             setResult(data);
+            // Capture raw article fields for audio generation
+            const raw = event as unknown as Record<string, string>;
+            setBlogContent({
+              key_takeaways:  raw.key_takeaways  ?? "",
+              main_content:   raw.main_content   ?? "",
+              more_content_1: raw.more_content_1 ?? "",
+              more_content_2: raw.more_content_2 ?? "",
+              more_content_5: raw.more_content_5 ?? "",
+              final_points:   raw.final_points   ?? "",
+            });
             setStatus("success");
             completed = true;
             if ((event.linksUsed as GenerateResult["linksUsed"])) {
@@ -1368,6 +1384,11 @@ export default function HomePage() {
     setVideoElapsed(0);
     setVideoBase64(null);
     setYoutubeUrl(null);
+    setAudioStatus("idle");
+    setAudioProgress("");
+    setAudioElapsed(0);
+    setAudioUrl(null);
+    setBlogContent(null);
   };
 
   const handleGenerateVideo = async () => {
@@ -1465,6 +1486,76 @@ export default function HomePage() {
     } catch (err) {
       setVideoStatus("error");
       setVideoProgress(err instanceof Error ? err.message : "Upload failed.");
+    }
+  };
+
+  const handleGenerateAudio = async () => {
+    if (!result) return;
+    setAudioStatus("generating");
+    setAudioProgress("Building audio script from article…");
+    setAudioElapsed(0);
+    setAudioUrl(null);
+
+    const timerStart = Date.now();
+    const timer = setInterval(() => {
+      setAudioElapsed(Math.round((Date.now() - timerStart) / 1000));
+    }, 1000);
+
+    try {
+      const res = await fetch("/api/generate-audio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          postId:        result.postId,
+          title:         result.title,
+          key_takeaways:  blogContent?.key_takeaways,
+          main_content:   blogContent?.main_content,
+          more_content_1: blogContent?.more_content_1,
+          more_content_2: blogContent?.more_content_2,
+          more_content_5: blogContent?.more_content_5,
+          final_points:   blogContent?.final_points,
+        }),
+      });
+
+      if (!res.ok || !res.body) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        setAudioStatus("error");
+        setAudioProgress(err.error || "Audio generation failed.");
+        return;
+      }
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          const line = part.replace(/^data: /, "").trim();
+          if (!line) continue;
+          try {
+            const event = JSON.parse(line) as { type: string; message?: string; audioUrl?: string };
+            if (event.type === "progress" && event.message) setAudioProgress(event.message);
+            if (event.type === "done" && event.audioUrl) {
+              setAudioUrl(event.audioUrl);
+              setAudioStatus("done");
+            }
+            if (event.type === "error") {
+              setAudioStatus("error");
+              setAudioProgress(event.message ?? "Audio generation failed.");
+            }
+          } catch { /* ignore malformed chunks */ }
+        }
+      }
+    } catch (err) {
+      setAudioStatus("error");
+      setAudioProgress(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      clearInterval(timer);
     }
   };
 
@@ -2531,6 +2622,80 @@ export default function HomePage() {
                     <div className="space-y-2">
                       <p className="text-sm text-red-400/80">{videoProgress || "Video generation failed."}</p>
                       <button onClick={handleGenerateVideo} className="text-xs text-white/40 hover:text-white/70 transition-colors">
+                        Try again
+                      </button>
+                    </div>
+                  )}
+
+                </div>
+              </div>
+
+              {/* ── Audio section ─────────────────────────────── */}
+              <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+                <div className="px-4 py-3 border-b border-white/[0.06] flex items-center gap-2">
+                  <svg className="w-3.5 h-3.5 text-[#C9A84C]/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+                  </svg>
+                  <p className="text-xs font-medium text-white/50 uppercase tracking-wide">Audio</p>
+                </div>
+                <div className="px-4 py-4 space-y-4">
+
+                  {/* Idle — generate button */}
+                  {audioStatus === "idle" && (
+                    <button
+                      onClick={handleGenerateAudio}
+                      disabled={!result?.postId}
+                      className="w-full flex items-center justify-center gap-2 bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 hover:border-white/20 text-white/60 hover:text-white/90 text-sm py-3 rounded-lg transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                      </svg>
+                      Generate audio for this post
+                    </button>
+                  )}
+
+                  {/* Generating — progress bar + status */}
+                  {audioStatus === "generating" && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm text-white/50">{audioProgress || "Generating…"}</p>
+                        <p className="text-xs text-white/30 tabular-nums">{audioElapsed}s</p>
+                      </div>
+                      {/* Estimated ~60s — bar fills linearly then holds at 95% */}
+                      <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-[#C9A84C] rounded-full transition-all duration-1000 ease-linear"
+                          style={{ width: `${Math.min(audioElapsed / 60 * 95, 95)}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-white/20">Kokoro typically takes 30–60 seconds</p>
+                    </div>
+                  )}
+
+                  {/* Done — inline audio player + WordPress link */}
+                  {audioStatus === "done" && audioUrl && (
+                    <div className="space-y-3">
+                      <audio controls src={audioUrl} className="w-full h-10 rounded-lg" />
+                      <div className="flex items-center gap-2">
+                        <div className="w-3.5 h-3.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                          <svg className="w-2 h-2 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                        <p className="text-xs text-white/50">Saved to WordPress ACF <code className="text-white/30">audio_url</code></p>
+                      </div>
+                      <a href={audioUrl} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-[#C9A84C]/70 hover:text-[#C9A84C] transition-colors font-mono break-all">
+                        {audioUrl}
+                      </a>
+                    </div>
+                  )}
+
+                  {/* Error */}
+                  {audioStatus === "error" && (
+                    <div className="space-y-2">
+                      <p className="text-sm text-red-400/80">{audioProgress || "Audio generation failed."}</p>
+                      <button onClick={handleGenerateAudio} className="text-xs text-white/40 hover:text-white/70 transition-colors">
                         Try again
                       </button>
                     </div>
