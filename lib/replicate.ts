@@ -34,7 +34,8 @@ export async function generateKokoroSpeech(
   console.log(`[replicate] Generating Kokoro TTS — ${wordCount} words, voice: ${voice}`);
 
   // ── Step 1: Submit prediction ─────────────────────────────
-  const createRes = await fetch(`${REPLICATE_BASE}/models/jaaari/kokoro-82m/predictions`, {
+  // jaaari/kokoro-82m is a community model — must use /predictions with version hash
+  const createRes = await fetch(`${REPLICATE_BASE}/predictions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiToken}`,
@@ -42,6 +43,7 @@ export async function generateKokoroSpeech(
       Prefer: "wait=60", // ask Replicate to wait up to 60s before returning
     },
     body: JSON.stringify({
+      version: "f559560eb822dc509045f3921a1921234918b91739db4bf3daab2169b71c7a13",
       input: {
         text:  script,
         voice: voice,
