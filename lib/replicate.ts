@@ -6,8 +6,8 @@
  * Required env vars:
  *   REPLICATE_API_TOKEN  — from replicate.com → Account → API tokens
  *
- * Model: lucataco/kokoro-82m — fast, natural, British English voices
- * Docs:  https://replicate.com/lucataco/kokoro-82m
+ * Model: jaaari/kokoro-82m — fast, natural, British English voices
+ * Docs:  https://replicate.com/jaaari/kokoro-82m
  */
 
 const REPLICATE_BASE = "https://api.replicate.com/v1";
@@ -34,7 +34,7 @@ export async function generateKokoroSpeech(
   console.log(`[replicate] Generating Kokoro TTS — ${wordCount} words, voice: ${voice}`);
 
   // ── Step 1: Submit prediction ─────────────────────────────
-  const createRes = await fetch(`${REPLICATE_BASE}/models/lucataco/kokoro-82m/predictions`, {
+  const createRes = await fetch(`${REPLICATE_BASE}/models/jaaari/kokoro-82m/predictions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiToken}`,
@@ -105,7 +105,8 @@ export async function generateKokoroSpeech(
   }
 
   const buffer  = Buffer.from(await audioRes.arrayBuffer());
-  const mimeType = audioUrl.endsWith(".mp3") ? "audio/mpeg" : "audio/wav";
+  // Detect mime type from URL extension; default to wav (Kokoro's typical output)
+  const mimeType = audioUrl.includes(".mp3") ? "audio/mpeg" : "audio/wav";
   console.log(`[replicate] Audio ready — ${(buffer.length / 1024).toFixed(1)} KB (${mimeType})`);
 
   return { buffer, mimeType };
