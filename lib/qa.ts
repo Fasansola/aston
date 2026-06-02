@@ -260,6 +260,30 @@ export function runQA(
   if (!checks.focus_keyword_in_heading && kw)
     warnings.push("Focus keyword not found in any section heading");
 
+  // ── AI SEARCH OPTIMISATION CHECKS ────────────────────────
+  // Validate the three mandatory structured blocks for Google AI Overviews,
+  // featured snippets, and LLM crawlers.
+
+  // Quick answer block — must be in main_content
+  checks.quick_answer_block_exists = (content.main_content ?? "").includes('class="aston-quick-answer"');
+  if (!checks.quick_answer_block_exists)
+    warnings.push("Quick answer block missing from main_content — required for Google AI Overviews and featured snippets");
+
+  // Definition block — must be in main_content or more_content_1
+  const definitionSearchArea = (content.main_content ?? "") + (content.more_content_1 ?? "");
+  checks.definition_block_exists = definitionSearchArea.includes('class="aston-definition"');
+  if (!checks.definition_block_exists)
+    warnings.push("Definition block missing from main_content/more_content_1 — required for entity disambiguation and AI search");
+
+  // Flowchart block — must appear somewhere in body sections
+  const allBodyForFlowchart = [
+    content.main_content, content.more_content_1, content.more_content_2,
+    content.more_content_3, content.more_content_4, content.more_content_6,
+  ].join(" ");
+  checks.flowchart_block_exists = allBodyForFlowchart.includes('aston-flowchart');
+  if (!checks.flowchart_block_exists)
+    warnings.push("Flowchart block missing — required on every post for AI search process visualisation");
+
   // SEO title length (50–60 chars)
   const titleLen = (content.seo_title ?? "").length;
   checks.seo_title_length_ok = titleLen >= 45 && titleLen <= 65;

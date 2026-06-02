@@ -395,13 +395,10 @@ function buildDomainContext(title: string, customPrompt?: string): string {
  * Charts → Chart.js canvas with data stored in data-* attributes.
  */
 function buildVisualBlockInstructions(customPrompt?: string): string {
-  const text = customPrompt || "";
-  const hasFlowchart = /\[FLOWCHART\]/i.test(text);
-
   const parts: string[] = [];
 
   parts.push(`VISUAL SEO BLOCKS — MANDATORY FOR EVERY ARTICLE:
-Every article MUST include at least ONE infographic block and at least ONE chart block. This is not optional — these visual elements are required on every post for SEO regardless of the custom instructions.
+Every article MUST include at least ONE infographic block, at least ONE chart block, and exactly ONE flowchart block. This is not optional — all three visual elements are required on every post for SEO regardless of the custom instructions.
 Place visual blocks inside the most relevant content sections (more_content_1 through more_content_6). Never place them in main_content, key_takeaways, FAQ, or final_points.
 Each block must contain real, article-specific data derived from the section it sits in — never placeholder text or generic examples.`);
 
@@ -453,14 +450,14 @@ Rules:
 - data-chart-type: "bar" for side-by-side comparisons, "horizontalBar" for ranked lists, "pie" or "doughnut" for proportions
 - Place the chart directly after the paragraph that introduces the data it visualises`);
 
-  // ── Flowchart (only when explicitly requested) ──────────────
-  if (hasFlowchart) {
-    parts.push(`
-FLOWCHART BLOCK (requested in custom instructions):
+  // ── Flowchart (mandatory for every article) ─────────────────
+  parts.push(`
+FLOWCHART BLOCK (mandatory — include exactly one per article):
+Find the section that describes a process, journey, application flow, approval sequence, or step-by-step procedure. Render a flowchart there showing the key stages.
 
 <div class="aston-visual-block aston-flowchart">
   <p class="aston-visual-block__label">Process overview</p>
-  <h4 class="aston-visual-block__title">[Flowchart title from the custom instructions]</h4>
+  <h4 class="aston-visual-block__title">[Specific process title derived from the article topic]</h4>
   <ol>
     <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
     <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
@@ -473,10 +470,62 @@ FLOWCHART BLOCK (requested in custom instructions):
 Rules:
 - Each step must be actionable and specific — not a generic label
 - Derive steps from the actual process described in the article (e.g. Application → KYC → Risk Review → Approval → Onboarding)
-- Place the block at the point in the section where the process is introduced`);
-  }
+- The title must be specific to the article (e.g. "How to open a UAE corporate bank account" not "Process overview")
+- Place the block at the point in the section where the process is introduced
+- Minimum 5 steps, maximum 8`);
 
   return `\nVISUAL BLOCKS:\n${parts.join("\n")}\n`;
+}
+
+// ── AI Search Optimisation block instructions ─────────────────
+/**
+ * Injects three mandatory structured blocks that target Google AI Overviews,
+ * featured snippets, and LLM crawlers (ChatGPT, Perplexity):
+ *   1. Quick Answer block — placed in main_content after the opening paragraph
+ *   2. Definition block  — placed in main_content or more_content_1 for the
+ *                          primary specialised term in the article
+ *   3. FAQ answer rules  — enforces first-sentence direct answers for AI extraction
+ */
+function buildAISearchInstructions(): string {
+  return `
+AI SEARCH OPTIMISATION — MANDATORY BLOCKS:
+Google AI Overviews, featured snippets, and AI answer engines (ChatGPT, Perplexity) extract structured answer surfaces from articles. Every article MUST include the following two blocks. Omitting them is not acceptable.
+
+QUICK ANSWER BLOCK (mandatory — place inside main_content, after the opening paragraph, before the first H3):
+Write a 2–3 sentence direct answer to the main question implied by the article title. The first sentence must directly answer the question. No hedging, no preamble. Specific — include a named jurisdiction, regulator, timeframe, or cost where relevant.
+
+<div class="aston-quick-answer">
+  <p class="aston-quick-answer__label">Quick answer</p>
+  <p class="aston-quick-answer__text">[Direct answer sentence 1. Direct answer sentence 2. Direct answer sentence 3 (optional).]</p>
+</div>
+
+Rules:
+- First sentence answers the question directly — not "In this article we will explore..."
+- Must include at least one specific fact (number, regulator name, jurisdiction, or timeframe)
+- Max 60 words total
+- Do NOT place in key_takeaways, FAQ, or final_points — only in main_content
+
+DEFINITION BLOCK (mandatory — place in main_content or more_content_1 at the first mention of the article's primary specialised term):
+Identify the single most important specialised term in this article (e.g. VARA licence, ADGM SPV, EMI account, offshore trust). Write a plain-English definition a business owner would understand.
+
+<div class="aston-definition">
+  <p class="aston-definition__label">Definition</p>
+  <strong class="aston-definition__term">[Term]</strong>
+  <p class="aston-definition__text">[Plain-English definition, 1–2 sentences, max 40 words. Include the full form of any acronym.]</p>
+</div>
+
+Rules:
+- One definition block per article only
+- Choose the term that most readers will need explained — not the most common word
+- Place it immediately after the first sentence that uses the term
+- Allowed HTML inside definition block: <strong>, <p> only
+
+FAQ ANSWER RULES (applies to more_content_5):
+Every FAQ answer must follow this format: the FIRST sentence is the complete, self-contained answer. Supporting detail follows in sentence 2–3. This structure lets AI systems extract the first sentence as a direct answer.
+- Max 60 words per answer
+- First sentence must stand alone as the answer — do not start with "It depends", "There are several", or "This varies"
+- Include at least one named entity (regulator, jurisdiction, fee, or timeline) in every answer
+`;
 }
 
 // ── Step 1: Generate structure blueprint ──────────────────────
@@ -776,6 +825,7 @@ ${subs}`;
     .join("\n");
 
   const visualBlockInstructions = buildVisualBlockInstructions(customPrompt);
+  const aiSearchInstructions = buildAISearchInstructions();
 
   const customPromptContentBlock = customPrompt?.trim()
     ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the entire article):\n${customPrompt.trim()}\n`
@@ -788,7 +838,7 @@ ${subs}`;
   const domainContext = buildDomainContext(title, customPrompt);
 
   const userPrompt = `Blog title: "${title}"
-${languageContentBlock}${domainContext}${strategyContentBlock}${customPromptContentBlock}${visualBlockInstructions}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}${authorityLinksBlock}
+${languageContentBlock}${domainContext}${strategyContentBlock}${customPromptContentBlock}${visualBlockInstructions}${aiSearchInstructions}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}${authorityLinksBlock}
 You have already planned the structure. Now write the full article following the blueprint exactly.
 The headings, section angles, and word targets below are fixed — do not change them.
 
@@ -840,12 +890,14 @@ main_content (300-340 words — MINIMUM 300, count before submitting):
 - The focus keyword must appear in the first sentence of the first paragraph — not the second, not the third
 - Use the focus keyword 2–3 times naturally across the full intro (spread across different paragraphs)
 - Do NOT open with an H3. Start with a <p> tag
-- After the opening paragraph, you MUST include at least 2 H3 subheadings to break the text into scannable sections — do not write 300 words of unbroken paragraphs
+- After the opening paragraph, insert the QUICK ANSWER BLOCK (see AI SEARCH OPTIMISATION section above)
+- After the quick answer block, insert the DEFINITION BLOCK for the primary specialised term in the article (see AI SEARCH OPTIMISATION section above)
+- After the definition block, you MUST include at least 2 H3 subheadings to break the text into scannable sections — do not write 300 words of unbroken paragraphs
 - Heading hierarchy: every H4 must sit under an H3. Never skip levels
 - End with a sentence that pulls the reader into what follows
 - LINKS (mandatory): embed exactly 1 internal link and at least 1 external link naturally within the text — both must sit inside a sentence and support the point being made
 - SENTENCE LENGTH (mandatory): no sentence may exceed 20 words. If a sentence is running long, split it into two. This applies to every paragraph in this section
-- Allowed HTML: <h3>, <h4>, <p>, <strong>, <em>, <a>
+- Allowed HTML: <h3>, <h4>, <p>, <strong>, <em>, <a>, <div>
 
 keypoint_one:
 A single compelling sentence (max 25 words) from the key insight of main_content. Plain text only — no markdown, no asterisks, no bold tags. No em dashes. No question marks.
