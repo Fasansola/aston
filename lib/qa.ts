@@ -280,7 +280,7 @@ export function runQA(
     content.main_content, content.more_content_1, content.more_content_2,
     content.more_content_3, content.more_content_4, content.more_content_6,
   ].join(" ");
-  checks.flowchart_block_exists = allBodyForFlowchart.includes('aston-flowchart');
+  checks.flowchart_block_exists = allBodyForFlowchart.includes('aston-timeline');
   if (!checks.flowchart_block_exists)
     warnings.push("Flowchart block missing — required on every post for AI search process visualisation");
 

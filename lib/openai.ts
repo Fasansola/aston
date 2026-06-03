@@ -453,26 +453,69 @@ Rules:
   // ── Flowchart (mandatory for every article) ─────────────────
   parts.push(`
 FLOWCHART BLOCK (mandatory — include exactly one per article):
-Find the section that describes a process, journey, application flow, approval sequence, or step-by-step procedure. Render a flowchart there showing the key stages.
+Find the section that describes a process, journey, application flow, approval sequence, or step-by-step procedure. Render a vertical timeline flowchart there showing the key stages.
 
-<div class="aston-visual-block aston-flowchart">
-  <p class="aston-visual-block__label">Process overview</p>
-  <h4 class="aston-visual-block__title">[Specific process title derived from the article topic]</h4>
-  <ol>
-    <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
-    <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
-    <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
-    <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
-    <li class="aston-flowchart__step"><strong>[Step name]</strong> — [One sentence describing what happens at this step]</li>
-  </ol>
+Use EXACTLY this HTML structure — do not simplify or change the class names:
+
+<div class="aston-timeline">
+  <h4 class="aston-timeline__title">[Specific process title — e.g. "How to open a UAE corporate bank account"]</h4>
+  <div class="aston-timeline__track">
+
+    <div class="aston-timeline__item aston-timeline__item--right">
+      <div class="aston-timeline__dot"></div>
+      <div class="aston-timeline__content">
+        <h5 class="aston-timeline__step-title">[Step 1 name — e.g. "KYC"]</h5>
+        <p class="aston-timeline__step-desc">[One sentence describing what happens — e.g. "Collation of KYC documents for all shareholders, directors and UBOs."]</p>
+      </div>
+    </div>
+
+    <div class="aston-timeline__item aston-timeline__item--left">
+      <div class="aston-timeline__dot"></div>
+      <div class="aston-timeline__content">
+        <h5 class="aston-timeline__step-title">[Step 2 name]</h5>
+        <p class="aston-timeline__step-desc">[One sentence description]</p>
+      </div>
+    </div>
+
+    <div class="aston-timeline__duration">[Timeframe between steps — e.g. "Day 1" or "5–7 working days" — only include when a realistic timeframe applies]</div>
+
+    <div class="aston-timeline__item aston-timeline__item--right">
+      <div class="aston-timeline__dot"></div>
+      <div class="aston-timeline__content">
+        <h5 class="aston-timeline__step-title">[Step 3 name]</h5>
+        <p class="aston-timeline__step-desc">[One sentence description]</p>
+      </div>
+    </div>
+
+    <div class="aston-timeline__item aston-timeline__item--left">
+      <div class="aston-timeline__dot"></div>
+      <div class="aston-timeline__content">
+        <h5 class="aston-timeline__step-title">[Step 4 name]</h5>
+        <p class="aston-timeline__step-desc">[One sentence description]</p>
+      </div>
+    </div>
+
+    <div class="aston-timeline__duration">[Timeframe — only when realistic]</div>
+
+    <div class="aston-timeline__item aston-timeline__item--right">
+      <div class="aston-timeline__dot"></div>
+      <div class="aston-timeline__content">
+        <h5 class="aston-timeline__step-title">[Step 5 name]</h5>
+        <p class="aston-timeline__step-desc">[One sentence description]</p>
+      </div>
+    </div>
+
+  </div>
 </div>
 
 Rules:
-- Each step must be actionable and specific — not a generic label
-- Derive steps from the actual process described in the article (e.g. Application → KYC → Risk Review → Approval → Onboarding)
-- The title must be specific to the article (e.g. "How to open a UAE corporate bank account" not "Process overview")
-- Place the block at the point in the section where the process is introduced
-- Minimum 5 steps, maximum 8`);
+- Alternate steps between --right and --left (right, left, right, left...) to create the zigzag timeline effect
+- Only add aston-timeline__duration divs where a real timeframe exists — do not fabricate timelines
+- Step titles must be short (1–3 words) — e.g. "KYC", "Initial Submission", "Approvals"
+- Step descriptions must be one specific sentence with real process detail
+- Title must describe the specific process in this article — never use "Process overview"
+- Minimum 5 steps, maximum 8
+- Place the block at the point in the article where the process is introduced`);
 
   return `\nVISUAL BLOCKS:\n${parts.join("\n")}\n`;
 }
