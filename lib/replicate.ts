@@ -10,25 +10,31 @@
  * Docs:  https://replicate.com/jaaari/kokoro-82m
  */
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const lamejs = require("@breezystack/lamejs") as {
+type Mp3EncoderType = {
   Mp3Encoder: new (channels: number, sampleRate: number, kbps: number) => {
     encodeBuffer(left: Int16Array, right?: Int16Array): Int8Array;
     flush(): Int8Array;
   };
 };
 
+async function getLamejs(): Promise<Mp3EncoderType> {
+  const mod = await import("@breezystack/lamejs");
+  return (mod.default ?? mod) as unknown as Mp3EncoderType;
+}
+
 const REPLICATE_BASE = "https://api.replicate.com/v1";
 
 /**
- * Converts a WAV Buffer to MP3 using lamejs (pure JS, no native binaries).
+ * Converts a WAV Buffer to MP3 using @breezystack/lamejs (pure JS, no native binaries).
  * Reads the WAV header to extract sample rate and channel count.
  */
-function wavToMp3(wavBuffer: Buffer): Buffer {
+async function wavToMp3(wavBuffer: Buffer): Promise<Buffer> {
+  const { Mp3Encoder } = await getLamejs();
+
   // WAV header offsets:
   // 22 = numChannels (2 bytes), 24 = sampleRate (4 bytes), 34 = bitsPerSample (2 bytes)
-  const numChannels  = wavBuffer.readUInt16LE(22);
-  const sampleRate   = wavBuffer.readUInt32LE(24);
+  const numChannels   = wavBuffer.readUInt16LE(22);
+  const sampleRate    = wavBuffer.readUInt32LE(24);
   const bitsPerSample = wavBuffer.readUInt16LE(34);
 
   // PCM data starts after the 44-byte WAV header
@@ -42,14 +48,13 @@ function wavToMp3(wavBuffer: Buffer): Buffer {
     pcmData.byteLength / (bitsPerSample / 8)
   );
 
-  const encoder  = new lamejs.Mp3Encoder(numChannels, sampleRate, 128);
+  const encoder   = new Mp3Encoder(numChannels, sampleRate, 128);
   const mp3Parts: Buffer[] = [];
   const blockSize = 1152; // standard LAME block size
 
   if (numChannels === 1) {
-    // Mono
     for (let i = 0; i < samples.length; i += blockSize) {
-      const chunk  = samples.subarray(i, i + blockSize);
+      const chunk   = samples.subarray(i, i + blockSize);
       const encoded = encoder.encodeBuffer(chunk);
       if (encoded.length > 0) mp3Parts.push(Buffer.from(encoded));
     }
@@ -183,7 +188,7 @@ export async function generateKokoroSpeech(
     console.log(`[replicate] Already MP3 — no conversion needed`);
   } else {
     console.log(`[replicate] Converting WAV → MP3…`);
-    buffer   = wavToMp3(rawBuffer);
+    buffer   = await wavToMp3(rawBuffer);
     mimeType = "audio/mpeg";
     console.log(`[replicate] MP3 ready — ${(buffer.length / 1024).toFixed(1)} KB`);
   }
