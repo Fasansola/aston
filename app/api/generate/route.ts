@@ -368,12 +368,17 @@ export async function POST(req: NextRequest) {
 
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
-        if (techAttempt < MAX_TECH) {
+        // WordPress / upload errors are not fixed by regenerating content — fail fast.
+        const isFatalError = msg.includes("WP post creation failed") ||
+                             msg.includes("Image upload") ||
+                             msg.includes("upload");
+        if (!isFatalError && techAttempt < MAX_TECH) {
           console.warn(`[generate] Technical error (attempt ${techAttempt}/${MAX_TECH}), retrying: ${msg}`);
           await send({ type: "tech_retry", attempt: techAttempt + 1, max: MAX_TECH, reason: msg });
         } else {
-          console.error(`[generate] All ${MAX_TECH} attempts failed: ${msg}`);
+          console.error(`[generate] Fatal error (attempt ${techAttempt}/${MAX_TECH}): ${msg}`);
           await send({ type: "error", message: msg || "An unexpected error occurred." });
+          return;
         }
       }
     }

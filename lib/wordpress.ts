@@ -265,20 +265,23 @@ export async function createWordPressPost(
         },
 
         // ── ACF custom fields ──────────────────────────────
+        // Image fields are omitted when imageIds is null (images are attached
+        // later via updateWordPressPostImages). Passing 0 causes a 400 error
+        // because ACF image fields require a valid attachment ID or nothing.
         acf: {
           Key_takeaways:    content.key_takeaways,
           Keypoint_One:     content.keypoint_one,
-          keypoint_one_img: imageIds?.keypointOneImg ?? 0,
+          ...(imageIds?.keypointOneImg ? { keypoint_one_img: imageIds.keypointOneImg } : {}),
           more_content_1:   assembled.more_content_1,
           more_content_2:   content.more_content_2,
           quote_1:          content.quote_1,
           more_content_3:   assembled.more_content_3,
           Keypoint_Two:     content.keypoint_two,
-          Keypoint_Two_Img: imageIds?.keypointTwoImg ?? 0,
+          ...(imageIds?.keypointTwoImg ? { Keypoint_Two_Img: imageIds.keypointTwoImg } : {}),
           more_content_4:   assembled.more_content_4,
           quote_2:          content.quote_2,
           read_mins:        parseInt(content.read_mins, 10) || 7,
-          post_split_img:   imageIds?.postSplitImg ?? 0,
+          ...(imageIds?.postSplitImg ? { post_split_img: imageIds.postSplitImg } : {}),
           Final_Points:     content.final_points,
           more_content_5:   content.more_content_5,
           more_content_6:   content.more_content_6,
