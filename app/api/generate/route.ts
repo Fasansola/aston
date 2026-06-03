@@ -396,6 +396,13 @@ export async function POST(req: NextRequest) {
             language:        language || null,
             editUrl:    `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
             previewUrl: post.link ?? null,
+            // Article content fields — used by audio generation
+            key_takeaways:  content.key_takeaways  ?? "",
+            main_content:   content.main_content   ?? "",
+            more_content_1: content.more_content_1 ?? "",
+            more_content_2: content.more_content_2 ?? "",
+            more_content_5: content.more_content_5 ?? "",
+            final_points:   content.final_points   ?? "",
           });
           return; // success — close stream
         }
