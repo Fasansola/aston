@@ -223,8 +223,20 @@ export async function generateKokoroSpeech(
     wavBuffers.push(wav!);
   }
 
+  // ── Validate and log each chunk before concatenation ────────
+  for (let i = 0; i < wavBuffers.length; i++) {
+    const w = wavBuffers[i];
+    if (w.length < 44) {
+      throw new Error(`Chunk ${i + 1} WAV too small (${w.length} bytes) — Replicate likely returned empty audio`);
+    }
+    const ch  = w.readUInt16LE(22);
+    const sr  = w.readUInt32LE(24);
+    const bps = w.readUInt16LE(34);
+    console.log(`[replicate] Chunk ${i + 1} WAV — channels:${ch} sampleRate:${sr} bitsPerSample:${bps} pcmBytes:${w.length - 44}`);
+  }
+
   // ── Concatenate WAV PCM data ──────────────────────────────
-  // Each WAV has a 44-byte header — keep first header, strip the rest, fix sizes
+  // Keep first header only, strip from remaining chunks, fix RIFF sizes
   let combinedWav: Buffer;
   if (wavBuffers.length === 1) {
     combinedWav = wavBuffers[0];
@@ -240,6 +252,10 @@ export async function generateKokoroSpeech(
   console.log(`[replicate] Combined WAV — ${(combinedWav.length / 1024).toFixed(1)} KB, converting to MP3…`);
   const buffer = await wavToMp3(combinedWav);
   console.log(`[replicate] MP3 ready — ${(buffer.length / 1024).toFixed(1)} KB`);
+
+  if (buffer.length < 1024) {
+    throw new Error(`MP3 output is suspiciously small (${buffer.length} bytes) — WAV conversion likely failed`);
+  }
 
   return { buffer, mimeType: "audio/mpeg" };
 }
