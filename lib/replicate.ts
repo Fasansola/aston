@@ -192,12 +192,35 @@ export async function generateKokoroSpeech(
   const chunks    = splitIntoChunks(script);
   console.log(`[replicate] Kokoro TTS — ${wordCount} words, ${chunks.length} chunk(s), voice: ${voice}`);
 
-  // ── Generate each chunk sequentially ─────────────────────
+  // ── Generate each chunk sequentially with rate-limit backoff ─
+  // Replicate throttles to 1 burst request when credit < $5.
+  // Wait 12s between chunks (5 per minute = safely under the 6/min cap).
   const wavBuffers: Buffer[] = [];
   for (let i = 0; i < chunks.length; i++) {
+    if (i > 0) {
+      console.log(`[replicate] Waiting 12s before chunk ${i + 1} (rate limit)…`);
+      await new Promise((r) => setTimeout(r, 12_000));
+    }
     console.log(`[replicate] Chunk ${i + 1}/${chunks.length} — ${chunks[i].length} chars`);
-    const wav = await generateChunk(chunks[i], voice, apiToken);
-    wavBuffers.push(wav);
+
+    // Retry up to 3 times on 429
+    let wav: Buffer | null = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        wav = await generateChunk(chunks[i], voice, apiToken);
+        break;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("429") && attempt < 3) {
+          const wait = attempt * 15_000;
+          console.log(`[replicate] 429 on chunk ${i + 1}, retrying in ${wait / 1000}s…`);
+          await new Promise((r) => setTimeout(r, wait));
+        } else {
+          throw err;
+        }
+      }
+    }
+    wavBuffers.push(wav!);
   }
 
   // ── Concatenate WAV PCM data ──────────────────────────────
