@@ -232,12 +232,12 @@ export async function updatePostVideoUrl(
 
 export async function updatePostAudioUrl(
   postId: number,
-  audioMediaId: number
+  audioUrl: string
 ): Promise<void> {
-  // ACF File field expects the WP media attachment ID, not a URL string
+  // ACF Text field — stores the direct MP3 URL
   await axios.post(
     `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
-    { acf: { audio_url: audioMediaId } },
+    { acf: { audio_url: audioUrl } },
     { headers: BASE_HEADERS, timeout: 15_000 }
   );
 }
