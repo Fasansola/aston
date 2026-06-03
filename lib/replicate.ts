@@ -124,7 +124,6 @@ export async function generateKokoroSpeech(
 export function articleToAudioScript(
   title: string,
   fields: {
-    key_takeaways?: string;
     main_content?: string;
     more_content_1?: string;
     more_content_2?: string;
@@ -148,16 +147,6 @@ export function articleToAudioScript(
 
   // Title
   parts.push(`${title}.`);
-
-  // Key takeaways — read all items (not capped at 4)
-  if (fields.key_takeaways) {
-    const items = (fields.key_takeaways.match(/<li[^>]*>(.*?)<\/li>/gi) ?? [])
-      .map((li) => stripHtml(li))
-      .filter(Boolean);
-    if (items.length) {
-      parts.push(`Key points. ${items.join(". ")}.`);
-    }
-  }
 
   // All body sections in order
   if (fields.main_content)   parts.push(stripHtml(fields.main_content));

@@ -42,7 +42,6 @@ export async function POST(req: NextRequest) {
   const {
     postId,
     title,
-    key_takeaways,
     main_content,
     more_content_1,
     more_content_2,
@@ -54,7 +53,6 @@ export async function POST(req: NextRequest) {
   } = body as {
     postId?: number;
     title?: string;
-    key_takeaways?: string;
     main_content?: string;
     more_content_1?: string;
     more_content_2?: string;
@@ -93,7 +91,6 @@ export async function POST(req: NextRequest) {
       // ── Step 1: Build plain-text script from article fields ──
       await send({ type: "progress", message: "Building audio script from article…", elapsedSecs: elapsedSecs() });
       const script = articleToAudioScript(title.trim(), {
-        key_takeaways,
         main_content,
         more_content_1,
         more_content_2,

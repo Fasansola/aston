@@ -1001,7 +1001,6 @@ export default function HomePage() {
             // Capture raw article fields for audio generation
             const raw = event as unknown as Record<string, string>;
             setBlogContent({
-              key_takeaways:  raw.key_takeaways  ?? "",
               main_content:   raw.main_content   ?? "",
               more_content_1: raw.more_content_1 ?? "",
               more_content_2: raw.more_content_2 ?? "",
@@ -1513,7 +1512,6 @@ export default function HomePage() {
         body: JSON.stringify({
           postId:         result.postId,
           title:          result.title,
-          key_takeaways:  blogContent?.key_takeaways,
           main_content:   blogContent?.main_content,
           more_content_1: blogContent?.more_content_1,
           more_content_2: blogContent?.more_content_2,
