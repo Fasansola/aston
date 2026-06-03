@@ -11,7 +11,7 @@
  */
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const lamejs = require("lamejs") as {
+const lamejs = require("@breezystack/lamejs") as {
   Mp3Encoder: new (channels: number, sampleRate: number, kbps: number) => {
     encodeBuffer(left: Int16Array, right?: Int16Array): Int8Array;
     flush(): Int8Array;
