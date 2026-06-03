@@ -887,10 +887,11 @@ export default function HomePage() {
   const [videoMime, setVideoMime]         = useState("video/mp4");
   const [youtubeUrl, setYoutubeUrl]       = useState<string | null>(null);
 
-  const [audioStatus, setAudioStatus]     = useState<"idle" | "generating" | "done" | "error">("idle");
-  const [audioProgress, setAudioProgress] = useState("");
-  const [audioElapsed, setAudioElapsed]   = useState(0);
-  const [audioUrl, setAudioUrl]           = useState<string | null>(null);
+  const [audioStatus, setAudioStatus]       = useState<"idle" | "generating" | "done" | "error">("idle");
+  const [audioProgress, setAudioProgress]   = useState("");
+  const [audioElapsed, setAudioElapsed]     = useState(0);
+  const [audioUrl, setAudioUrl]             = useState<string | null>(null);
+  const [audioMediaId, setAudioMediaId]     = useState<number | null>(null);
 
   const startStepCycle = () => {
     setStepIndex(0);
@@ -1189,7 +1190,7 @@ export default function HomePage() {
       const res = await fetch("/api/delete-post", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: result.postId, imageIds: result.imageIds }),
+        body: JSON.stringify({ postId: result.postId, imageIds: result.imageIds, audioMediaId }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -1388,6 +1389,7 @@ export default function HomePage() {
     setAudioProgress("");
     setAudioElapsed(0);
     setAudioUrl(null);
+    setAudioMediaId(null);
     setBlogContent(null);
   };
 
@@ -1538,10 +1540,11 @@ export default function HomePage() {
           const line = part.replace(/^data: /, "").trim();
           if (!line) continue;
           try {
-            const event = JSON.parse(line) as { type: string; message?: string; audioUrl?: string };
+            const event = JSON.parse(line) as { type: string; message?: string; audioUrl?: string; audioMediaId?: number };
             if (event.type === "progress" && event.message) setAudioProgress(event.message);
             if (event.type === "done" && event.audioUrl) {
               setAudioUrl(event.audioUrl);
+              setAudioMediaId(event.audioMediaId ?? null);
               setAudioStatus("done");
             }
             if (event.type === "error") {

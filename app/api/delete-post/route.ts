@@ -7,8 +7,9 @@
  * Skips the trash — force=true sends the post straight to permanent deletion.
  *
  * Body: {
- *   postId:   number           — WP post ID
- *   imageIds: {                — all 4 images uploaded for this post
+ *   postId:        number       — WP post ID
+ *   audioMediaId?: number       — WP media ID of the generated audio file (if any)
+ *   imageIds: {                 — all 4 images uploaded for this post
  *     keypointOneImg: number
  *     keypointTwoImg: number
  *     postSplitImg:   number
@@ -46,20 +47,20 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { postId?: number; imageIds?: Record<string, number> };
+  let body: { postId?: number; audioMediaId?: number; imageIds?: Record<string, number> };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { postId, imageIds } = body;
+  const { postId, audioMediaId, imageIds } = body;
 
   if (!postId) {
     return NextResponse.json({ error: "postId is required" }, { status: 400 });
   }
 
-  console.log(`[delete-post] Starting deletion — postId=${postId}, images=${JSON.stringify(imageIds ?? {})}`);
+  console.log(`[delete-post] Starting deletion — postId=${postId}, audioMediaId=${audioMediaId ?? "none"}, images=${JSON.stringify(imageIds ?? {})}`);
 
   const errors: string[] = [];
 
@@ -112,6 +113,24 @@ export async function DELETE(req: NextRequest) {
     );
   }
 
+  // Delete audio file if one was generated
+  if (audioMediaId && audioMediaId > 0) {
+    console.log(`[delete-post] Deleting audio media ${audioMediaId}`);
+    const audioResult = await wpDelete(`media/${audioMediaId}`).catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push(`Audio ${audioMediaId}: ${msg}`);
+      console.error(`[delete-post] Audio ${audioMediaId} deletion threw: ${msg}`);
+      return { ok: false, status: 0 };
+    });
+    if (!audioResult.ok && audioResult.status !== 404) {
+      const msg = `Audio deletion failed (HTTP ${audioResult.status})`;
+      errors.push(msg);
+      console.error(`[delete-post] ${msg}`);
+    } else {
+      console.log(`[delete-post] Audio ${audioMediaId} deleted (status=${audioResult.status})`);
+    }
+  }
+
   const success = errors.length === 0;
   console.log(`[delete-post] Complete — success=${success}${errors.length ? `, errors: ${errors.join("; ")}` : ""}`);
 
@@ -119,6 +138,7 @@ export async function DELETE(req: NextRequest) {
     success,
     deletedPost:   postId,
     deletedImages: imageIds ? Object.values(imageIds).filter(Boolean).length : 0,
+    deletedAudio:  audioMediaId ? 1 : 0,
     errors,
   });
 }
