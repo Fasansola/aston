@@ -52,7 +52,7 @@ const EXTERNAL_HREF_RE = /href="(https?:\/\/(?!(?:www\.)?aston\.ae)[^"]+)"/gi;
  *   Timeout — inconclusive; slow servers should not lose their links
  *   2xx / 3xx — link is live
  */
-async function headCheck(url: string, timeoutMs = 8000): Promise<boolean> {
+async function headCheck(url: string, timeoutMs = 5000): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -169,9 +169,20 @@ export async function scrubBrokenExternalLinks(content: BlogContent): Promise<{
   if (urlSet.size === 0) return { content, removed: [] };
 
   const urls = [...urlSet];
-  const results = await Promise.all(
+
+  // Hard 20s deadline for the entire scrub pass — if slow sites cause it to
+  // run long the overall generation hits Vercel's 300s limit. URLs that don't
+  // resolve within the deadline are kept (benefit of the doubt).
+  const SCRUB_DEADLINE_MS = 20_000;
+  const deadline = new Promise<{ url: string; ok: boolean }[]>((resolve) =>
+    setTimeout(() => resolve(urls.map((url) => ({ url, ok: true }))), SCRUB_DEADLINE_MS)
+  );
+
+  const checks = Promise.all(
     urls.map((url) => headCheck(url).then((ok) => ({ url, ok })))
   );
+
+  const results = await Promise.race([checks, deadline]);
   const broken = new Set(results.filter((r) => !r.ok).map((r) => r.url));
 
   if (broken.size === 0) return { content, removed: [] };
