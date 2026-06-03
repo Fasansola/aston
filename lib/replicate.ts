@@ -83,11 +83,101 @@ async function wavToMp3(wavBuffer: Buffer): Promise<Buffer> {
 // British English female voice — professional, clear, suits corporate advisory
 const DEFAULT_VOICE = "bf_emma";
 
+// Max characters per Replicate prediction — model errors above ~4,000 chars
+const KOKORO_CHUNK_LIMIT = 3500;
+
+/**
+ * Splits plain text into chunks of at most KOKORO_CHUNK_LIMIT characters,
+ * breaking only at sentence boundaries (. ! ?) to avoid mid-sentence cuts.
+ */
+function splitIntoChunks(text: string): string[] {
+  if (text.length <= KOKORO_CHUNK_LIMIT) return [text];
+
+  const chunks: string[] = [];
+  let remaining = text.trim();
+
+  while (remaining.length > KOKORO_CHUNK_LIMIT) {
+    // Find the last sentence boundary within the limit
+    const slice   = remaining.slice(0, KOKORO_CHUNK_LIMIT);
+    const lastEnd = Math.max(
+      slice.lastIndexOf(". "),
+      slice.lastIndexOf("! "),
+      slice.lastIndexOf("? ")
+    );
+    const cutAt = lastEnd > 0 ? lastEnd + 1 : KOKORO_CHUNK_LIMIT;
+    chunks.push(remaining.slice(0, cutAt).trim());
+    remaining = remaining.slice(cutAt).trim();
+  }
+
+  if (remaining.length > 0) chunks.push(remaining);
+  return chunks;
+}
+
+/**
+ * Submits a single text chunk to Kokoro on Replicate and returns a raw WAV buffer.
+ */
+async function generateChunk(
+  text: string,
+  voice: string,
+  apiToken: string
+): Promise<Buffer> {
+  const createRes = await fetch(`${REPLICATE_BASE}/predictions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+      "Content-Type": "application/json",
+      Prefer: "wait=60",
+    },
+    body: JSON.stringify({
+      version: "f559560eb822dc509045f3921a1921234918b91739db4bf3daab2169b71c7a13",
+      input: { text, voice, speed: 1.0 },
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+
+  if (!createRes.ok) {
+    const err = await createRes.text().catch(() => createRes.statusText);
+    throw new Error(`Replicate prediction failed (${createRes.status}): ${err}`);
+  }
+
+  let result = await createRes.json() as {
+    id: string; status: string;
+    output?: string | null; error?: string | null;
+    urls?: { get?: string };
+  };
+
+  // Poll if not immediately done
+  if (result.status !== "succeeded" && result.status !== "failed") {
+    const pollUrl = result.urls?.get;
+    if (!pollUrl) throw new Error("Replicate did not return a poll URL.");
+    const deadline = Date.now() + 5 * 60_000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 3000));
+      const pollRes = await fetch(pollUrl, {
+        headers: { Authorization: `Bearer ${apiToken}` },
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!pollRes.ok) continue;
+      result = await pollRes.json() as typeof result;
+      if (result.status === "succeeded" || result.status === "failed") break;
+    }
+  }
+
+  if (result.status === "failed" || result.error) {
+    throw new Error(`Kokoro chunk failed: ${result.error ?? "unknown"}`);
+  }
+  if (!result.output) throw new Error("Kokoro returned no output URL.");
+
+  const audioUrl  = typeof result.output === "string" ? result.output : (result.output as string[])[0];
+  const audioRes  = await fetch(audioUrl, { signal: AbortSignal.timeout(60_000) });
+  if (!audioRes.ok) throw new Error(`Failed to download chunk audio (${audioRes.status})`);
+  return Buffer.from(await audioRes.arrayBuffer());
+}
+
 /**
  * Converts a plain-text script to speech using Kokoro 82M on Replicate.
- * Returns the audio as a Buffer (WAV or MP3 depending on Replicate output).
- *
- * Replicate runs predictions asynchronously — this function polls until done.
+ * Automatically splits long scripts into chunks, generates each, then
+ * concatenates and converts to MP3.
  */
 export async function generateKokoroSpeech(
   script: string,
@@ -99,101 +189,36 @@ export async function generateKokoroSpeech(
   }
 
   const wordCount = script.split(/\s+/).filter(Boolean).length;
-  console.log(`[replicate] Generating Kokoro TTS — ${wordCount} words, voice: ${voice}`);
+  const chunks    = splitIntoChunks(script);
+  console.log(`[replicate] Kokoro TTS — ${wordCount} words, ${chunks.length} chunk(s), voice: ${voice}`);
 
-  // ── Step 1: Submit prediction ─────────────────────────────
-  // jaaari/kokoro-82m is a community model — must use /predictions with version hash
-  const createRes = await fetch(`${REPLICATE_BASE}/predictions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiToken}`,
-      "Content-Type": "application/json",
-      Prefer: "wait=60", // ask Replicate to wait up to 60s before returning
-    },
-    body: JSON.stringify({
-      version: "f559560eb822dc509045f3921a1921234918b91739db4bf3daab2169b71c7a13",
-      input: {
-        text:  script,
-        voice: voice,
-        speed: 1.0,
-      },
-    }),
-    signal: AbortSignal.timeout(90_000),
-  });
-
-  if (!createRes.ok) {
-    const err = await createRes.text().catch(() => createRes.statusText);
-    throw new Error(`Replicate prediction failed (${createRes.status}): ${err}`);
+  // ── Generate each chunk sequentially ─────────────────────
+  const wavBuffers: Buffer[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    console.log(`[replicate] Chunk ${i + 1}/${chunks.length} — ${chunks[i].length} chars`);
+    const wav = await generateChunk(chunks[i], voice, apiToken);
+    wavBuffers.push(wav);
   }
 
-  const prediction = await createRes.json() as {
-    id: string;
-    status: string;
-    output?: string | null;
-    error?: string | null;
-    urls?: { get?: string };
-  };
-
-  // ── Step 2: Poll if not immediately done ──────────────────
-  let result = prediction;
-  if (result.status !== "succeeded" && result.status !== "failed") {
-    const pollUrl = result.urls?.get;
-    if (!pollUrl) throw new Error("Replicate did not return a poll URL.");
-
-    const deadline = Date.now() + 5 * 60_000; // 5-min max
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 3000));
-
-      const pollRes = await fetch(pollUrl, {
-        headers: { Authorization: `Bearer ${apiToken}` },
-        signal: AbortSignal.timeout(30_000),
-      });
-
-      if (!pollRes.ok) continue;
-      result = await pollRes.json() as typeof result;
-
-      if (result.status === "succeeded" || result.status === "failed") break;
-      console.log(`[replicate] Kokoro status: ${result.status}…`);
-    }
-  }
-
-  if (result.status === "failed" || result.error) {
-    throw new Error(`Kokoro generation failed: ${result.error ?? "unknown error"}`);
-  }
-
-  if (!result.output) {
-    throw new Error("Kokoro returned no output URL.");
-  }
-
-  // ── Step 3: Download audio file ───────────────────────────
-  const audioUrl = typeof result.output === "string" ? result.output : (result.output as string[])[0];
-  console.log(`[replicate] Downloading audio from: ${audioUrl.slice(0, 80)}…`);
-
-  const audioRes = await fetch(audioUrl, { signal: AbortSignal.timeout(60_000) });
-  if (!audioRes.ok) {
-    throw new Error(`Failed to download Kokoro audio (${audioRes.status})`);
-  }
-
-  const rawBuffer = Buffer.from(await audioRes.arrayBuffer());
-  console.log(`[replicate] Raw audio downloaded — ${(rawBuffer.length / 1024).toFixed(1)} KB`);
-
-  // Convert WAV → MP3 for universal browser compatibility
-  // MP3 plays reliably in all browsers; WAV can fail on some setups
-  let buffer: Buffer;
-  let mimeType: string;
-
-  if (audioUrl.includes(".mp3")) {
-    buffer   = rawBuffer;
-    mimeType = "audio/mpeg";
-    console.log(`[replicate] Already MP3 — no conversion needed`);
+  // ── Concatenate WAV PCM data ──────────────────────────────
+  // Each WAV has a 44-byte header — keep first header, strip the rest, fix sizes
+  let combinedWav: Buffer;
+  if (wavBuffers.length === 1) {
+    combinedWav = wavBuffers[0];
   } else {
-    console.log(`[replicate] Converting WAV → MP3…`);
-    buffer   = await wavToMp3(rawBuffer);
-    mimeType = "audio/mpeg";
-    console.log(`[replicate] MP3 ready — ${(buffer.length / 1024).toFixed(1)} KB`);
+    const header   = Buffer.from(wavBuffers[0].subarray(0, 44));
+    const pcmParts = wavBuffers.map((b) => b.subarray(44));
+    const pcmData  = Buffer.concat(pcmParts);
+    header.writeUInt32LE(pcmData.length,      40); // data chunk size
+    header.writeUInt32LE(pcmData.length + 36,  4); // RIFF chunk size
+    combinedWav = Buffer.concat([header, pcmData]);
   }
 
-  return { buffer, mimeType };
+  console.log(`[replicate] Combined WAV — ${(combinedWav.length / 1024).toFixed(1)} KB, converting to MP3…`);
+  const buffer = await wavToMp3(combinedWav);
+  console.log(`[replicate] MP3 ready — ${(buffer.length / 1024).toFixed(1)} KB`);
+
+  return { buffer, mimeType: "audio/mpeg" };
 }
 
 /**
