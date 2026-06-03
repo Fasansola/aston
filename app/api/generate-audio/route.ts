@@ -46,7 +46,10 @@ export async function POST(req: NextRequest) {
     main_content,
     more_content_1,
     more_content_2,
+    more_content_3,
+    more_content_4,
     more_content_5,
+    more_content_6,
     final_points,
   } = body as {
     postId?: number;
@@ -55,7 +58,10 @@ export async function POST(req: NextRequest) {
     main_content?: string;
     more_content_1?: string;
     more_content_2?: string;
+    more_content_3?: string;
+    more_content_4?: string;
     more_content_5?: string;
+    more_content_6?: string;
     final_points?: string;
   };
 
@@ -91,7 +97,10 @@ export async function POST(req: NextRequest) {
         main_content,
         more_content_1,
         more_content_2,
+        more_content_3,
+        more_content_4,
         more_content_5,
+        more_content_6,
         final_points,
       });
       const wordCount = script.split(/\s+/).filter(Boolean).length;

@@ -115,9 +115,11 @@ export async function generateKokoroSpeech(
 }
 
 /**
- * Strips HTML and truncates the article text to a clean narration script.
- * Removes visual block markup, short headings, and trims to ~4,500 chars
- * (~600 words, ~4 minutes of audio) to keep costs minimal.
+ * Strips HTML and builds a clean plain-text narration script from all article fields.
+ * Removes visual block markup (infographics, charts, flowcharts, quick-answer, definition)
+ * since those are visual-only and make no sense when spoken aloud.
+ *
+ * Kokoro supports automatic text splitting for long-form input — no hard char limit.
  */
 export function articleToAudioScript(
   title: string,
@@ -126,14 +128,17 @@ export function articleToAudioScript(
     main_content?: string;
     more_content_1?: string;
     more_content_2?: string;
+    more_content_3?: string;
+    more_content_4?: string;
     more_content_5?: string; // FAQ
+    more_content_6?: string;
     final_points?: string;
   }
 ): string {
   const stripHtml = (html: string) =>
     (html ?? "")
-      // Remove entire visual block divs (infographic, chart, flowchart, quick-answer, definition)
-      .replace(/<div[^>]*class="aston-[^"]*"[^>]*>[\s\S]*?<\/div>/gi, "")
+      // Remove entire aston visual block divs — these are visual-only and unreadable as audio
+      .replace(/<div[^>]*class="aston-[^"]*"[\s\S]*?<\/div>/gi, "")
       .replace(/<canvas[^>]*>[\s\S]*?<\/canvas>/gi, "")
       .replace(/<[^>]+>/g, " ")
       .replace(/\s+/g, " ")
@@ -141,26 +146,33 @@ export function articleToAudioScript(
 
   const parts: string[] = [];
 
+  // Title
   parts.push(`${title}.`);
 
+  // Key takeaways — read all items (not capped at 4)
   if (fields.key_takeaways) {
     const items = (fields.key_takeaways.match(/<li[^>]*>(.*?)<\/li>/gi) ?? [])
       .map((li) => stripHtml(li))
-      .filter(Boolean)
-      .slice(0, 4);
+      .filter(Boolean);
     if (items.length) {
       parts.push(`Key points. ${items.join(". ")}.`);
     }
   }
 
+  // All body sections in order
   if (fields.main_content)   parts.push(stripHtml(fields.main_content));
   if (fields.more_content_1) parts.push(stripHtml(fields.more_content_1));
   if (fields.more_content_2) parts.push(stripHtml(fields.more_content_2));
+  if (fields.more_content_3) parts.push(stripHtml(fields.more_content_3));
+  if (fields.more_content_4) parts.push(stripHtml(fields.more_content_4));
+  if (fields.more_content_6) parts.push(stripHtml(fields.more_content_6));
 
+  // FAQ section
   if (fields.more_content_5) {
     parts.push("Frequently asked questions. " + stripHtml(fields.more_content_5));
   }
 
+  // Final next steps
   if (fields.final_points) {
     const steps = (fields.final_points.match(/<li[^>]*>(.*?)<\/li>/gi) ?? [])
       .map((li) => stripHtml(li))
@@ -170,7 +182,5 @@ export function articleToAudioScript(
     }
   }
 
-  // Trim to ~4,500 chars to stay well within Kokoro's limits and keep audio ~4 min
-  const full = parts.join(" ").replace(/\s+/g, " ").trim();
-  return full.length > 4500 ? full.slice(0, 4497) + "…" : full;
+  return parts.join(" ").replace(/\s+/g, " ").trim();
 }

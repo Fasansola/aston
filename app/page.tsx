@@ -1005,7 +1005,10 @@ export default function HomePage() {
               main_content:   raw.main_content   ?? "",
               more_content_1: raw.more_content_1 ?? "",
               more_content_2: raw.more_content_2 ?? "",
+              more_content_3: raw.more_content_3 ?? "",
+              more_content_4: raw.more_content_4 ?? "",
               more_content_5: raw.more_content_5 ?? "",
+              more_content_6: raw.more_content_6 ?? "",
               final_points:   raw.final_points   ?? "",
             });
             setStatus("success");
@@ -1508,13 +1511,16 @@ export default function HomePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          postId:        result.postId,
-          title:         result.title,
+          postId:         result.postId,
+          title:          result.title,
           key_takeaways:  blogContent?.key_takeaways,
           main_content:   blogContent?.main_content,
           more_content_1: blogContent?.more_content_1,
           more_content_2: blogContent?.more_content_2,
+          more_content_3: blogContent?.more_content_3,
+          more_content_4: blogContent?.more_content_4,
           more_content_5: blogContent?.more_content_5,
+          more_content_6: blogContent?.more_content_6,
           final_points:   blogContent?.final_points,
         }),
       });

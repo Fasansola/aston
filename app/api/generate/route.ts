@@ -401,7 +401,10 @@ export async function POST(req: NextRequest) {
             main_content:   content.main_content   ?? "",
             more_content_1: content.more_content_1 ?? "",
             more_content_2: content.more_content_2 ?? "",
+            more_content_3: content.more_content_3 ?? "",
+            more_content_4: content.more_content_4 ?? "",
             more_content_5: content.more_content_5 ?? "",
+            more_content_6: content.more_content_6 ?? "",
             final_points:   content.final_points   ?? "",
           });
           return; // success — close stream
