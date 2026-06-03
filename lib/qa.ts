@@ -377,8 +377,10 @@ export function runQA(
     "internal_links_sufficient",
     "keypoints_exist",
     "external_links_present",
-    "featured_image_exists",
-    "section_images_exist",
+    // image checks removed from blocking — images are generated in a
+    // separate /api/generate-images request after QA passes
+    // "featured_image_exists",
+    // "section_images_exist",
     "image_alt_text_exists",
     "focus_keyword_in_title",
   ];
