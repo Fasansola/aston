@@ -226,7 +226,7 @@ export async function createWordPressPost(
     keypointTwoImg: number;
     postSplitImg: number;
     featuredImg: number;
-  },
+  } | null,
   language?: string
 ) {
   const langCode = normaliseLangCode(language);
@@ -246,7 +246,7 @@ export async function createWordPressPost(
         title:           postTitle,
         content: assembled.main_content,
         status: "draft",
-        featured_media: imageIds.featuredImg,
+        ...(imageIds?.featuredImg ? { featured_media: imageIds.featuredImg } : {}),
         slug: content.slug,
         excerpt: content.excerpt,
         ...(categoryIds.length > 0 && { categories: categoryIds }),
@@ -268,17 +268,17 @@ export async function createWordPressPost(
         acf: {
           Key_takeaways:    content.key_takeaways,
           Keypoint_One:     content.keypoint_one,
-          keypoint_one_img: imageIds.keypointOneImg,
+          keypoint_one_img: imageIds?.keypointOneImg ?? 0,
           more_content_1:   assembled.more_content_1,
           more_content_2:   content.more_content_2,
           quote_1:          content.quote_1,
           more_content_3:   assembled.more_content_3,
           Keypoint_Two:     content.keypoint_two,
-          Keypoint_Two_Img: imageIds.keypointTwoImg,
+          Keypoint_Two_Img: imageIds?.keypointTwoImg ?? 0,
           more_content_4:   assembled.more_content_4,
           quote_2:          content.quote_2,
           read_mins:        parseInt(content.read_mins, 10) || 7,
-          post_split_img:   imageIds.postSplitImg,
+          post_split_img:   imageIds?.postSplitImg ?? 0,
           Final_Points:     content.final_points,
           more_content_5:   content.more_content_5,
           more_content_6:   content.more_content_6,
@@ -348,6 +348,33 @@ export async function createWordPressPost(
   }
 
   return response.data;
+}
+
+/**
+ * Patches a WordPress post to attach the four generated images.
+ * Called as a second step after the post has already been published (text-first pipeline).
+ */
+export async function updateWordPressPostImages(
+  postId: number,
+  imageIds: {
+    keypointOneImg: number;
+    keypointTwoImg: number;
+    postSplitImg: number;
+    featuredImg: number;
+  }
+): Promise<void> {
+  await axios.post(
+    `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
+    {
+      featured_media: imageIds.featuredImg,
+      acf: {
+        keypoint_one_img: imageIds.keypointOneImg,
+        Keypoint_Two_Img: imageIds.keypointTwoImg,
+        post_split_img:   imageIds.postSplitImg,
+      },
+    },
+    { headers: BASE_HEADERS, timeout: 20_000 }
+  );
 }
 
 /**

@@ -17,9 +17,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePrompts, generateImage, IMAGE_QA_CHECKS, type ImageModel } from "@/lib/openai";
+import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePrompts, IMAGE_QA_CHECKS, type ImageModel } from "@/lib/openai";
 import { getSettings } from "@/lib/storage";
-import { uploadImageToWordPress, createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
+import { createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 import { runQA } from "@/lib/qa";
 import { enforceApprovedLinks, scrubBrokenExternalLinks } from "@/lib/linkScrubber";
@@ -39,28 +39,6 @@ function qa_failing_fields(checks: Record<string, boolean>): string {
   return Object.entries(checks).filter(([, v]) => !v).map(([k]) => k).join(", ") || "unknown";
 }
 
-/**
- * Generate a single image with up to `maxAttempts` retries.
- * Isolates failures so one bad image doesn't kill the other three.
- */
-async function generateImageWithRetry(
-  prompt: string,
-  model: ImageModel,
-  label: string,
-  maxAttempts = 2
-): Promise<Buffer> {
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await generateImage(prompt, model);
-    } catch (err) {
-      lastErr = err;
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[generate] Image "${label}" failed (attempt ${attempt}/${maxAttempts}): ${msg}`);
-    }
-  }
-  throw new Error(`Image "${label}" failed after ${maxAttempts} attempts: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
-}
 
 export async function POST(req: NextRequest) {
   // ── 1. Parse + validate (returns JSON, never retried) ────────
@@ -220,17 +198,14 @@ export async function POST(req: NextRequest) {
         const MAX_QA   = 3;
 
         // State carried across retries so fix passes can build on prior work
-        type ImageIds = { keypointOneImg: number; keypointTwoImg: number; postSplitImg: number; featuredImg: number };
         let prevContent:      BlogContent | null = null;
         let prevImagePrompts: ImagePrompts | null = null;
-        let prevImageIds:     ImageIds | null = null;
         let prevQAChecks:     Record<string, boolean> | null = null;
         let prevBrokenUrls:   string[] = [];
 
         for (let qaAttempt = 1; qaAttempt <= MAX_QA; qaAttempt++) {
           let content:      BlogContent;
           let imagePrompts: ImagePrompts;
-          let imageIds:     ImageIds;
 
           if (qaAttempt === 1) {
             // ── Full generation on first attempt ────────────────
@@ -264,39 +239,14 @@ export async function POST(req: NextRequest) {
           content = scrubbedContent;
           prevBrokenUrls = [...unapproved, ...brokenUrls];
 
-          // ── Images: regenerate only on attempt 1 or if image checks failed ─
-          const needNewImages = qaAttempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevQAChecks![k]);
-
-          if (needNewImages) {
+          // ── Image prompts: regenerate only on attempt 1 or if image checks failed ─
+          // Actual image generation happens in a separate /api/generate-images call
+          // after this route returns "done" — this keeps us well under the 300s limit.
+          const needNewImagePrompts = qaAttempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevQAChecks![k]);
+          if (needNewImagePrompts) {
             imagePrompts = await generateImagePrompts(title, content);
-            console.log(`[generate] Generating images with ${imageModel}...`);
-            const [kp1Buf, kp2Buf, splitBuf, featBuf] = await Promise.all([
-              generateImageWithRetry(imagePrompts.keypoint_one_img_prompt, imageModel, "kp1"),
-              generateImageWithRetry(imagePrompts.keypoint_two_img_prompt, imageModel, "kp2"),
-              generateImageWithRetry(imagePrompts.post_split_img_prompt,   imageModel, "split"),
-              generateImageWithRetry(imagePrompts.featured_img_prompt,     imageModel, "featured"),
-            ]);
-            const uploadResults = await Promise.allSettled([
-              uploadImageToWordPress(kp1Buf,   `${fileSlug}-kp1.png`,      imagePrompts.keypoint_one_img_alt),
-              uploadImageToWordPress(kp2Buf,   `${fileSlug}-kp2.png`,      imagePrompts.keypoint_two_img_alt),
-              uploadImageToWordPress(splitBuf, `${fileSlug}-split.png`,    imagePrompts.post_split_img_alt),
-              uploadImageToWordPress(featBuf,  `${fileSlug}-featured.png`, imagePrompts.featured_img_alt),
-            ]);
-            const uploadLabels = ["kp1", "kp2", "split", "featured"];
-            const uploadErrors = uploadResults
-              .map((r, i) => r.status === "rejected" ? `${uploadLabels[i]}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}` : null)
-              .filter(Boolean);
-            if (uploadErrors.length > 0) {
-              throw new Error(`Image upload(s) failed: ${uploadErrors.join("; ")}`);
-            }
-            const [kp1, kp2, split, feat] = uploadResults.map(
-              (r) => (r as PromiseFulfilledResult<{ id: number; url: string }>).value
-            );
-            imageIds = { keypointOneImg: kp1.id, keypointTwoImg: kp2.id, postSplitImg: split.id, featuredImg: feat.id };
           } else {
-            console.log(`[generate] Reusing images from attempt 1 — no image QA failures`);
             imagePrompts = prevImagePrompts!;
-            imageIds     = prevImageIds!;
           }
 
           // Auto-correct house style: "licence" variants → "license" regardless of AI output
@@ -321,7 +271,8 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          const qa = runQA(content, imagePrompts, imageIds, title);
+          const placeholderImageIds = { keypointOneImg: 0, keypointTwoImg: 0, postSplitImg: 0, featuredImg: 0 };
+          const qa = runQA(content, imagePrompts, placeholderImageIds, title);
           // Override the LLM's estimated read_mins with a value derived from the
           // actual stripped word count — the LLM over-counts by including HTML markup.
           content.read_mins = String(Math.max(1, Math.round(qa.wordCount / 200)));
@@ -330,7 +281,6 @@ export async function POST(req: NextRequest) {
           // Persist state for next retry
           prevContent      = content;
           prevImagePrompts = imagePrompts;
-          prevImageIds     = imageIds;
           prevQAChecks     = qa.checks;
 
           if (qa.status === "fail") {
@@ -347,7 +297,7 @@ export async function POST(req: NextRequest) {
             more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
           };
 
-          const post = await createWordPressPost(content.seo_title || title, content, imagePrompts, assembled, imageIds, language || undefined);
+          const post = await createWordPressPost(content.seo_title || title, content, imagePrompts, assembled, null, language || undefined);
           console.log(`[generate] Post created! ID: ${post.id}, slug: "${content.slug}"`);
 
           const articleHtml = [
@@ -370,7 +320,10 @@ export async function POST(req: NextRequest) {
             type:        "done",
             success:     true,
             postId:      post.id,
-            imageIds,
+            imageIds:    null,   // images generated separately via /api/generate-images
+            imagePrompts,        // forwarded by client to /api/generate-images
+            fileSlug,            // forwarded by client to /api/generate-images
+            imageModel,          // forwarded by client to /api/generate-images
             mode,
             title,
             slug:         content.slug,

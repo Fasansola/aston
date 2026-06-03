@@ -92,8 +92,8 @@ const STEPS = [
   "Planning article structure and blueprint...",
   "Writing blog content from blueprint...",
   "Generating content-aware image prompts...",
-  "Generating images with Imagen 3...",
-  "Uploading images and publishing draft...",
+  "Publishing draft to WordPress…",
+  "Generating & attaching images…",
 ];
 
 const SUGGESTIONS = [
@@ -887,6 +887,9 @@ export default function HomePage() {
   const [videoMime, setVideoMime]         = useState("video/mp4");
   const [youtubeUrl, setYoutubeUrl]       = useState<string | null>(null);
 
+  const [imageGenStatus, setImageGenStatus]     = useState<"idle" | "generating" | "done" | "error">("idle");
+  const [imageGenMessage, setImageGenMessage]   = useState("");
+
   const [audioStatus, setAudioStatus]       = useState<"idle" | "generating" | "done" | "error">("idle");
   const [audioProgress, setAudioProgress]   = useState("");
   const [audioElapsed, setAudioElapsed]     = useState(0);
@@ -1017,6 +1020,16 @@ export default function HomePage() {
                 ...(event.linksUsed as GenerateResult["linksUsed"]).internal,
                 ...(event.linksUsed as GenerateResult["linksUsed"]).external,
               ], data);
+            }
+            // Auto-trigger image generation in a separate request
+            const evtRaw = event as unknown as Record<string, unknown>;
+            if (evtRaw.imagePrompts && evtRaw.postId) {
+              generateImages(
+                evtRaw.postId as number,
+                evtRaw.fileSlug as string,
+                evtRaw.imageModel as string,
+                evtRaw.imagePrompts as Record<string, string>
+              );
             }
             return;
           } else if (event.type === "error") {
@@ -1382,6 +1395,8 @@ export default function HomePage() {
     setPriorityService("");
     setLanguage("");
     setCustomPrompt("");
+    setImageGenStatus("idle");
+    setImageGenMessage("");
     setVideoStatus("idle");
     setVideoProgress("");
     setVideoElapsed(0);
@@ -1490,6 +1505,57 @@ export default function HomePage() {
     } catch (err) {
       setVideoStatus("error");
       setVideoProgress(err instanceof Error ? err.message : "Upload failed.");
+    }
+  };
+
+  // Called automatically after the main generate pipeline publishes the text post.
+  // Runs image generation as a second, separate request so the total pipeline
+  // fits within Vercel's 300 s function timeout.
+  const generateImages = async (
+    postId: number,
+    fileSlug: string,
+    imageModel: string,
+    imagePrompts: Record<string, string>
+  ) => {
+    setImageGenStatus("generating");
+    setImageGenMessage("Generating images…");
+    try {
+      const res = await fetch("/api/generate-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postId, fileSlug, imageModel, imagePrompts }),
+      });
+      if (!res.body) throw new Error("No response body from generate-images.");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          const line = part.replace(/^data: /, "").trim();
+          if (!line) continue;
+          let event: Record<string, unknown>;
+          try { event = JSON.parse(line); } catch { continue; }
+          if (event.type === "progress") {
+            setImageGenMessage(String(event.message ?? ""));
+          } else if (event.type === "done") {
+            setImageGenStatus("done");
+            setImageGenMessage("Images attached to post ✓");
+            // Update result with real image IDs
+            setResult((prev) => prev ? { ...prev, imageIds: event.imageIds as GenerateResult["imageIds"] } : prev);
+          } else if (event.type === "error") {
+            throw new Error(String(event.message));
+          }
+        }
+      }
+    } catch (err) {
+      setImageGenStatus("error");
+      setImageGenMessage(err instanceof Error ? err.message : "Image generation failed.");
+      console.error("[generate-images]", err);
     }
   };
 
@@ -2253,6 +2319,30 @@ export default function HomePage() {
                         ))}
                       </ul>
                     )}
+                  </div>
+                )}
+
+                {/* Image generation status */}
+                {imageGenStatus !== "idle" && (
+                  <div className={`rounded-lg px-4 py-3 border flex items-center gap-3 ${
+                    imageGenStatus === "error"
+                      ? "bg-red-500/10 border-red-500/20"
+                      : imageGenStatus === "done"
+                      ? "bg-emerald-500/10 border-emerald-500/20"
+                      : "bg-white/[0.04] border-white/10"
+                  }`}>
+                    {imageGenStatus === "generating" && (
+                      <svg className="w-3.5 h-3.5 text-[#C9A84C] animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeDasharray="31.4" strokeDashoffset="10" />
+                      </svg>
+                    )}
+                    {imageGenStatus === "done" && <span className="text-emerald-400 text-sm shrink-0">✓</span>}
+                    {imageGenStatus === "error" && <span className="text-red-400 text-sm shrink-0">✕</span>}
+                    <p className={`text-xs ${
+                      imageGenStatus === "error" ? "text-red-300/80"
+                      : imageGenStatus === "done" ? "text-emerald-300/80"
+                      : "text-white/50"
+                    }`}>{imageGenMessage || "Generating images…"}</p>
                   </div>
                 )}
               </div>
