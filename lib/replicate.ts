@@ -10,7 +10,70 @@
  * Docs:  https://replicate.com/jaaari/kokoro-82m
  */
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const lamejs = require("lamejs") as {
+  Mp3Encoder: new (channels: number, sampleRate: number, kbps: number) => {
+    encodeBuffer(left: Int16Array, right?: Int16Array): Int8Array;
+    flush(): Int8Array;
+  };
+};
+
 const REPLICATE_BASE = "https://api.replicate.com/v1";
+
+/**
+ * Converts a WAV Buffer to MP3 using lamejs (pure JS, no native binaries).
+ * Reads the WAV header to extract sample rate and channel count.
+ */
+function wavToMp3(wavBuffer: Buffer): Buffer {
+  // WAV header offsets:
+  // 22 = numChannels (2 bytes), 24 = sampleRate (4 bytes), 34 = bitsPerSample (2 bytes)
+  const numChannels  = wavBuffer.readUInt16LE(22);
+  const sampleRate   = wavBuffer.readUInt32LE(24);
+  const bitsPerSample = wavBuffer.readUInt16LE(34);
+
+  // PCM data starts after the 44-byte WAV header
+  const dataOffset = 44;
+  const pcmData    = wavBuffer.subarray(dataOffset);
+
+  // Convert raw bytes to Int16Array (16-bit PCM samples)
+  const samples = new Int16Array(
+    pcmData.buffer,
+    pcmData.byteOffset,
+    pcmData.byteLength / (bitsPerSample / 8)
+  );
+
+  const encoder  = new lamejs.Mp3Encoder(numChannels, sampleRate, 128);
+  const mp3Parts: Buffer[] = [];
+  const blockSize = 1152; // standard LAME block size
+
+  if (numChannels === 1) {
+    // Mono
+    for (let i = 0; i < samples.length; i += blockSize) {
+      const chunk  = samples.subarray(i, i + blockSize);
+      const encoded = encoder.encodeBuffer(chunk);
+      if (encoded.length > 0) mp3Parts.push(Buffer.from(encoded));
+    }
+  } else {
+    // Stereo — split into left/right channels
+    const left  = new Int16Array(samples.length / 2);
+    const right = new Int16Array(samples.length / 2);
+    for (let i = 0, j = 0; i < samples.length; i += 2, j++) {
+      left[j]  = samples[i];
+      right[j] = samples[i + 1];
+    }
+    for (let i = 0; i < left.length; i += blockSize) {
+      const lChunk  = left.subarray(i, i + blockSize);
+      const rChunk  = right.subarray(i, i + blockSize);
+      const encoded = encoder.encodeBuffer(lChunk, rChunk);
+      if (encoded.length > 0) mp3Parts.push(Buffer.from(encoded));
+    }
+  }
+
+  const flushed = encoder.flush();
+  if (flushed.length > 0) mp3Parts.push(Buffer.from(flushed));
+
+  return Buffer.concat(mp3Parts);
+}
 
 // British English female voice — professional, clear, suits corporate advisory
 const DEFAULT_VOICE = "bf_emma";
@@ -106,10 +169,24 @@ export async function generateKokoroSpeech(
     throw new Error(`Failed to download Kokoro audio (${audioRes.status})`);
   }
 
-  const buffer  = Buffer.from(await audioRes.arrayBuffer());
-  // Detect mime type from URL extension; default to wav (Kokoro's typical output)
-  const mimeType = audioUrl.includes(".mp3") ? "audio/mpeg" : "audio/wav";
-  console.log(`[replicate] Audio ready — ${(buffer.length / 1024).toFixed(1)} KB (${mimeType})`);
+  const rawBuffer = Buffer.from(await audioRes.arrayBuffer());
+  console.log(`[replicate] Raw audio downloaded — ${(rawBuffer.length / 1024).toFixed(1)} KB`);
+
+  // Convert WAV → MP3 for universal browser compatibility
+  // MP3 plays reliably in all browsers; WAV can fail on some setups
+  let buffer: Buffer;
+  let mimeType: string;
+
+  if (audioUrl.includes(".mp3")) {
+    buffer   = rawBuffer;
+    mimeType = "audio/mpeg";
+    console.log(`[replicate] Already MP3 — no conversion needed`);
+  } else {
+    console.log(`[replicate] Converting WAV → MP3…`);
+    buffer   = wavToMp3(rawBuffer);
+    mimeType = "audio/mpeg";
+    console.log(`[replicate] MP3 ready — ${(buffer.length / 1024).toFixed(1)} KB`);
+  }
 
   return { buffer, mimeType };
 }
