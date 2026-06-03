@@ -114,10 +114,10 @@ export async function POST(req: NextRequest) {
       const { id: audioMediaId, url: audioUrl } = await uploadMediaToWordPress(buffer, filename, mimeType);
       console.log(`[generate-audio] Uploaded to WordPress: mediaId=${audioMediaId} ${audioUrl}`);
 
-      // ── Step 4: Save URL to ACF field ────────────────────────
-      await send({ type: "progress", message: "Saving audio URL to WordPress post…", elapsedSecs: elapsedSecs() });
-      await updatePostAudioUrl(postId, audioUrl);
-      console.log(`[generate-audio] ACF audio_url updated on post ${postId}`);
+      // ── Step 4: Save media ID to ACF File field ───────────────
+      await send({ type: "progress", message: "Saving audio to WordPress post…", elapsedSecs: elapsedSecs() });
+      await updatePostAudioUrl(postId, audioMediaId);
+      console.log(`[generate-audio] ACF audio_url (File field) updated with mediaId=${audioMediaId}`);
 
       await send({ type: "done", audioUrl, audioMediaId, elapsedSecs: elapsedSecs() });
     } catch (err: unknown) {
