@@ -949,7 +949,7 @@ more_content_1:
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
 - Target ~${blueprint.sections[0]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Must include at least one: specific cost/fee in AED or USD, named regulatory body, realistic timeline, or jurisdiction comparison
-- VISUAL BLOCKS: place one of the mandatory infographic or chart blocks here if this section contains data, statistics, comparisons, or a process that suits a visual. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
+- VISUAL BLOCKS: you MUST place either an infographic block or a chart block somewhere in this section. Choose whichever format best suits the section data. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
@@ -959,7 +959,7 @@ more_content_2:
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
 - Target ~${blueprint.sections[1]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Must include a bulleted or numbered list of at least 5 concrete items with facts, figures, or named details
-- VISUAL BLOCKS: place one of the mandatory infographic or chart blocks here if this section contains data, statistics, comparisons, or a process that suits a visual. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
+- VISUAL BLOCKS: you MUST place either an infographic block or a chart block somewhere in this section. Choose whichever format best suits the section data. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
@@ -972,7 +972,7 @@ more_content_3:
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
 - Target ~${blueprint.sections[2]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Include at least one real-world scenario as a short narrative (e.g. "A gold trading company registered in DMCC approached three banks over six months...")
-- VISUAL BLOCKS: place one of the mandatory infographic or chart blocks here if this section contains data, statistics, comparisons, or a process that suits a visual. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
+- VISUAL BLOCKS: you MUST place either an infographic block or a chart block somewhere in this section. Choose whichever format best suits the section data. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
@@ -1011,7 +1011,7 @@ more_content_6:
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
 - Target ~${blueprint.sections[4]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - This is a distinct fifth body section — do not repeat themes from more_content_4
-- VISUAL BLOCKS: place one of the mandatory infographic or chart blocks here if this section contains data, statistics, comparisons, or a process that suits a visual. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
+- VISUAL BLOCKS: you MUST place either an infographic block or a chart block somewhere in this section. Choose whichever format best suits the section data. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
@@ -1223,6 +1223,13 @@ const CHECK_TO_FIELDS: Record<string, string[]> = {
   no_banned_phrases:                ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
   no_colons_in_headings:            ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
   sentence_length_ok:               ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
+  // AI search + visual block checks — map to the fields that own them
+  quick_answer_block_exists:        ["main_content"],
+  definition_block_exists:          ["main_content", "more_content_1"],
+  flowchart_block_exists:           ["more_content_1", "more_content_2", "more_content_3", "more_content_6"],
+  // Quality checks
+  key_takeaways_quality:            ["key_takeaways"],
+  no_us_spellings:                  ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
 };
 
 const CHECK_DESCRIPTIONS: Record<string, string> = {
@@ -1258,6 +1265,13 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   no_banned_phrases:                "banned phrase(s) found in the article — identify and remove or replace them",
   no_colons_in_headings:            "colon found in one or more headings — rewrite those headings without colons",
   sentence_length_ok:               "too many sentences exceed 20 words — Yoast requires fewer than 25% of sentences to be over 20 words. Rewrite any sentence over 20 words by splitting it at a natural junction (full stop). Target 12–16 words. Common fixes: split clauses joined by 'which', 'that', 'because', 'since'; convert inline lists to bullet points; move parenthetical qualifications to their own sentence",
+  // AI search blocks
+  quick_answer_block_exists:        `main_content is missing the Quick Answer block — add it after the opening paragraph using EXACTLY this structure: <div class="aston-quick-answer"><p class="aston-quick-answer__label">Quick answer</p><p class="aston-quick-answer__text">[2–3 direct sentences answering the main question, max 60 words, at least one specific fact]</p></div>`,
+  definition_block_exists:          `main_content or more_content_1 is missing the Definition block — identify the primary specialised term in this article and add it using EXACTLY this structure: <div class="aston-definition"><p class="aston-definition__label">Definition</p><strong class="aston-definition__term">[Term]</strong><p class="aston-definition__text">[Plain-English definition, 1–2 sentences, max 40 words]</p></div>`,
+  flowchart_block_exists:           `no flowchart found — add a vertical timeline flowchart in the section that describes a process or sequence of steps. Use EXACTLY this structure with alternating --right/--left items: <div class="aston-timeline"><h4 class="aston-timeline__title">[Process title]</h4><div class="aston-timeline__track"><div class="aston-timeline__item aston-timeline__item--right"><div class="aston-timeline__dot"></div><div class="aston-timeline__content"><h5 class="aston-timeline__step-title">[Step 1]</h5><p class="aston-timeline__step-desc">[One sentence]</p></div></div><div class="aston-timeline__item aston-timeline__item--left">...</div></div></div> — minimum 5 steps, maximum 8`,
+  // Quality checks
+  key_takeaways_quality:            "key_takeaways has fewer than 4 list items — rewrite to include exactly 4–6 <li> items, each 8–14 words, each containing a specific fact, number, regulator, jurisdiction, or timeline",
+  no_us_spellings:                  "US spellings or house-style violations found — replace with British English (organisation, optimisation, authorised, centre, travelling, licence→license, programme, analyse)",
 };
 
 /**
@@ -1295,6 +1309,13 @@ export async function fixBlogContent(
     ? `\n${formatAuthorityLinksForPrompt(authorityLinks, language)}\n`
     : "";
 
+  // Include visual block and AI search templates only when those checks are failing,
+  // so GPT has the exact HTML structures it needs to write the fix correctly.
+  const needsVisualBlocks = failedKeys.some((k) => k === "flowchart_block_exists");
+  const needsAISearchBlocks = failedKeys.some((k) => k === "quick_answer_block_exists" || k === "definition_block_exists");
+  const visualBlocksSection = needsVisualBlocks ? buildVisualBlockInstructions() : "";
+  const aiSearchSection = needsAISearchBlocks ? buildAISearchInstructions() : "";
+
   const issueList = failedKeys
     .map((k, i) => `${i + 1}. ${CHECK_DESCRIPTIONS[k] ?? `"${k}" check failed`}`)
     .join("\n");
@@ -1319,7 +1340,7 @@ Secondary keywords: ${blueprint.secondary_keywords.join(", ")}
 
 ISSUES TO FIX:
 ${issueList}
-
+${visualBlocksSection}${aiSearchSection}
 CURRENT CONTENT OF FIELDS THAT NEED FIXING:
 ${currentFieldsBlock}
 
