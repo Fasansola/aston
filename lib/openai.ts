@@ -385,16 +385,14 @@ function buildDomainContext(title: string, customPrompt?: string): string {
 
 // ── Visual SEO block system ───────────────────────────────────
 /**
- * Always injects infographic + chart instructions into every post — these are
- * mandatory for SEO regardless of the custom prompt.
- *
- * Flowchart is only added when [FLOWCHART] is explicitly in the custom prompt
- * since it only suits process/step-by-step articles.
+ * Injects infographic + chart + flowchart instructions into every post.
+ * All three visual blocks are mandatory for SEO on every article.
  *
  * Infographics → styled HTML div blocks (CSS classes, no JS needed).
  * Charts → Chart.js canvas with data stored in data-* attributes.
+ * Flowchart → aston-timeline vertical zigzag timeline.
  */
-function buildVisualBlockInstructions(customPrompt?: string): string {
+function buildVisualBlockInstructions(): string {
   const parts: string[] = [];
 
   parts.push(`VISUAL SEO BLOCKS — MANDATORY FOR EVERY ARTICLE:
@@ -867,7 +865,7 @@ ${subs}`;
     .map((q, i) => `  Q${i + 1}: ${q}`)
     .join("\n");
 
-  const visualBlockInstructions = buildVisualBlockInstructions(customPrompt);
+  const visualBlockInstructions = buildVisualBlockInstructions();
   const aiSearchInstructions = buildAISearchInstructions();
 
   const customPromptContentBlock = customPrompt?.trim()
