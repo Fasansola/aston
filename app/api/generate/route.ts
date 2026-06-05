@@ -22,7 +22,7 @@ import { getSettings } from "@/lib/storage";
 import { createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 import { runQA } from "@/lib/qa";
-import { enforceApprovedLinks, scrubBrokenExternalLinks } from "@/lib/linkScrubber";
+import { enforceApprovedLinks, scrubBrokenExternalLinks, stripLinksFromVisualBlocks } from "@/lib/linkScrubber";
 import { selectAuthorityLinks, mergeWithDiscovered } from "@/lib/authorityLinks";
 import {
   GenerationMode,
@@ -238,6 +238,9 @@ export async function POST(req: NextRequest) {
           }
           content = scrubbedContent;
           prevBrokenUrls = [...unapproved, ...brokenUrls];
+
+          // ── Pass 3: strip any links GPT placed inside visual blocks ──
+          content = stripLinksFromVisualBlocks(content);
 
           // ── Image prompts: regenerate only on attempt 1 or if image checks failed ─
           // Actual image generation happens in a separate /api/generate-images call

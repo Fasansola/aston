@@ -420,6 +420,7 @@ Choose the most data-rich section of the article and render an infographic there
 Rules:
 - Each list item must be a complete, specific fact — not a heading or label
 - Derive all items from real information about the article topic (fees, timelines, requirements, named regulators, jurisdictions, steps)
+- NO links inside infographic blocks — do NOT add <a> tags anywhere inside the aston-visual-block div. Plain text only in list items.
 - Place the block after the paragraph that introduces the topic it covers`);
 
   // ── Chart (always included) ─────────────────────────────────

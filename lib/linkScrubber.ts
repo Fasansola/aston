@@ -198,3 +198,86 @@ export async function scrubBrokenExternalLinks(content: BlogContent): Promise<{
 
   return { content: cleaned, removed: [...broken] };
 }
+
+/**
+ * Pass 3 — synchronous, no network calls.
+ * Strips all <a> tags from inside infographic and chart visual blocks
+ * so links never appear inside designed UI components.
+ * Keeps the anchor text — only the <a> wrapper is removed.
+ *
+ * Works by scanning the HTML character by character to find the boundaries
+ * of visual block divs, then stripping <a> tags only within those spans.
+ */
+export function stripLinksFromVisualBlocks(content: BlogContent): BlogContent {
+  const cleaned = { ...content } as BlogContent;
+
+  // Class prefixes that mark the start of a visual block
+  const VISUAL_BLOCK_CLASSES = ["aston-visual-block", "aston-chart-block"];
+
+  function stripLinksInVisualBlocks(html: string): string {
+    let result = "";
+    let i = 0;
+
+    while (i < html.length) {
+      // Look for a <div ... class="...aston-visual-block..." ...> opening tag
+      const divStart = html.indexOf("<div", i);
+      if (divStart === -1) {
+        result += html.slice(i);
+        break;
+      }
+
+      // Find the end of this opening tag
+      const tagEnd = html.indexOf(">", divStart);
+      if (tagEnd === -1) {
+        result += html.slice(i);
+        break;
+      }
+
+      const openTag = html.slice(divStart, tagEnd + 1);
+      const isVisualBlock = VISUAL_BLOCK_CLASSES.some((cls) =>
+        openTag.includes(`class="`) && openTag.includes(cls)
+      );
+
+      if (!isVisualBlock) {
+        // Not a visual block — copy up to and including this div tag, advance
+        result += html.slice(i, tagEnd + 1);
+        i = tagEnd + 1;
+        continue;
+      }
+
+      // It IS a visual block — find the matching closing </div> by tracking depth
+      result += html.slice(i, divStart); // everything before this block
+      let depth = 1;
+      let j = tagEnd + 1;
+      while (j < html.length && depth > 0) {
+        const nextOpen  = html.indexOf("<div", j);
+        const nextClose = html.indexOf("</div>", j);
+        if (nextClose === -1) break;
+        if (nextOpen !== -1 && nextOpen < nextClose) {
+          depth++;
+          j = nextOpen + 4;
+        } else {
+          depth--;
+          j = nextClose + 6;
+        }
+      }
+
+      // blockHtml is everything from the opening <div> to the closing </div>
+      const blockHtml = html.slice(divStart, j);
+      // Strip <a> tags from the block content, keeping anchor text
+      const strippedBlock = blockHtml.replace(/<a[^>]*>([\s\S]*?)<\/a>/gi, "$1");
+      result += strippedBlock;
+      i = j;
+    }
+
+    return result;
+  }
+
+  for (const field of LINK_FIELDS) {
+    const html = (cleaned[field] as string) ?? "";
+    if (!html) continue;
+    (cleaned as unknown as Record<string, unknown>)[field] = stripLinksInVisualBlocks(html);
+  }
+
+  return cleaned;
+}
