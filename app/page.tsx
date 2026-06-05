@@ -880,11 +880,13 @@ export default function HomePage() {
   const [publishStatus, setPublishStatus]           = useState<"idle" | "publishing" | "done" | "error">("idle");
   const [publishResults, setPublishResults]         = useState<PublishResultItem[]>([]);
 
-  const [videoStatus, setVideoStatus]     = useState<"idle" | "generating" | "ready" | "uploading" | "uploaded" | "error">("idle");
+  const [videoStatus, setVideoStatus]     = useState<"idle" | "generating" | "rendering" | "ready" | "uploading" | "uploaded" | "error">("idle");
   const [videoProgress, setVideoProgress] = useState("");
   const [videoElapsed, setVideoElapsed]   = useState(0);
   const [videoBase64, setVideoBase64]     = useState<string | null>(null);
   const [videoMime, setVideoMime]         = useState("video/mp4");
+  const [videoUrl, setVideoUrl]           = useState<string | null>(null);
+  const [videoRenderId, setVideoRenderId] = useState<string | null>(null);
   const [youtubeUrl, setYoutubeUrl]       = useState<string | null>(null);
 
   const [imageGenStatus, setImageGenStatus]     = useState<"idle" | "generating" | "done" | "error">("idle");
@@ -1404,6 +1406,8 @@ export default function HomePage() {
     setVideoProgress("");
     setVideoElapsed(0);
     setVideoBase64(null);
+    setVideoUrl(null);
+    setVideoRenderId(null);
     setYoutubeUrl(null);
     setAudioStatus("idle");
     setAudioProgress("");
@@ -1416,25 +1420,31 @@ export default function HomePage() {
   const handleGenerateVideo = async () => {
     if (!result) return;
     setVideoStatus("generating");
-    setVideoProgress("Writing video prompt…");
+    setVideoProgress("Preparing video pipeline…");
     setVideoElapsed(0);
     setVideoBase64(null);
+    setVideoUrl(null);
+    setVideoRenderId(null);
     setYoutubeUrl(null);
 
-    // Client-side elapsed timer — updates every second for smooth display
     const timerStart = Date.now();
-    const timer = setInterval(() => {
-      setVideoElapsed(Math.round((Date.now() - timerStart) / 1000));
-    }, 1000);
+    const timer = setInterval(() => setVideoElapsed(Math.round((Date.now() - timerStart) / 1000)), 1000);
 
     try {
       const res = await fetch("/api/generate-video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title:    result.title,
-          keyword:  result.focusKeyword || result.strategy?.primaryKeyword || result.title,
-          language: result.language || undefined,
+          title:          result.title,
+          audioUrl:       audioUrl || undefined,   // pass existing audio if generated
+          main_content:   blogContent?.main_content,
+          more_content_1: blogContent?.more_content_1,
+          more_content_2: blogContent?.more_content_2,
+          more_content_3: blogContent?.more_content_3,
+          more_content_4: blogContent?.more_content_4,
+          more_content_5: blogContent?.more_content_5,
+          more_content_6: blogContent?.more_content_6,
+          final_points:   blogContent?.final_points,
         }),
       });
 
@@ -1442,10 +1452,11 @@ export default function HomePage() {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         setVideoStatus("error");
         setVideoProgress(err.error || "Video generation failed.");
+        clearInterval(timer);
         return;
       }
 
-      const reader = res.body.getReader();
+      const reader  = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
 
@@ -1459,35 +1470,79 @@ export default function HomePage() {
           const line = part.replace(/^data: /, "").trim();
           if (!line) continue;
           try {
-            const event = JSON.parse(line) as {
-              type: string; message?: string;
-              videoBase64?: string; mimeType?: string;
-            };
-            if (event.type === "progress" && event.message) {
-              setVideoProgress(event.message);
-            }
-            if (event.type === "done" && event.videoBase64) {
-              setVideoBase64(event.videoBase64);
-              setVideoMime(event.mimeType ?? "video/mp4");
-              setVideoStatus("ready");
-            }
-            if (event.type === "error") {
+            const event = JSON.parse(line) as Record<string, unknown>;
+            if (event.type === "progress") {
+              setVideoProgress(String(event.message ?? ""));
+            } else if (event.type === "submitted") {
+              // Pipeline done — Shotstack is now rendering
+              const rId = String(event.renderId);
+              setVideoRenderId(rId);
+              setVideoStatus("rendering");
+              setVideoProgress(String(event.message ?? "Video rendering on Shotstack…"));
+              clearInterval(timer);
+              // Start polling
+              pollShotstackRender(rId);
+              return;
+            } else if (event.type === "error") {
               setVideoStatus("error");
-              setVideoProgress(event.message ?? "Video generation failed.");
+              setVideoProgress(String(event.message ?? "Video generation failed."));
+              clearInterval(timer);
+              return;
             }
-          } catch { /* ignore malformed chunks */ }
+          } catch { /* skip malformed */ }
         }
       }
     } catch (err) {
       setVideoStatus("error");
       setVideoProgress(err instanceof Error ? err.message : "Something went wrong.");
-    } finally {
       clearInterval(timer);
     }
   };
 
+  // Polls Shotstack every 12 s until the render is done or failed
+  const pollShotstackRender = (renderId: string) => {
+    const POLL_INTERVAL = 12_000;
+    const MAX_WAIT_MS   = 15 * 60 * 1000; // 15 minutes
+    const startedAt     = Date.now();
+
+    const interval = setInterval(async () => {
+      if (Date.now() - startedAt > MAX_WAIT_MS) {
+        clearInterval(interval);
+        setVideoStatus("error");
+        setVideoProgress("Render timed out after 15 minutes. Check Shotstack dashboard.");
+        return;
+      }
+      try {
+        const res  = await fetch(`/api/check-video-render?id=${renderId}`);
+        const data = await res.json() as { status: string; url?: string; error?: string };
+
+        if (data.status === "done" && data.url) {
+          clearInterval(interval);
+          setVideoUrl(data.url);
+          setVideoStatus("ready");
+          setVideoProgress("Video ready!");
+        } else if (data.status === "failed") {
+          clearInterval(interval);
+          setVideoStatus("error");
+          setVideoProgress(`Shotstack render failed: ${data.error ?? "unknown error"}`);
+        } else {
+          // Still rendering — update progress label
+          const labels: Record<string, string> = {
+            queued:    "Queued on Shotstack…",
+            fetching:  "Shotstack is loading assets…",
+            rendering: "Rendering video frames…",
+            saving:    "Finalising video file…",
+          };
+          setVideoProgress(labels[data.status] ?? `Rendering (${data.status})…`);
+        }
+      } catch (err) {
+        console.warn("[poll] Status check failed:", err);
+      }
+    }, POLL_INTERVAL);
+  };
+
   const handleUploadToYouTube = async () => {
-    if (!result || !videoBase64) return;
+    if (!result || (!videoUrl && !videoBase64)) return;
     setVideoStatus("uploading");
 
     try {
@@ -1495,10 +1550,10 @@ export default function HomePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          postId:      result.postId,
-          title:       result.title,
-          videoBase64,
-          mimeType:    videoMime,
+          postId:    result.postId,
+          title:     result.title,
+          videoUrl:  videoUrl  || undefined,
+          videoBase64: videoBase64 || undefined,
         }),
       });
       const data = await res.json();
@@ -2664,33 +2719,46 @@ export default function HomePage() {
                     </button>
                   )}
 
-                  {/* Generating — progress bar + status */}
+                  {/* Generating — progress + elapsed */}
                   {videoStatus === "generating" && (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <p className="text-sm text-white/50">{videoProgress || "Generating…"}</p>
+                        <p className="text-sm text-white/50">{videoProgress || "Preparing…"}</p>
                         <p className="text-xs text-white/30 tabular-nums">{videoElapsed}s</p>
                       </div>
-                      {/* Estimated ~180s — bar fills linearly then pulses at 95% */}
                       <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
                         <div
                           className="h-full bg-[#C9A84C] rounded-full transition-all duration-1000 ease-linear"
-                          style={{ width: `${Math.min(videoElapsed / 180 * 95, 95)}%` }}
+                          style={{ width: `${Math.min(videoElapsed / 150 * 90, 90)}%` }}
                         />
                       </div>
-                      <p className="text-[10px] text-white/20">Veo 2 typically takes 2–4 minutes</p>
+                      <p className="text-[10px] text-white/20">Generating scenes and images (~2 min)</p>
                     </div>
                   )}
 
-                  {/* Ready — inline video preview + upload button */}
-                  {(videoStatus === "ready" || videoStatus === "uploading" || videoStatus === "uploaded") && videoBase64 && (
+                  {/* Rendering on Shotstack — pulsing bar */}
+                  {videoStatus === "rendering" && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <svg className="w-3.5 h-3.5 text-[#C9A84C] animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
+                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeDasharray="31.4" strokeDashoffset="10" />
+                        </svg>
+                        <p className="text-sm text-white/50">{videoProgress || "Rendering video…"}</p>
+                      </div>
+                      <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
+                        <div className="h-full bg-[#C9A84C] rounded-full animate-pulse" style={{ width: "60%" }} />
+                      </div>
+                      <p className="text-[10px] text-white/20">Shotstack typically renders in 2–5 min · checking every 12s</p>
+                    </div>
+                  )}
+
+                  {/* Ready — video preview + upload button */}
+                  {(videoStatus === "ready" || videoStatus === "uploading" || videoStatus === "uploaded") && (videoUrl || videoBase64) && (
                     <div className="space-y-3">
                       <video
-                        src={`data:${videoMime};base64,${videoBase64}`}
+                        src={videoUrl ?? `data:${videoMime};base64,${videoBase64}`}
                         controls
                         loop
-                        autoPlay
-                        muted
                         className="w-full rounded-lg aspect-video bg-black"
                       />
 
