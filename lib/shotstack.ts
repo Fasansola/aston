@@ -220,11 +220,17 @@ function buildTimeline(
     ],
   };
 
-  // Background music — only included if SHOTSTACK_MUSIC_URL env var is set.
-  // Most third-party CDNs block Shotstack's servers (hotlink protection).
-  // To add music: upload an MP3 to your WordPress media library and set
-  // SHOTSTACK_MUSIC_URL to that public URL — WordPress URLs always work.
-  const musicUrl = process.env.SHOTSTACK_MUSIC_URL?.trim() || "";
+  // Background music:
+  //   Production — defaults to Shotstack's own hosted asset (always accessible
+  //                on paid plans). Override with SHOTSTACK_MUSIC_URL if needed.
+  //   Sandbox    — excluded by default (third-party CDNs block sandbox requests).
+  //                Set SHOTSTACK_MUSIC_URL to a WordPress media URL to test music.
+  const isProduction = process.env.SHOTSTACK_ENV === "production";
+  const musicUrl =
+    process.env.SHOTSTACK_MUSIC_URL?.trim() ||
+    (isProduction
+      ? "https://shotstack-assets.s3-ap-southeast-2.amazonaws.com/music/unminus/ambisonic.mp3"
+      : "");
   const soundtrack = musicUrl
     ? { src: musicUrl, effect: "fadeOut", volume: 0.1 }
     : undefined;
