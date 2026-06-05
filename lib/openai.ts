@@ -1109,8 +1109,9 @@ Alt text rules (SEO-optimised — all must be met):
 8. Examples of good alt text: "UAE trade license setup for mainland company formation", "DIFC financial services license requirements for fund managers", "Dubai crypto license VARA regulatory framework guide"
 9. Examples of bad alt text: "glass office tower at sunset", "businesspeople shaking hands in lobby", "documents on a desk with calculator"`;
 
+  // Image prompts are simple structured output — gpt-4o-mini is sufficient and faster
   const response = await openai.chat.completions.create({
-    model: "gpt-5.1",
+    model: "gpt-4o-mini",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
