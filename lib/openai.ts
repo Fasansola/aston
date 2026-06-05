@@ -569,9 +569,9 @@ STRATEGY BRIEF (use as source of truth for this blueprint):
   const wordCountMatch = customPrompt?.match(/(\d[\d,]+)\s*[-–]\s*(\d[\d,]+)\s*words?/i);
   const targetWordCount = wordCountMatch
     ? Math.round((parseInt(wordCountMatch[1].replace(/,/g, ""), 10) + parseInt(wordCountMatch[2].replace(/,/g, ""), 10)) / 2)
-    : 3000;
-  // Section word target scales with the total: 500w for standard, 620w for long-form (3500+)
-  const sectionWordTarget = targetWordCount >= 3500 ? 620 : targetWordCount >= 2800 ? 560 : 500;
+    : 3500;
+  // Section word target scales with the total: 600w for standard, 700w for long-form (3500+)
+  const sectionWordTarget = targetWordCount >= 3500 ? 700 : targetWordCount >= 2800 ? 650 : 600;
 
   const customPromptBlock = customPrompt?.trim()
     ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the blueprint):\n${customPrompt.trim()}\n${isDetailedBrief ? `
@@ -995,7 +995,7 @@ ${linksBlock}`;
       { role: "user", content: userPrompt },
     ],
     temperature: 0.6,
-    max_completion_tokens: 32000,
+    max_completion_tokens: 48000,
   }, { signal: AbortSignal.timeout(150_000) });
 
   const choice = response.choices[0];
@@ -1333,7 +1333,7 @@ The "internal_links_used" and "external_links_used" arrays must include ALL link
       { role: "user", content: prompt },
     ],
     temperature: 0.5,
-    max_completion_tokens: 20000,
+    max_completion_tokens: 28000,
   }, { signal: AbortSignal.timeout(120_000) });
 
   if (response.choices[0]?.finish_reason === "length") {
