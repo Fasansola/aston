@@ -448,72 +448,21 @@ Rules:
 - data-chart-type: "bar" for side-by-side comparisons, "horizontalBar" for ranked lists, "pie" or "doughnut" for proportions
 - Place the chart directly after the paragraph that introduces the data it visualises`);
 
-  // ── Flowchart (mandatory for every article) ─────────────────
+  // ── Flowchart placeholder (mandatory for every article) ──────
+  // The actual flowchart is a Mermaid diagram rendered to PNG server-side.
+  // GPT's job here is ONLY to place the placeholder at the right point in
+  // the article. The Mermaid syntax is written separately in flowchart_mermaid.
   parts.push(`
-FLOWCHART BLOCK (mandatory — include exactly one per article):
-Find the section that describes a process, journey, application flow, approval sequence, or step-by-step procedure. Render a vertical timeline flowchart there showing the key stages.
+FLOWCHART PLACEHOLDER (mandatory — include exactly once per article):
+Find the section that describes a process, application sequence, step-by-step procedure, or decision journey. At the point where the process is introduced, place this exact placeholder on its own line:
 
-Use EXACTLY this HTML structure — do not simplify or change the class names:
-
-<div class="aston-timeline">
-  <h4 class="aston-timeline__title">[Specific process title — e.g. "How to open a UAE corporate bank account"]</h4>
-  <div class="aston-timeline__track">
-
-    <div class="aston-timeline__item aston-timeline__item--right">
-      <div class="aston-timeline__dot"></div>
-      <div class="aston-timeline__content">
-        <h5 class="aston-timeline__step-title">[Step 1 name — e.g. "KYC"]</h5>
-        <p class="aston-timeline__step-desc">[One sentence describing what happens — e.g. "Collation of KYC documents for all shareholders, directors and UBOs."]</p>
-      </div>
-    </div>
-
-    <div class="aston-timeline__item aston-timeline__item--left">
-      <div class="aston-timeline__dot"></div>
-      <div class="aston-timeline__content">
-        <h5 class="aston-timeline__step-title">[Step 2 name]</h5>
-        <p class="aston-timeline__step-desc">[One sentence description]</p>
-      </div>
-    </div>
-
-    <div class="aston-timeline__duration">[Timeframe between steps — e.g. "Day 1" or "5–7 working days" — only include when a realistic timeframe applies]</div>
-
-    <div class="aston-timeline__item aston-timeline__item--right">
-      <div class="aston-timeline__dot"></div>
-      <div class="aston-timeline__content">
-        <h5 class="aston-timeline__step-title">[Step 3 name]</h5>
-        <p class="aston-timeline__step-desc">[One sentence description]</p>
-      </div>
-    </div>
-
-    <div class="aston-timeline__item aston-timeline__item--left">
-      <div class="aston-timeline__dot"></div>
-      <div class="aston-timeline__content">
-        <h5 class="aston-timeline__step-title">[Step 4 name]</h5>
-        <p class="aston-timeline__step-desc">[One sentence description]</p>
-      </div>
-    </div>
-
-    <div class="aston-timeline__duration">[Timeframe — only when realistic]</div>
-
-    <div class="aston-timeline__item aston-timeline__item--right">
-      <div class="aston-timeline__dot"></div>
-      <div class="aston-timeline__content">
-        <h5 class="aston-timeline__step-title">[Step 5 name]</h5>
-        <p class="aston-timeline__step-desc">[One sentence description]</p>
-      </div>
-    </div>
-
-  </div>
-</div>
+[FLOWCHART_IMG]
 
 Rules:
-- Alternate steps between --right and --left (right, left, right, left...) to create the zigzag timeline effect
-- Only add aston-timeline__duration divs where a real timeframe exists — do not fabricate timelines
-- Step titles must be short (1–3 words) — e.g. "KYC", "Initial Submission", "Approvals"
-- Step descriptions must be one specific sentence with real process detail
-- Title must describe the specific process in this article — never use "Process overview"
-- Minimum 5 steps, maximum 8
-- Place the block at the point in the article where the process is introduced`);
+- Place it INSIDE the relevant more_content_* field, immediately after the paragraph that introduces the process
+- Do NOT place it in main_content, key_takeaways, more_content_4, more_content_5, or final_points
+- Write it exactly as shown — no quotes, no angle brackets, no extra text on the same line
+- Include it exactly ONCE in the entire article`);
 
   return `\nVISUAL BLOCKS:\n${parts.join("\n")}\n`;
 }
@@ -917,6 +866,7 @@ Return as a single valid JSON object with exactly these fields. No markdown, no 
   "more_content_6": "string",
   "final_points": "string",
   "read_mins": "string",
+  "flowchart_mermaid": "string",
   "internal_links_used": [{"anchor": "string", "url": "string"}],
   "external_links_used": [{"anchor": "string", "url": "string"}]
 }
@@ -1021,6 +971,31 @@ Allowed HTML: <ul>, <li>, <strong>
 
 read_mins:
 Number string only. Estimate at 200 words per minute. Example: "9"
+
+flowchart_mermaid:
+Write a Mermaid flowchart diagram that visualises the key process described in this article. This will be rendered to a PNG image and inserted where you placed the [FLOWCHART_IMG] placeholder.
+
+Rules:
+- Use "flowchart TD" (top-down) for linear processes, or "flowchart LR" only for very wide decision trees
+- Node shapes: rectangles [Step name] for actions, diamonds {Decision?} for yes/no choices, rounded rectangles ([Start/End]) for start and end
+- Labels: short — 3–6 words per node. No quotes inside labels. No special characters
+- Connections: use --> for standard flow, -- Yes --> and -- No --> for decisions
+- Include the full process from start to end — minimum 5 nodes, maximum 10
+- Every node ID must be unique (A, B, C... or descriptive like KYC, SUBMIT, APPROVE)
+- Do NOT use subgraphs, styling blocks, or classDef — keep it clean and simple
+- Return ONLY the raw Mermaid syntax — no code fences, no markdown, no explanation
+
+Example for a company formation process:
+flowchart TD
+    A([Start]) --> B[Choose jurisdiction]
+    B --> C{Free zone?}
+    C -- Yes --> D[Select free zone authority]
+    C -- No --> E[Appoint local service agent]
+    D --> F[Submit application and KYC]
+    E --> F
+    F --> G[Initial approval 3-5 days]
+    G --> H[Pay licence fees]
+    H --> I([Licence issued])
 
 internal_links_used:
 Array of objects recording every internal link placed in the article body.
@@ -1268,7 +1243,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   // AI search blocks
   quick_answer_block_exists:        `main_content is missing the Quick Answer block — add it after the opening paragraph using EXACTLY this structure: <div class="aston-quick-answer"><p class="aston-quick-answer__label">Quick answer</p><p class="aston-quick-answer__text">[2–3 direct sentences answering the main question, max 60 words, at least one specific fact]</p></div>`,
   definition_block_exists:          `main_content or more_content_1 is missing the Definition block — identify the primary specialised term in this article and add it using EXACTLY this structure: <div class="aston-definition"><p class="aston-definition__label">Definition</p><strong class="aston-definition__term">[Term]</strong><p class="aston-definition__text">[Plain-English definition, 1–2 sentences, max 40 words]</p></div>`,
-  flowchart_block_exists:           `no flowchart found — add a vertical timeline flowchart in the section that describes a process or sequence of steps. Use EXACTLY this structure with alternating --right/--left items: <div class="aston-timeline"><h4 class="aston-timeline__title">[Process title]</h4><div class="aston-timeline__track"><div class="aston-timeline__item aston-timeline__item--right"><div class="aston-timeline__dot"></div><div class="aston-timeline__content"><h5 class="aston-timeline__step-title">[Step 1]</h5><p class="aston-timeline__step-desc">[One sentence]</p></div></div><div class="aston-timeline__item aston-timeline__item--left">...</div></div></div> — minimum 5 steps, maximum 8`,
+  flowchart_block_exists:           `[FLOWCHART_IMG] placeholder is missing — add it on its own line inside the section (more_content_1, 2, 3, or 6) that describes the main process or step-by-step sequence. Also ensure the flowchart_mermaid field contains valid Mermaid syntax for that process. Write it exactly as: [FLOWCHART_IMG]`,
   // Quality checks
   key_takeaways_quality:            "key_takeaways has fewer than 4 list items — rewrite to include exactly 4–6 <li> items, each 8–14 words, each containing a specific fact, number, regulator, jurisdiction, or timeline",
   no_us_spellings:                  "US spellings or house-style violations found — replace with British English (organisation, optimisation, authorised, centre, travelling, licence→license, programme, analyse)",

@@ -443,6 +443,41 @@ export async function patchWordPressPostLinks(
   );
 }
 
+// ── Mermaid flowchart renderer ────────────────────────────────
+
+/**
+ * Renders a Mermaid diagram string to a PNG buffer using the mermaid.ink
+ * hosted renderer — no browser / Puppeteer dependency needed.
+ *
+ * URL format: https://mermaid.ink/img/<base64url(diagram)>?bgColor=!white
+ */
+export async function renderMermaidToPng(mermaidSyntax: string): Promise<Buffer> {
+  const encoded = Buffer.from(mermaidSyntax, "utf8").toString("base64url");
+  const url = `https://mermaid.ink/img/${encoded}?bgColor=!white&width=900`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) {
+    throw new Error(`mermaid.ink render failed: ${res.status} ${res.statusText}`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
+/**
+ * Patches a single ACF field on a WordPress post.
+ * Used to replace [FLOWCHART_IMG] placeholder with the rendered <img> tag
+ * after the flowchart image has been uploaded to the media library.
+ */
+export async function patchWordPressContentField(
+  postId: number,
+  acfFieldName: string,
+  newValue: string
+): Promise<void> {
+  await axios.post(
+    `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
+    { acf: { [acfFieldName]: newValue } },
+    { headers: BASE_HEADERS, timeout: 15_000 }
+  );
+}
+
 // ── Shared types used across the app ──────────────────────────
 
 export interface BlogContent {
@@ -471,6 +506,9 @@ export interface BlogContent {
   // Link usage report
   internal_links_used: Array<{ anchor: string; url: string }>;
   external_links_used: Array<{ anchor: string; url: string }>;
+  // Mermaid flowchart — rendered to PNG in the image generation phase.
+  // Not saved to WordPress directly; used to produce a [FLOWCHART_IMG] replacement.
+  flowchart_mermaid?: string;
 }
 
 export interface ImagePrompts {

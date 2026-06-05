@@ -1,0 +1,14 @@
+{"timestamp":"152:12:36.086","source":"Server","level":"ERROR","message":"Error: ENOENT: no such file or directory, scandir '/Users/apple/Projects/aston-blog-tool/.claude/worktrees/wizardly-elbakyan-1f14e1/app'"}
+{"timestamp":"152:12:36.090","source":"Server","level":"ERROR","message":"⨯ \"unhandledRejection:\" Error: ENOENT: no such file or directory, scandir '/Users/apple/Projects/aston-blog-tool/.claude/worktrees/wizardly-elbakyan-1f14e1/app'"}
+{"timestamp":"152:12:36.093","source":"Server","level":"ERROR","message":"⨯ \"unhandledRejection: \" Error: ENOENT: no such file or directory, scandir '/Users/apple/Projects/aston-blog-tool/.claude/worktrees/wizardly-elbakyan-1f14e1/app'"}
+{"timestamp":"195:40:08.253","source":"Server","level":"LOG","message":"✓ Compiled in 185ms"}
+{"timestamp":"195:40:08.613","source":"Server","level":"ERROR","message":"Error: ENOENT: no such file or directory, scandir '/Users/apple/Projects/aston-blog-tool/.claude/worktrees/wizardly-elbakyan-1f14e1/app'"}
+{"timestamp":"195:40:08.622","source":"Server","level":"ERROR","message":"⨯ \"unhandledRejection:\" Error: ENOENT: no such file or directory, scandir '/Users/apple/Projects/aston-blog-tool/.claude/worktrees/wizardly-elbakyan-1f14e1/app'"}
+{"timestamp":"195:40:08.626","source":"Server","level":"ERROR","message":"⨯ \"unhandledRejection: \" Error: ENOENT: no such file or directory, scandir '/Users/apple/Projects/aston-blog-tool/.claude/worktrees/wizardly-elbakyan-1f14e1/app'"}
+{"timestamp":"329:51:33.320","source":"Server","level":"LOG","message":"✓ Compiled in 556ms"}
+{"timestamp":"329:51:33.486","source":"Server","level":"ERROR","message":"Error: ENOENT: no such file or directory, scandir '/Users/apple/Projects/aston-blog-tool/.claude/worktrees/wizardly-elbakyan-1f14e1/app'"}
+{"timestamp":"329:51:33.487","source":"Server","level":"ERROR","message":"⨯ \"unhandledRejection:\" Error: ENOENT: no such file or directory, scandir '/Users/apple/Projects/aston-blog-tool/.claude/worktrees/wizardly-elbakyan-1f14e1/app'"}
+{"timestamp":"329:51:33.487","source":"Server","level":"ERROR","message":"⨯ \"unhandledRejection: \" Error: ENOENT: no such file or directory, scandir '/Users/apple/Projects/aston-blog-tool/.claude/worktrees/wizardly-elbakyan-1f14e1/app'"}
+{"timestamp":"329:52:10.771","source":"Server","level":"ERROR","message":"Error: ENOENT: no such file or directory, scandir '/Users/apple/Projects/aston-blog-tool/.claude/worktrees/wizardly-elbakyan-1f14e1/app'"}
+{"timestamp":"329:52:10.772","source":"Server","level":"ERROR","message":"⨯ \"unhandledRejection:\" Error: ENOENT: no such file or directory, scandir '/Users/apple/Projects/aston-blog-tool/.claude/worktrees/wizardly-elbakyan-1f14e1/app'"}
+{"timestamp":"329:52:10.772","source":"Server","level":"ERROR","message":"⨯ \"unhandledRejection: \" Error: ENOENT: no such file or directory, scandir '/Users/apple/Projects/aston-blog-tool/.claude/worktrees/wizardly-elbakyan-1f14e1/app'"}

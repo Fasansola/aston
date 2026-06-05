@@ -3,10 +3,12 @@
  * ─────────────────────────────────────────────────────────────
  * POST /api/generate-images
  *
- * Second-phase of the split pipeline: generates the four article images,
- * uploads them to WordPress media library, and patches the post with the
- * image IDs + featured image. Called automatically by the client right
- * after /api/generate returns "done".
+ * Second-phase of the split pipeline:
+ *   1. Renders the Mermaid flowchart diagram to PNG via mermaid.ink
+ *   2. Generates the four article images (kp1, kp2, split, featured)
+ *   3. Uploads all five images to WordPress media library
+ *   4. Patches the post: attaches image IDs + featured image
+ *   5. Replaces [FLOWCHART_IMG] placeholder in content fields with <img> tag
  *
  * SSE event shapes:
  *   { type: "progress", message: string }
@@ -14,27 +16,49 @@
  *   { type: "error",    message: string }
  *
  * Body: {
- *   postId:         number
- *   fileSlug:       string
- *   imageModel:     "imagen-4" | "gpt-image-1"
- *   imagePrompts: {
- *     keypoint_one_img_prompt:  string
- *     keypoint_one_img_alt:     string
- *     keypoint_two_img_prompt:  string
- *     keypoint_two_img_alt:     string
- *     post_split_img_prompt:    string
- *     post_split_img_alt:       string
- *     featured_img_prompt:      string
- *     featured_img_alt:         string
- *   }
+ *   postId:            number
+ *   fileSlug:          string
+ *   imageModel:        "imagen-4" | "gpt-image-1"
+ *   flowchartMermaid?: string   — Mermaid syntax; skipped if empty
+ *   imagePrompts: { ... }
  * }
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { generateImage, type ImageModel } from "@/lib/openai";
-import { uploadImageToWordPress, updateWordPressPostImages } from "@/lib/wordpress";
+import {
+  uploadImageToWordPress,
+  updateWordPressPostImages,
+  renderMermaidToPng,
+  patchWordPressContentField,
+} from "@/lib/wordpress";
+import axios from "axios";
 
 export const maxDuration = 300;
+
+// ACF field names that may contain the [FLOWCHART_IMG] placeholder
+const FLOWCHART_FIELDS: Array<{ acf: string }> = [
+  { acf: "more_content_1" },
+  { acf: "more_content_2" },
+  { acf: "more_content_3" },
+  { acf: "more_content_6" },
+];
+
+const WP_URL          = process.env.WP_URL!;
+const WP_USERNAME     = process.env.WP_USERNAME!;
+const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD!;
+
+/**
+ * Fetches the current ACF field values for the post so we can locate
+ * and replace the [FLOWCHART_IMG] placeholder in the right field.
+ */
+async function fetchPostAcf(postId: number): Promise<Record<string, string>> {
+  const { data } = await axios.get(
+    `${WP_URL}/wp-json/wp/v2/posts/${postId}?context=edit`,
+    { auth: { username: WP_USERNAME, password: WP_APP_PASSWORD }, timeout: 15_000 }
+  );
+  return (data.acf ?? {}) as Record<string, string>;
+}
 
 async function generateImageWithRetry(
   prompt: string,
@@ -63,10 +87,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const { postId, fileSlug, imageModel: bodyImageModel, imagePrompts } = body as {
+  const {
+    postId,
+    fileSlug,
+    imageModel: bodyImageModel,
+    flowchartMermaid,
+    imagePrompts,
+  } = body as {
     postId?: number;
     fileSlug?: string;
     imageModel?: string;
+    flowchartMermaid?: string;
     imagePrompts?: {
       keypoint_one_img_prompt: string;
       keypoint_one_img_alt: string;
@@ -98,6 +129,26 @@ export async function POST(req: NextRequest) {
 
   (async () => {
     try {
+      // ── Step 1: Render Mermaid flowchart to PNG ─────────────
+      let flowchartImgTag = "";
+      if (flowchartMermaid?.trim()) {
+        await send({ type: "progress", message: "Rendering flowchart diagram…" });
+        try {
+          const flowchartBuf = await renderMermaidToPng(flowchartMermaid.trim());
+          const { url: flowchartUrl } = await uploadImageToWordPress(
+            flowchartBuf,
+            `${fileSlug}-flowchart.png`,
+            "Process flowchart diagram"
+          );
+          flowchartImgTag = `<figure class="aston-flowchart"><img src="${flowchartUrl}" alt="Process flowchart diagram" loading="lazy" /></figure>`;
+          console.log(`[generate-images] Flowchart uploaded: ${flowchartUrl}`);
+        } catch (fcErr) {
+          // Non-fatal — log and continue without the flowchart image
+          console.warn(`[generate-images] Flowchart render/upload failed (non-fatal): ${fcErr instanceof Error ? fcErr.message : String(fcErr)}`);
+        }
+      }
+
+      // ── Step 2: Generate 4 article images in parallel ───────
       await send({ type: "progress", message: `Generating 4 images with ${imageModel}…` });
       console.log(`[generate-images] Generating images for post ${postId} with ${imageModel}`);
 
@@ -108,6 +159,7 @@ export async function POST(req: NextRequest) {
         generateImageWithRetry(imagePrompts.featured_img_prompt,     imageModel, "featured"),
       ]);
 
+      // ── Step 3: Upload article images ───────────────────────
       await send({ type: "progress", message: "Uploading images to WordPress…" });
 
       const uploadResults = await Promise.allSettled([
@@ -139,9 +191,30 @@ export async function POST(req: NextRequest) {
         featuredImg:    feat.id,
       };
 
+      // ── Step 4: Attach article images to post ───────────────
       await send({ type: "progress", message: "Attaching images to post…" });
       await updateWordPressPostImages(postId, imageIds);
       console.log(`[generate-images] Images attached to post ${postId}`);
+
+      // ── Step 5: Replace [FLOWCHART_IMG] with rendered img ───
+      if (flowchartImgTag) {
+        await send({ type: "progress", message: "Embedding flowchart in article…" });
+        try {
+          const acf = await fetchPostAcf(postId);
+          for (const { acf: fieldName } of FLOWCHART_FIELDS) {
+            const fieldValue = acf[fieldName] ?? "";
+            if (fieldValue.includes("[FLOWCHART_IMG]")) {
+              const updated = fieldValue.replace(/\[FLOWCHART_IMG\]/g, flowchartImgTag);
+              await patchWordPressContentField(postId, fieldName, updated);
+              console.log(`[generate-images] Flowchart embedded in ${fieldName}`);
+              break; // only replace in the first field that contains the placeholder
+            }
+          }
+        } catch (embedErr) {
+          // Non-fatal — the post still has its content, just without the flowchart image
+          console.warn(`[generate-images] Flowchart embed failed (non-fatal): ${embedErr instanceof Error ? embedErr.message : String(embedErr)}`);
+        }
+      }
 
       await send({ type: "done", imageIds });
     } catch (err: unknown) {

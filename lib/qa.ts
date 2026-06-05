@@ -275,14 +275,19 @@ export function runQA(
   if (!checks.definition_block_exists)
     warnings.push("Definition block missing from main_content/more_content_1 — required for entity disambiguation and AI search");
 
-  // Flowchart block — must appear somewhere in body sections
+  // Flowchart placeholder — [FLOWCHART_IMG] must appear in a body section
+  // (rendered to a Mermaid PNG image in the image generation phase).
+  // Also accept aston-timeline for backward compat with already-published posts.
   const allBodyForFlowchart = [
-    content.main_content, content.more_content_1, content.more_content_2,
-    content.more_content_3, content.more_content_4, content.more_content_6,
+    content.more_content_1, content.more_content_2,
+    content.more_content_3, content.more_content_6,
   ].join(" ");
-  checks.flowchart_block_exists = allBodyForFlowchart.includes('aston-timeline');
+  checks.flowchart_block_exists =
+    allBodyForFlowchart.includes('[FLOWCHART_IMG]') ||
+    allBodyForFlowchart.includes('aston-timeline') ||
+    !!content.flowchart_mermaid?.trim();
   if (!checks.flowchart_block_exists)
-    warnings.push("Flowchart block missing — required on every post for AI search process visualisation");
+    warnings.push("Flowchart placeholder missing — add [FLOWCHART_IMG] in the section describing the main process");
 
   // SEO title length (50–60 chars)
   const titleLen = (content.seo_title ?? "").length;

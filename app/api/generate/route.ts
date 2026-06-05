@@ -290,6 +290,10 @@ export async function POST(req: NextRequest) {
             return;
           }
 
+          // IMGSLOT_* markers are replaced with "" here — the actual images are
+          // attached later by /api/generate-images which patches the WP post.
+          // [FLOWCHART_IMG] is left in place so generate-images can replace it
+          // with the rendered Mermaid PNG <img> tag.
           const assembled = {
             main_content:   content.main_content.replace("IMGSLOT_MAIN", ""),
             more_content_1: content.more_content_1.replace("IMGSLOT_ONE", ""),
@@ -320,10 +324,11 @@ export async function POST(req: NextRequest) {
             type:        "done",
             success:     true,
             postId:      post.id,
-            imageIds:    null,   // images generated separately via /api/generate-images
-            imagePrompts,        // forwarded by client to /api/generate-images
-            fileSlug,            // forwarded by client to /api/generate-images
-            imageModel,          // forwarded by client to /api/generate-images
+            imageIds:         null,   // images generated separately via /api/generate-images
+            imagePrompts,             // forwarded by client to /api/generate-images
+            fileSlug,                 // forwarded by client to /api/generate-images
+            imageModel,               // forwarded by client to /api/generate-images
+            flowchartMermaid: content.flowchart_mermaid ?? "", // forwarded to /api/generate-images
             mode,
             title,
             slug:         content.slug,
