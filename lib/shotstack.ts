@@ -220,13 +220,19 @@ function buildTimeline(
     ],
   };
 
+  // Background music — use env var override, a known-working public URL,
+  // or omit entirely if neither is available.
+  // SHOTSTACK_MUSIC_URL can be set to any publicly accessible MP3.
+  const musicUrl =
+    process.env.SHOTSTACK_MUSIC_URL ||
+    "https://assets.mixkit.co/music/preview/mixkit-corporate-wisdom-225.mp3";
+
+  const soundtrack = musicUrl
+    ? { src: musicUrl, effect: "fadeOut", volume: 0.1 }
+    : undefined;
+
   return {
-    // Background music — soft corporate ambience, fades out at end
-    soundtrack: {
-      src: "https://shotstack-assets.s3-ap-southeast-2.amazonaws.com/music/unminus/ambisonic.mp3",
-      effect: "fadeOut",
-      volume: 0.1,
-    },
+    ...(soundtrack ? { soundtrack } : {}),
     background: "#000000",
     // Tracks render top-to-bottom: index 0 = topmost layer
     tracks: [
