@@ -20,11 +20,12 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: "Invalid request body." }, { status: 400 }); }
 
-  const { postId, title, videoUrl, videoBase64 } = body as {
+  const { postId, title, videoUrl, videoBase64, chapters } = body as {
     postId?: number;
     title?: string;
     videoUrl?: string;
     videoBase64?: string;
+    chapters?: Array<{ title: string; startSecs: number }>;
   };
 
   if (!postId || typeof postId !== "number")
@@ -53,8 +54,27 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(`[upload-video] Uploading ${videoBuffer.length} bytes to YouTube…`);
-    const description = `This video accompanies the article: "${title.trim()}"\n\nProduced by Aston VIP — Corporate Advisory.\nVisit https://aston.ae for more.`;
-    const youtubeUrl  = await uploadToYouTube(videoBuffer, title.trim(), description);
+
+    // Build YouTube chapter markers — YouTube shows these as clickable
+    // sections in the progress bar and improves watch time + SEO ranking.
+    const chapterLines = (chapters ?? []).map((c) => {
+      const m = Math.floor(c.startSecs / 60);
+      const s = Math.floor(c.startSecs % 60).toString().padStart(2, "0");
+      return `${m}:${s} ${c.title}`;
+    });
+
+    const description = [
+      `${title.trim()}`,
+      "",
+      "Produced by Aston VIP — Corporate Advisory.",
+      "Speak with our advisers: https://aston.ae/contact-us/",
+      "",
+      ...(chapterLines.length > 0 ? ["Chapters:", ...chapterLines, ""] : []),
+      "Visit https://aston.ae for more insight on UAE company formation,",
+      "international banking, and corporate structuring.",
+    ].join("\n");
+
+    const youtubeUrl = await uploadToYouTube(videoBuffer, title.trim(), description);
     console.log(`[upload-video] YouTube URL: ${youtubeUrl}`);
 
     await updatePostVideoUrl(postId, youtubeUrl);

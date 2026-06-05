@@ -102,6 +102,26 @@ function escHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/** Splits text roughly in half at a sentence or word boundary */
+function splitText(text: string): [string, string] {
+  const words = text.split(" ");
+  const mid   = Math.ceil(words.length / 2);
+  return [words.slice(0, mid).join(" "), words.slice(mid).join(" ")];
+}
+
+/** Subtitle bar HTML — full 1280px wide navy bar at the bottom */
+function subtitleHtml(text: string, highlight = false): string {
+  const bg    = highlight ? "rgba(27,42,74,0.95)" : "rgba(10,18,34,0.88)";
+  const border = highlight ? "3px solid #C9A84C" : "3px solid rgba(201,168,76,0.4)";
+  return `<div style="width:1280px;height:120px;background:${bg};border-top:${border};display:flex;align-items:center;justify-content:center;padding:0 60px;box-sizing:border-box;"><p style="font-family:Georgia,serif;color:#ffffff;font-size:26px;line-height:1.5;margin:0;text-align:center;text-decoration:none;">${escHtml(text)}</p></div>`;
+}
+
+/** Full-screen section title card HTML (1280×720) */
+function sectionCardHtml(title: string, index: number): string {
+  const num = String(index + 1).padStart(2, "0");
+  return `<div style="width:1280px;height:720px;background:#0f1a2e;display:flex;flex-direction:column;align-items:center;justify-content:center;"><div style="width:48px;height:3px;background:#C9A84C;margin-bottom:28px;"></div><p style="font-family:Georgia,serif;color:#C9A84C;font-size:13px;text-transform:uppercase;letter-spacing:5px;margin:0 0 20px;text-decoration:none;">${escHtml(num)}</p><p style="font-family:Georgia,serif;color:#ffffff;font-size:38px;margin:0;text-align:center;max-width:700px;line-height:1.3;text-decoration:none;">${escHtml(title)}</p><div style="width:48px;height:3px;background:#C9A84C;margin-top:28px;"></div></div>`;
+}
+
 function buildTimeline(
   segments: VideoSegment[],
   audioUrl: string,
@@ -109,112 +129,106 @@ function buildTimeline(
 ): object {
   let time = 0;
 
+  // All clips go into a single track per layer type
   const bgClips:    object[] = [];
-  const titleClips: object[] = [];
-  const textClips:  object[] = [];
+  const cardClips:  object[] = []; // full-screen section title cards
+  const subClips:   object[] = []; // subtitle text bars
+  const logoClips:  object[] = [];
+  const audioClips: object[] = [];
+
+  const CARD_DUR = 2.5; // seconds for full-screen section title card
 
   for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    const dur = seg.durationSeconds;
+    const seg    = segments[i];
+    const dur    = seg.durationSeconds;
+    const effect = i % 2 === 0 ? "zoomIn" : "zoomOut";
 
-    // ── Background image ───────────────────────────────────────────────
-    // opacity: 0.55 against a black timeline background = 45% black shows
-    // through = naturally darkened cinematic look. Far more reliable than
-    // a separate HTML overlay layer which Shotstack renders inconsistently.
+    // ── Full-screen section title card ─────────────────────────────────
+    // Covers the first CARD_DUR seconds of each scene.
+    // The background image runs behind it the whole time.
     bgClips.push({
       asset: { type: "image", src: seg.imageUrl },
       start: time,
       length: dur,
-      effect: i % 2 === 0 ? "zoomIn" : "zoomOut",
-      opacity: 0.55,
+      effect,
+      opacity: 0.5,
       transition: { in: "fade", out: "fade" },
     });
 
-    // ── Section title card — top-left, slides in for first 3 s ────────
-    // offset is relative to the clip anchor, not screen centre.
-    // position "topLeft" + offset {x:0, y:0} = exactly top-left corner.
-    // Small positive values nudge it inward from the edge.
-    titleClips.push({
+    cardClips.push({
       asset: {
         type: "html",
-        html: `<div style="display:inline-flex;align-items:center;padding:14px 28px;background:rgba(27,42,74,0.95);border-left:5px solid #C9A84C;"><span style="font-family:Georgia,serif;color:#C9A84C;font-size:13px;font-weight:bold;text-transform:uppercase;letter-spacing:3px;text-decoration:none;">${escHtml(seg.sectionTitle)}</span></div>`,
-        width: 660,
-        height: 60,
+        html: sectionCardHtml(seg.sectionTitle, i),
+        width: 1280,
+        height: 720,
       },
       start: time,
-      length: 3,
-      position: "topLeft",
-      offset: { x: 0.02, y: 0.04 },
-      transition: { in: "slideRight", out: "fade" },
+      length: CARD_DUR,
+      position: "center",
+      transition: { in: "fade", out: "fade" },
     });
 
-    // ── Display text — centred in lower third ──────────────────────────
-    // Uses a semi-transparent navy bar so text is always legible regardless
-    // of how bright or busy the background image is.
-    // text-decoration:none prevents Chromium default link underlines.
-    textClips.push({
-      asset: {
-        type: "html",
-        html: `<div style="width:100%;background:rgba(15,26,46,0.78);padding:22px 40px;text-align:center;box-sizing:border-box;border-top:2px solid rgba(201,168,76,0.6);"><p style="font-family:Georgia,'Times New Roman',serif;color:#ffffff;font-size:28px;line-height:1.7;margin:0;text-decoration:none;font-style:normal;">${escHtml(seg.displayText)}</p></div>`,
-        width: 1280,
-        height: 140,
-      },
-      start: time + 1,
-      length: dur - 1,
+    // ── Progressive subtitle reveal ────────────────────────────────────
+    // Split display text into two halves — first half appears after the
+    // title card fades, second half at the mid-point of the scene.
+    // This creates a progressive "building" text effect that's achievable
+    // with Shotstack's static HTML rendering (no JS animations needed).
+    const contentDur  = dur - CARD_DUR;
+    const contentStart = time + CARD_DUR;
+    const [first, second] = splitText(seg.displayText);
+
+    subClips.push({
+      asset: { type: "html", html: subtitleHtml(first), width: 1280, height: 120 },
+      start: contentStart,
+      length: contentDur * 0.5,
       position: "bottom",
-      offset: { x: 0, y: 0 },
-      transition: { in: "fade" },
+      transition: { in: "fade", out: "fade" },
     });
+
+    if (second.trim()) {
+      subClips.push({
+        asset: { type: "html", html: subtitleHtml(second, true), width: 1280, height: 120 },
+        start: contentStart + contentDur * 0.5,
+        length: contentDur * 0.5,
+        position: "bottom",
+        transition: { in: "fade", out: "fade" },
+      });
+    }
 
     time += dur;
   }
 
   const totalDuration = time;
 
-  // ── Narration audio track ─────────────────────────────────────────
-  const audioTrack = {
-    clips: [
-      {
-        asset: { type: "audio", src: audioUrl, volume: 1.0 },
-        start: 0,
-        length: totalDuration,
-      },
-    ],
-  };
+  // ── Logo watermark ─────────────────────────────────────────────────
+  logoClips.push({
+    asset: { type: "image", src: logoUrl },
+    start: 0,
+    length: totalDuration,
+    position: "bottomRight",
+    offset: { x: -0.02, y: -0.02 },
+    scale: 0.12,
+    opacity: 0.85,
+  });
 
-  // ── Logo watermark (bottom right, full duration) ──────────────────
-  const logoTrack = {
-    clips: [
-      {
-        asset: { type: "image", src: logoUrl },
-        start: 0,
-        length: totalDuration,
-        position: "bottomRight",
-        offset: { x: -0.03, y: 0.03 },
-        scale: 0.13,
-        opacity: 0.9,
-      },
-    ],
-  };
+  // ── Full-screen CTA end card (last 12 seconds) ─────────────────────
+  const ctaStart = Math.max(0, totalDuration - 12);
+  const ctaHtml  = `<div style="width:1280px;height:720px;background:#0f1a2e;display:flex;flex-direction:column;align-items:center;justify-content:center;"><div style="width:80px;height:3px;background:#C9A84C;margin-bottom:32px;"></div><p style="font-family:Georgia,serif;color:#C9A84C;font-size:13px;text-transform:uppercase;letter-spacing:6px;margin:0 0 24px;text-decoration:none;">Corporate Advisory</p><p style="font-family:Georgia,serif;color:#ffffff;font-size:52px;margin:0 0 12px;text-decoration:none;">aston.ae</p><p style="font-family:Georgia,serif;color:rgba(255,255,255,0.55);font-size:20px;margin:0;text-decoration:none;">Speak with our advisers today</p><div style="width:80px;height:3px;background:#C9A84C;margin-top:32px;"></div></div>`;
 
-  // ── CTA end card (last 8 seconds) ─────────────────────────────────
-  const ctaStart = Math.max(0, totalDuration - 8);
-  const ctaTrack = {
-    clips: [
-      {
-        asset: {
-          type: "html",
-          html: `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(27,42,74,0.92);padding:28px 48px;border-top:3px solid #C9A84C;border-bottom:3px solid #C9A84C;text-align:center;"><p style="font-family:Georgia,serif;color:#C9A84C;font-size:14px;text-transform:uppercase;letter-spacing:4px;margin:0 0 10px;">Speak with our advisers</p><p style="font-family:Georgia,serif;color:#ffffff;font-size:26px;margin:0;">aston.ae</p></div>`,
-          width: 960,
-          height: 140,
-        },
-        start: ctaStart,
-        length: 8,
-        position: "center",
-        transition: { in: "fade", out: "fade" },
-      },
-    ],
-  };
+  cardClips.push({
+    asset: { type: "html", html: ctaHtml, width: 1280, height: 720 },
+    start: ctaStart,
+    length: 12,
+    position: "center",
+    transition: { in: "fade", out: "fade" },
+  });
+
+  // ── Narration audio ────────────────────────────────────────────────
+  audioClips.push({
+    asset: { type: "audio", src: audioUrl, volume: 1.0 },
+    start: 0,
+    length: totalDuration,
+  });
 
   // Background music:
   //   Production — defaults to Shotstack's own hosted asset (always accessible
@@ -234,16 +248,13 @@ function buildTimeline(
   return {
     ...(soundtrack ? { soundtrack } : {}),
     background: "#000000",
-    // Tracks render top-to-bottom: index 0 = topmost layer.
-    // No separate overlay track — images are darkened via opacity: 0.55
-    // against the black timeline background, which is more reliable.
+    // Track order: index 0 = topmost layer
     tracks: [
-      logoTrack,                // 0 — logo (always on top)
-      ctaTrack,                 // 1 — end CTA
-      { clips: titleClips },    // 2 — section title cards (navy/gold)
-      { clips: textClips },     // 3 — display text (navy bar + white text)
-      { clips: bgClips },       // 4 — background images (darkened via opacity)
-      audioTrack,               // 5 — narration audio
+      { clips: logoClips  },  // 0 — logo watermark (always on top)
+      { clips: cardClips  },  // 1 — full-screen section cards + CTA
+      { clips: subClips   },  // 2 — subtitle text bars
+      { clips: bgClips    },  // 3 — background images (darkened via opacity)
+      { clips: audioClips },  // 4 — narration audio
     ],
   };
 }

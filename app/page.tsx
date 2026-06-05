@@ -887,6 +887,7 @@ export default function HomePage() {
   const [videoMime, setVideoMime]         = useState("video/mp4");
   const [videoUrl, setVideoUrl]           = useState<string | null>(null);
   const [videoRenderId, setVideoRenderId] = useState<string | null>(null);
+  const [videoChapters, setVideoChapters] = useState<Array<{ title: string; startSecs: number }>>([]);
   const [youtubeUrl, setYoutubeUrl]       = useState<string | null>(null);
 
   const [imageGenStatus, setImageGenStatus]     = useState<"idle" | "generating" | "done" | "error">("idle");
@@ -1408,6 +1409,7 @@ export default function HomePage() {
     setVideoBase64(null);
     setVideoUrl(null);
     setVideoRenderId(null);
+    setVideoChapters([]);
     setYoutubeUrl(null);
     setAudioStatus("idle");
     setAudioProgress("");
@@ -1425,6 +1427,7 @@ export default function HomePage() {
     setVideoBase64(null);
     setVideoUrl(null);
     setVideoRenderId(null);
+    setVideoChapters([]);
     setYoutubeUrl(null);
 
     const timerStart = Date.now();
@@ -1474,13 +1477,14 @@ export default function HomePage() {
             if (event.type === "progress") {
               setVideoProgress(String(event.message ?? ""));
             } else if (event.type === "submitted") {
-              // Pipeline done — Shotstack is now rendering
               const rId = String(event.renderId);
               setVideoRenderId(rId);
               setVideoStatus("rendering");
               setVideoProgress(String(event.message ?? "Video rendering on Shotstack…"));
+              if (Array.isArray(event.chapters)) {
+                setVideoChapters(event.chapters as Array<{ title: string; startSecs: number }>);
+              }
               clearInterval(timer);
-              // Start polling
               pollShotstackRender(rId);
               return;
             } else if (event.type === "error") {
@@ -1550,10 +1554,11 @@ export default function HomePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          postId:    result.postId,
-          title:     result.title,
-          videoUrl:  videoUrl  || undefined,
+          postId:      result.postId,
+          title:       result.title,
+          videoUrl:    videoUrl    || undefined,
           videoBase64: videoBase64 || undefined,
+          chapters:    videoChapters.length > 0 ? videoChapters : undefined,
         }),
       });
       const data = await res.json();

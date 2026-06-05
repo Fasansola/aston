@@ -174,13 +174,22 @@ export async function POST(req: NextRequest) {
       const renderId = await submitShotstackRender(videoSegments, audioUrl, logoUrl);
       console.log(`[generate-video] Render submitted: ${renderId}`);
 
+      // Build YouTube chapter markers from calibrated scene start times
+      let chapterOffset = 0;
+      const chapters = calibrated.map((seg) => {
+        const chapter = { title: seg.sectionTitle, startSecs: Math.round(chapterOffset) };
+        chapterOffset += seg.durationSeconds;
+        return chapter;
+      });
+
       await send({
         type:         "submitted",
         renderId,
         totalDurationSecs,
-        sceneCount:   timedSegments.length,
+        sceneCount:   calibrated.length,
+        chapters,
         elapsedSecs:  elapsed(),
-        message:      `Rendering ${timedSegments.length} scenes (~${Math.round(totalDurationSecs / 60)} min video)…`,
+        message:      `Rendering ${calibrated.length} scenes (~${Math.round(totalDurationSecs / 60)} min video)…`,
       });
 
     } catch (err: unknown) {
