@@ -889,6 +889,7 @@ export default function HomePage() {
 
   const [imageGenStatus, setImageGenStatus]     = useState<"idle" | "generating" | "done" | "error">("idle");
   const [imageGenMessage, setImageGenMessage]   = useState("");
+  const [flowchartUrl, setFlowchartUrl]         = useState<string | null>(null);
 
   const [audioStatus, setAudioStatus]       = useState<"idle" | "generating" | "done" | "error">("idle");
   const [audioProgress, setAudioProgress]   = useState("");
@@ -1398,6 +1399,7 @@ export default function HomePage() {
     setCustomPrompt("");
     setImageGenStatus("idle");
     setImageGenMessage("");
+    setFlowchartUrl(null);
     setVideoStatus("idle");
     setVideoProgress("");
     setVideoElapsed(0);
@@ -1547,8 +1549,8 @@ export default function HomePage() {
           } else if (event.type === "done") {
             setImageGenStatus("done");
             setImageGenMessage("Images attached to post ✓");
-            // Update result with real image IDs
             setResult((prev) => prev ? { ...prev, imageIds: event.imageIds as GenerateResult["imageIds"] } : prev);
+            if (event.flowchartUrl) setFlowchartUrl(event.flowchartUrl as string);
           } else if (event.type === "error") {
             throw new Error(String(event.message));
           }
@@ -2326,25 +2328,42 @@ export default function HomePage() {
 
                 {/* Image generation status */}
                 {imageGenStatus !== "idle" && (
-                  <div className={`rounded-lg px-4 py-3 border flex items-center gap-3 ${
+                  <div className={`rounded-lg px-4 py-3 border ${
                     imageGenStatus === "error"
                       ? "bg-red-500/10 border-red-500/20"
                       : imageGenStatus === "done"
                       ? "bg-emerald-500/10 border-emerald-500/20"
                       : "bg-white/[0.04] border-white/10"
                   }`}>
-                    {imageGenStatus === "generating" && (
-                      <svg className="w-3.5 h-3.5 text-[#C9A84C] animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeDasharray="31.4" strokeDashoffset="10" />
-                      </svg>
+                    <div className="flex items-center gap-3">
+                      {imageGenStatus === "generating" && (
+                        <svg className="w-3.5 h-3.5 text-[#C9A84C] animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
+                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeDasharray="31.4" strokeDashoffset="10" />
+                        </svg>
+                      )}
+                      {imageGenStatus === "done" && <span className="text-emerald-400 text-sm shrink-0">✓</span>}
+                      {imageGenStatus === "error" && <span className="text-red-400 text-sm shrink-0">✕</span>}
+                      <p className={`text-xs ${
+                        imageGenStatus === "error" ? "text-red-300/80"
+                        : imageGenStatus === "done" ? "text-emerald-300/80"
+                        : "text-white/50"
+                      }`}>{imageGenMessage || "Generating images…"}</p>
+                    </div>
+                    {/* Flowchart preview */}
+                    {flowchartUrl && imageGenStatus === "done" && (
+                      <div className="mt-3 border-t border-white/[0.06] pt-3">
+                        <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-2">Flowchart</p>
+                        <a href={flowchartUrl} target="_blank" rel="noopener noreferrer" className="block">
+                          <img
+                            src={flowchartUrl}
+                            alt="Generated flowchart diagram"
+                            className="w-full rounded border border-white/10 bg-white"
+                            style={{ maxHeight: "320px", objectFit: "contain" }}
+                          />
+                          <p className="text-[11px] text-white/25 mt-1.5">Click to open full size</p>
+                        </a>
+                      </div>
                     )}
-                    {imageGenStatus === "done" && <span className="text-emerald-400 text-sm shrink-0">✓</span>}
-                    {imageGenStatus === "error" && <span className="text-red-400 text-sm shrink-0">✕</span>}
-                    <p className={`text-xs ${
-                      imageGenStatus === "error" ? "text-red-300/80"
-                      : imageGenStatus === "done" ? "text-emerald-300/80"
-                      : "text-white/50"
-                    }`}>{imageGenMessage || "Generating images…"}</p>
                   </div>
                 )}
               </div>

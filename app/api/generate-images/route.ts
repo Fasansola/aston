@@ -131,15 +131,17 @@ export async function POST(req: NextRequest) {
     try {
       // ── Step 1: Render Mermaid flowchart to PNG ─────────────
       let flowchartImgTag = "";
+      let flowchartUrl = "";
       if (flowchartMermaid?.trim()) {
         await send({ type: "progress", message: "Rendering flowchart diagram…" });
         try {
           const flowchartBuf = await renderMermaidToPng(flowchartMermaid.trim());
-          const { url: flowchartUrl } = await uploadImageToWordPress(
+          const uploaded = await uploadImageToWordPress(
             flowchartBuf,
             `${fileSlug}-flowchart.png`,
             "Process flowchart diagram"
           );
+          flowchartUrl = uploaded.url;
           flowchartImgTag = `<figure class="aston-flowchart"><img src="${flowchartUrl}" alt="Process flowchart diagram" loading="lazy" /></figure>`;
           console.log(`[generate-images] Flowchart uploaded: ${flowchartUrl}`);
         } catch (fcErr) {
@@ -216,7 +218,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      await send({ type: "done", imageIds });
+      await send({ type: "done", imageIds, flowchartUrl: flowchartUrl || null });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[generate-images] Failed: ${msg}`);

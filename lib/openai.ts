@@ -899,7 +899,7 @@ more_content_1:
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
 - Target ~${blueprint.sections[0]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Must include at least one: specific cost/fee in AED or USD, named regulatory body, realistic timeline, or jurisdiction comparison
-- VISUAL BLOCKS: you MUST place either an infographic block or a chart block somewhere in this section. Choose whichever format best suits the section data. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
+- VISUAL BLOCKS: if this section contains data, fee tables, jurisdiction comparisons, statistics, or ranked information worth visualising, place ONE infographic or chart block at the most natural point. If the section is primarily narrative or advisory, skip the visual block and focus on prose quality.
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
@@ -909,7 +909,7 @@ more_content_2:
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
 - Target ~${blueprint.sections[1]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Must include a bulleted or numbered list of at least 5 concrete items with facts, figures, or named details
-- VISUAL BLOCKS: you MUST place either an infographic block or a chart block somewhere in this section. Choose whichever format best suits the section data. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
+- VISUAL BLOCKS: if this section contains data, fee tables, jurisdiction comparisons, statistics, or ranked information worth visualising, place ONE infographic or chart block at the most natural point. If the section is primarily narrative or advisory, skip the visual block and focus on prose quality.
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
@@ -922,7 +922,7 @@ more_content_3:
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
 - Target ~${blueprint.sections[2]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Include at least one real-world scenario as a short narrative (e.g. "A gold trading company registered in DMCC approached three banks over six months...")
-- VISUAL BLOCKS: you MUST place either an infographic block or a chart block somewhere in this section. Choose whichever format best suits the section data. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
+- VISUAL BLOCKS: if this section contains data, fee tables, jurisdiction comparisons, statistics, or ranked information worth visualising, place ONE infographic or chart block at the most natural point. If the section is primarily narrative or advisory, skip the visual block and focus on prose quality.
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
@@ -961,7 +961,7 @@ more_content_6:
 - Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
 - Target ~${blueprint.sections[4]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - This is a distinct fifth body section — do not repeat themes from more_content_4
-- VISUAL BLOCKS: you MUST place either an infographic block or a chart block somewhere in this section. Choose whichever format best suits the section data. Use EXACTLY the HTML format defined in the VISUAL BLOCKS section above.
+- VISUAL BLOCKS: if this section contains data, fee tables, jurisdiction comparisons, statistics, or ranked information worth visualising, place ONE infographic or chart block at the most natural point. If the section is primarily narrative or advisory, skip the visual block and focus on prose quality.
 - Use 1-2 secondary keywords naturally
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
@@ -973,29 +973,12 @@ read_mins:
 Number string only. Estimate at 200 words per minute. Example: "9"
 
 flowchart_mermaid:
-Write a Mermaid flowchart diagram that visualises the key process described in this article. This will be rendered to a PNG image and inserted where you placed the [FLOWCHART_IMG] placeholder.
-
-Rules:
-- Use "flowchart TD" (top-down) for linear processes, or "flowchart LR" only for very wide decision trees
-- Node shapes: rectangles [Step name] for actions, diamonds {Decision?} for yes/no choices, rounded rectangles ([Start/End]) for start and end
-- Labels: short — 3–6 words per node. No quotes inside labels. No special characters
-- Connections: use --> for standard flow, -- Yes --> and -- No --> for decisions
-- Include the full process from start to end — minimum 5 nodes, maximum 10
-- Every node ID must be unique (A, B, C... or descriptive like KYC, SUBMIT, APPROVE)
-- Do NOT use subgraphs, styling blocks, or classDef — keep it clean and simple
-- Return ONLY the raw Mermaid syntax — no code fences, no markdown, no explanation
-
-Example for a company formation process:
-flowchart TD
-    A([Start]) --> B[Choose jurisdiction]
-    B --> C{Free zone?}
-    C -- Yes --> D[Select free zone authority]
-    C -- No --> E[Appoint local service agent]
-    D --> F[Submit application and KYC]
-    E --> F
-    F --> G[Initial approval 3-5 days]
-    G --> H[Pay licence fees]
-    H --> I([Licence issued])
+Mermaid flowchart syntax for the main process in this article. Rendered to a PNG and placed at [FLOWCHART_IMG].
+- Start with "flowchart TD"
+- Shapes: [Action step], {Decision?}, ([Start/End])
+- Arrows: --> for flow, -- Yes --> and -- No --> for decisions
+- 5–10 nodes, unique IDs (A B C...), labels 3–6 words, no special characters, no classDef/subgraphs
+- Raw Mermaid syntax only — no fences, no markdown
 
 internal_links_used:
 Array of objects recording every internal link placed in the article body.
