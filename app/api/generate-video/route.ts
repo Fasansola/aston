@@ -98,18 +98,34 @@ export async function POST(req: NextRequest) {
         )
       );
 
-      // ── 3. Upload images to WP media ──────────────────────────
+      // ── 3. Upload images to WP media — sequential with delay ─────
+      // SiteGround's Anti-Bot (SGCaptcha) blocks parallel upload bursts
+      // from Vercel IPs. Uploading one at a time with a 1.2s gap between
+      // each request avoids the rate-limit trigger.
       await send({ type: "progress", message: "Uploading scene images…", elapsedSecs: elapsed() });
       const slug = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
       const FALLBACK_IMG = "https://shotstack-assets.s3-ap-southeast-2.amazonaws.com/images/motionsarray/motionarray-1009154.jpg";
 
-      const imageUrls = await Promise.all(
-        imageBuffers.map(async (buf, i) => {
-          if (!buf) return FALLBACK_IMG;
+      const imageUrls: string[] = [];
+      for (let i = 0; i < imageBuffers.length; i++) {
+        const buf = imageBuffers[i];
+        if (!buf) {
+          imageUrls.push(FALLBACK_IMG);
+          continue;
+        }
+        try {
           const { url } = await uploadImageToWordPress(buf, `${slug}-scene-${i + 1}.png`, `Video scene ${i + 1}`);
-          return url;
-        })
-      );
+          imageUrls.push(url);
+        } catch (err) {
+          console.warn(`[generate-video] Image ${i + 1} upload failed: ${err instanceof Error ? err.message : err}`);
+          imageUrls.push(FALLBACK_IMG);
+        }
+        // Pause between uploads to avoid triggering SiteGround's Anti-Bot
+        if (i < imageBuffers.length - 1) {
+          await new Promise((r) => setTimeout(r, 1200));
+        }
+      }
+      console.log(`[generate-video] Uploaded ${imageUrls.filter(u => u !== FALLBACK_IMG).length}/${imageBuffers.length} images`);
 
       // ── 4. Generate narration audio + measure real duration ──────
       // We use the actual audio file size to calculate each segment's
