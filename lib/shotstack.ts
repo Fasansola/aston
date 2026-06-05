@@ -110,63 +110,59 @@ function buildTimeline(
   let time = 0;
 
   const bgClips:    object[] = [];
-  const overlayClips: object[] = [];
-  const titleClips:  object[] = [];
-  const textClips:   object[] = [];
+  const titleClips: object[] = [];
+  const textClips:  object[] = [];
 
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
     const dur = seg.durationSeconds;
 
-    // ── Background image — alternating zoomIn / zoomOut (Ken Burns) ──
+    // ── Background image ───────────────────────────────────────────────
+    // opacity: 0.55 against a black timeline background = 45% black shows
+    // through = naturally darkened cinematic look. Far more reliable than
+    // a separate HTML overlay layer which Shotstack renders inconsistently.
     bgClips.push({
       asset: { type: "image", src: seg.imageUrl },
       start: time,
       length: dur,
       effect: i % 2 === 0 ? "zoomIn" : "zoomOut",
+      opacity: 0.55,
       transition: { in: "fade", out: "fade" },
     });
 
-    // ── Dark overlay (55% opacity black) ─────────────────────────────
-    overlayClips.push({
-      asset: {
-        type: "html",
-        html: "<div style='background:#000000;width:1280px;height:720px;'></div>",
-        width: 1280,
-        height: 720,
-      },
-      start: time,
-      length: dur,
-      opacity: 0.55,
-    });
-
-    // ── Section title card (slides in from left for first 2.5 s) ─────
+    // ── Section title card — top-left, slides in for first 3 s ────────
+    // offset is relative to the clip anchor, not screen centre.
+    // position "topLeft" + offset {x:0, y:0} = exactly top-left corner.
+    // Small positive values nudge it inward from the edge.
     titleClips.push({
       asset: {
         type: "html",
-        html: `<div style="display:inline-flex;align-items:center;padding:12px 24px;background:rgba(27,42,74,0.92);border-left:4px solid #C9A84C;"><span style="font-family:Georgia,serif;color:#C9A84C;font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:3px;">${escHtml(seg.sectionTitle)}</span></div>`,
-        width: 700,
-        height: 56,
+        html: `<div style="display:inline-flex;align-items:center;padding:14px 28px;background:rgba(27,42,74,0.95);border-left:5px solid #C9A84C;"><span style="font-family:Georgia,serif;color:#C9A84C;font-size:13px;font-weight:bold;text-transform:uppercase;letter-spacing:3px;text-decoration:none;">${escHtml(seg.sectionTitle)}</span></div>`,
+        width: 660,
+        height: 60,
       },
       start: time,
-      length: 2.5,
+      length: 3,
       position: "topLeft",
-      offset: { x: 0.04, y: -0.38 },
+      offset: { x: 0.02, y: 0.04 },
       transition: { in: "slideRight", out: "fade" },
     });
 
-    // ── Display text (fades in after 1 s, bottom third of frame) ─────
+    // ── Display text — centred in lower third ──────────────────────────
+    // Uses a semi-transparent navy bar so text is always legible regardless
+    // of how bright or busy the background image is.
+    // text-decoration:none prevents Chromium default link underlines.
     textClips.push({
       asset: {
         type: "html",
-        html: `<div style="font-family:Georgia,'Times New Roman',serif;color:#ffffff;font-size:27px;line-height:1.8;text-align:center;padding:28px 52px;text-shadow:2px 2px 8px rgba(0,0,0,1),-2px -2px 8px rgba(0,0,0,1),0 0 20px rgba(0,0,0,0.8);"><p style="margin:0;">${escHtml(seg.displayText)}</p></div>`,
-        width: 1100,
-        height: 300,
+        html: `<div style="width:100%;background:rgba(15,26,46,0.78);padding:22px 40px;text-align:center;box-sizing:border-box;border-top:2px solid rgba(201,168,76,0.6);"><p style="font-family:Georgia,'Times New Roman',serif;color:#ffffff;font-size:28px;line-height:1.7;margin:0;text-decoration:none;font-style:normal;">${escHtml(seg.displayText)}</p></div>`,
+        width: 1280,
+        height: 140,
       },
       start: time + 1,
       length: dur - 1,
       position: "bottom",
-      offset: { x: 0, y: 0.1 },
+      offset: { x: 0, y: 0 },
       transition: { in: "fade" },
     });
 
@@ -238,15 +234,16 @@ function buildTimeline(
   return {
     ...(soundtrack ? { soundtrack } : {}),
     background: "#000000",
-    // Tracks render top-to-bottom: index 0 = topmost layer
+    // Tracks render top-to-bottom: index 0 = topmost layer.
+    // No separate overlay track — images are darkened via opacity: 0.55
+    // against the black timeline background, which is more reliable.
     tracks: [
-      logoTrack,                     // 0 — logo (always on top)
-      ctaTrack,                      // 1 — end CTA
-      { clips: titleClips },         // 2 — section title cards
-      { clips: textClips },          // 3 — narration text
-      { clips: overlayClips },       // 4 — dark overlay
-      { clips: bgClips },            // 5 — background images (bottom)
-      audioTrack,                    // 6 — narration audio
+      logoTrack,                // 0 — logo (always on top)
+      ctaTrack,                 // 1 — end CTA
+      { clips: titleClips },    // 2 — section title cards (navy/gold)
+      { clips: textClips },     // 3 — display text (navy bar + white text)
+      { clips: bgClips },       // 4 — background images (darkened via opacity)
+      audioTrack,               // 5 — narration audio
     ],
   };
 }
