@@ -39,10 +39,13 @@ export function estimateDuration(text: string): number {
 /**
  * Calls GPT-4o-mini to divide the full article script into 7 video scenes.
  * Returns segments with narration text, display text, and image prompts.
+ *
+ * If no content fields are provided (standalone mode), GPT generates a full
+ * educational script from scratch based on the title alone.
  */
 export async function segmentVideoScript(
   title: string,
-  scriptFields: {
+  scriptFields?: {
     main_content?: string;
     more_content_1?: string;
     more_content_2?: string;
@@ -55,9 +58,13 @@ export async function segmentVideoScript(
 ): Promise<TimedVideoSegment[]> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-  const fullScript = articleToAudioScript(title, scriptFields);
-  const wordCount  = fullScript.trim().split(/\s+/).length;
-  console.log(`[videoScript] Full script: ${wordCount} words`);
+  const rawScript  = scriptFields ? articleToAudioScript(title, scriptFields) : "";
+  const wordCount  = rawScript.trim().split(/\s+/).filter(Boolean).length;
+  const hasContent = wordCount > 150;
+
+  // When no article content is available, ask GPT to write the full script
+  const fullScript = hasContent ? rawScript : "";
+  console.log(`[videoScript] ${hasContent ? `${wordCount} words from article` : "standalone — GPT will write script"}`);
 
   const { choices } = await openai.chat.completions.create({
     model: "gpt-4o-mini",
@@ -83,13 +90,31 @@ IMAGE PROMPT RULES — strict:
       },
       {
         role: "user",
-        content: `Article title: "${title}"
+        content: hasContent
+          ? `Article title: "${title}"
 
 Full script (${wordCount} words):
 ${fullScript}
 
 Divide this into exactly 7 scenes. Use the actual script text — do not invent content.
 Return a JSON array only — no markdown, no code fences, no explanation:
+
+[
+  {
+    "sectionTitle": "Introduction",
+    "narration": "...",
+    "displayText": "...",
+    "imagePrompt": "..."
+  }
+]`
+          : `Topic / title: "${title}"
+
+No article text is provided. Write a complete 7-scene educational video script on this topic from scratch.
+Target audience: business owners and entrepreneurs interested in UAE and international corporate advisory services.
+Write with authority — real jurisdiction names, regulator names, realistic fee ranges, practical advice.
+Each scene should cover a distinct aspect of the topic.
+
+Return a JSON array only — no markdown, no code fences:
 
 [
   {

@@ -73,13 +73,17 @@ export async function POST(req: NextRequest) {
 
   (async () => {
     try {
-      const scriptFields = {
+      const hasContent = !!(main_content || more_content_1 || more_content_2);
+      const scriptFields = hasContent ? {
         main_content, more_content_1, more_content_2, more_content_3,
         more_content_4, more_content_5, more_content_6, final_points,
-      };
+      } : undefined;
 
       // ── 1. Segment script ─────────────────────────────────────
-      await send({ type: "progress", message: "Dividing article into video scenes…", elapsedSecs: elapsed() });
+      const segMsg = hasContent
+        ? "Dividing article into video scenes…"
+        : "Writing video script from topic…";
+      await send({ type: "progress", message: segMsg, elapsedSecs: elapsed() });
       const timedSegments = await segmentVideoScript(title.trim(), scriptFields);
       const totalDurationSecs = timedSegments.reduce((s, seg) => s + seg.durationSeconds, 0);
       console.log(`[generate-video] ${timedSegments.length} scenes, ~${totalDurationSecs}s`);
@@ -112,7 +116,10 @@ export async function POST(req: NextRequest) {
       let audioUrl = providedAudioUrl?.trim() || "";
       if (!audioUrl) {
         await send({ type: "progress", message: "Generating narration audio…", elapsedSecs: elapsed() });
-        const script = articleToAudioScript(title.trim(), scriptFields);
+        // Build narration from the segments (works in both article and standalone mode)
+        const script = hasContent && scriptFields
+          ? articleToAudioScript(title.trim(), scriptFields)
+          : timedSegments.map((s) => s.narration).join(" ");
         const { buffer: audioBuf, mimeType } = await generateKokoroSpeech(script);
         const ext = mimeType === "audio/mpeg" ? "mp3" : "wav";
         const { url } = await uploadMediaToWordPress(audioBuf, `${slug}-video-audio.${ext}`, mimeType);
