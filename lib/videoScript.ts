@@ -25,15 +25,32 @@ export interface RawVideoSegment {
 
 export interface TimedVideoSegment extends RawVideoSegment {
   durationSeconds: number;
+  wordCount: number;  // kept so durations can be recalibrated against real audio length
 }
 
-/** Words per minute for Kokoro TTS narration */
-const TTS_WPM = 130;
+export function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
 
-export function estimateDuration(text: string): number {
-  const words = text.trim().split(/\s+/).length;
-  // Add 1.5s buffer per segment for natural pauses
-  return Math.max(18, Math.round((words / TTS_WPM) * 60) + 2);
+/**
+ * Recalibrates segment durations so they sum exactly to actualAudioSeconds.
+ * Uses each segment's word count as the proportional weight — the more words
+ * a segment has, the longer its slice of the audio timeline.
+ *
+ * This is the key sync fix: instead of guessing each segment's duration from
+ * word count alone, we measure the real audio and divide it proportionally.
+ */
+export function calibrateSegmentDurations(
+  segments: TimedVideoSegment[],
+  actualAudioSeconds: number
+): TimedVideoSegment[] {
+  const totalWords = segments.reduce((s, seg) => s + seg.wordCount, 0);
+  if (totalWords === 0) return segments;
+
+  return segments.map((seg) => ({
+    ...seg,
+    durationSeconds: Math.max(8, (seg.wordCount / totalWords) * actualAudioSeconds),
+  }));
 }
 
 /**
@@ -136,9 +153,11 @@ Return a JSON array only — no markdown, no code fences:
 
   const segments = JSON.parse(match[0]) as RawVideoSegment[];
 
-  // Attach duration estimate based on narration word count
+  // Attach word counts — durations are placeholders until recalibrated
+  // against the real audio length in generate-video/route.ts
   return segments.map((seg) => ({
     ...seg,
-    durationSeconds: estimateDuration(seg.narration),
+    wordCount: countWords(seg.narration),
+    durationSeconds: 0, // recalibrated after audio generation
   }));
 }

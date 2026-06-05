@@ -19,10 +19,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { segmentVideoScript }        from "@/lib/videoScript";
-import { submitShotstackRender, type VideoSegment } from "@/lib/shotstack";
+import { segmentVideoScript, calibrateSegmentDurations } from "@/lib/videoScript";
+import { submitShotstackRender, type VideoSegment }      from "@/lib/shotstack";
 import { uploadImageToWordPress, uploadMediaToWordPress } from "@/lib/wordpress";
-import { generateKokoroSpeech, articleToAudioScript }    from "@/lib/replicate";
+import { generateKokoroSpeech, articleToAudioScript, estimateMp3DurationSeconds } from "@/lib/replicate";
 
 export const maxDuration = 300;
 
@@ -85,8 +85,7 @@ export async function POST(req: NextRequest) {
         : "Writing video script from topic…";
       await send({ type: "progress", message: segMsg, elapsedSecs: elapsed() });
       const timedSegments = await segmentVideoScript(title.trim(), scriptFields);
-      const totalDurationSecs = timedSegments.reduce((s, seg) => s + seg.durationSeconds, 0);
-      console.log(`[generate-video] ${timedSegments.length} scenes, ~${totalDurationSecs}s`);
+      console.log(`[generate-video] ${timedSegments.length} scenes segmented`);
 
       // ── 2. Generate background images in parallel ─────────────
       await send({ type: "progress", message: `Generating ${timedSegments.length} background images…`, elapsedSecs: elapsed() });
@@ -112,25 +111,44 @@ export async function POST(req: NextRequest) {
         })
       );
 
-      // ── 4. Ensure narration audio ─────────────────────────────
+      // ── 4. Generate narration audio + measure real duration ──────
+      // We use the actual audio file size to calculate each segment's
+      // precise slice of the timeline — this is what keeps the background
+      // image and text in sync with what's being narrated.
       let audioUrl = providedAudioUrl?.trim() || "";
+      let audioDurationSeconds = 0;
+
       if (!audioUrl) {
         await send({ type: "progress", message: "Generating narration audio…", elapsedSecs: elapsed() });
-        // Build narration from the segments (works in both article and standalone mode)
         const script = hasContent && scriptFields
           ? articleToAudioScript(title.trim(), scriptFields)
           : timedSegments.map((s) => s.narration).join(" ");
         const { buffer: audioBuf, mimeType } = await generateKokoroSpeech(script);
+        audioDurationSeconds = estimateMp3DurationSeconds(audioBuf);
         const ext = mimeType === "audio/mpeg" ? "mp3" : "wav";
         const { url } = await uploadMediaToWordPress(audioBuf, `${slug}-video-audio.${ext}`, mimeType);
         audioUrl = url;
-        console.log(`[generate-video] Narration audio uploaded: ${audioUrl}`);
+        console.log(`[generate-video] Audio uploaded: ${audioUrl} (~${Math.round(audioDurationSeconds)}s)`);
+      } else {
+        // Provided audio URL — estimate from total word count
+        const totalWords = timedSegments.reduce((s, seg) => s + seg.wordCount, 0);
+        audioDurationSeconds = (totalWords / 130) * 60;
+        console.log(`[generate-video] Provided audio, estimated duration: ~${Math.round(audioDurationSeconds)}s`);
       }
 
-      // ── 5. Submit to Shotstack ────────────────────────────────
+      // ── 5. Calibrate every segment duration to the real audio ─────
+      // Proportional split: segment_duration = (segment_words / total_words) × audio_duration
+      // This guarantees images change exactly when the narration moves to the next scene.
+      const calibrated = audioDurationSeconds > 0
+        ? calibrateSegmentDurations(timedSegments, audioDurationSeconds)
+        : timedSegments;
+      const totalDurationSecs = calibrated.reduce((s, seg) => s + seg.durationSeconds, 0);
+      console.log(`[generate-video] Scene durations: ${calibrated.map(s => Math.round(s.durationSeconds) + "s").join(", ")}`);
+
+      // ── 6. Submit to Shotstack ────────────────────────────────────
       await send({ type: "progress", message: "Submitting to Shotstack for rendering…", elapsedSecs: elapsed() });
 
-      const videoSegments: VideoSegment[] = timedSegments.map((seg, i) => ({
+      const videoSegments: VideoSegment[] = calibrated.map((seg, i) => ({
         sectionTitle:    seg.sectionTitle,
         displayText:     seg.displayText,
         durationSeconds: seg.durationSeconds,
@@ -141,12 +159,12 @@ export async function POST(req: NextRequest) {
       console.log(`[generate-video] Render submitted: ${renderId}`);
 
       await send({
-        type:             "submitted",
+        type:         "submitted",
         renderId,
         totalDurationSecs,
-        sceneCount:       timedSegments.length,
-        elapsedSecs:      elapsed(),
-        message:          `Rendering ${timedSegments.length} scenes (~${Math.round(totalDurationSecs / 60)} min video)…`,
+        sceneCount:   timedSegments.length,
+        elapsedSecs:  elapsed(),
+        message:      `Rendering ${timedSegments.length} scenes (~${Math.round(totalDurationSecs / 60)} min video)…`,
       });
 
     } catch (err: unknown) {
