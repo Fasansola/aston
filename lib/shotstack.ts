@@ -220,13 +220,11 @@ function buildTimeline(
     ],
   };
 
-  // Background music — use env var override, a known-working public URL,
-  // or omit entirely if neither is available.
-  // SHOTSTACK_MUSIC_URL can be set to any publicly accessible MP3.
-  const musicUrl =
-    process.env.SHOTSTACK_MUSIC_URL ||
-    "https://assets.mixkit.co/music/preview/mixkit-corporate-wisdom-225.mp3";
-
+  // Background music — only included if SHOTSTACK_MUSIC_URL env var is set.
+  // Most third-party CDNs block Shotstack's servers (hotlink protection).
+  // To add music: upload an MP3 to your WordPress media library and set
+  // SHOTSTACK_MUSIC_URL to that public URL — WordPress URLs always work.
+  const musicUrl = process.env.SHOTSTACK_MUSIC_URL?.trim() || "";
   const soundtrack = musicUrl
     ? { src: musicUrl, effect: "fadeOut", volume: 0.1 }
     : undefined;
