@@ -446,14 +446,42 @@ export async function patchWordPressPostLinks(
 // ── Mermaid flowchart renderer ────────────────────────────────
 
 /**
+ * Aston brand theme prepended to every Mermaid diagram.
+ * Navy nodes, gold borders/arrows, cream background — matches aston.ae.
+ */
+const ASTON_MERMAID_THEME = `%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background":           "#f5f0e8",
+    "primaryColor":         "#1b2a4a",
+    "primaryTextColor":     "#ffffff",
+    "primaryBorderColor":   "#C9A84C",
+    "secondaryColor":       "#2d3f66",
+    "secondaryTextColor":   "#ffffff",
+    "secondaryBorderColor": "#C9A84C",
+    "tertiaryColor":        "#C9A84C",
+    "tertiaryTextColor":    "#1b2a4a",
+    "lineColor":            "#C9A84C",
+    "edgeLabelBackground":  "#f5f0e8",
+    "clusterBkg":           "#1b2a4a",
+    "titleColor":           "#1b2a4a",
+    "fontFamily":           "Georgia, serif",
+    "fontSize":             "15px"
+  }
+}}%%`;
+
+/**
  * Renders a Mermaid diagram string to a PNG buffer using the mermaid.ink
  * hosted renderer — no browser / Puppeteer dependency needed.
- *
- * URL format: https://mermaid.ink/img/<base64url(diagram)>?bgColor=!white
+ * Prepends Aston brand theme (navy nodes, gold borders, cream background).
  */
 export async function renderMermaidToPng(mermaidSyntax: string): Promise<Buffer> {
-  const encoded = Buffer.from(mermaidSyntax, "utf8").toString("base64url");
-  const url = `https://mermaid.ink/img/${encoded}?bgColor=!white&width=900`;
+  // Strip any existing %%{init...}%% block the model may have written, then
+  // prepend our brand theme so it always takes precedence.
+  const stripped = mermaidSyntax.replace(/^%%\{[\s\S]*?%%\s*/m, "").trim();
+  const branded  = `${ASTON_MERMAID_THEME}\n${stripped}`;
+  const encoded  = Buffer.from(branded, "utf8").toString("base64url");
+  const url      = `https://mermaid.ink/img/${encoded}?width=960`;
   const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) {
     throw new Error(`mermaid.ink render failed: ${res.status} ${res.statusText}`);

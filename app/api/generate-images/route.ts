@@ -198,22 +198,42 @@ export async function POST(req: NextRequest) {
       await updateWordPressPostImages(postId, imageIds);
       console.log(`[generate-images] Images attached to post ${postId}`);
 
-      // ── Step 5: Replace [FLOWCHART_IMG] with rendered img ───
+      // ── Step 5: Embed flowchart in article content ──────────
+      // Strategy:
+      //   1. Search all candidate fields for the [FLOWCHART_IMG] placeholder
+      //      GPT was asked to write — replace it if found.
+      //   2. If the placeholder isn't present (GPT often omits it inside JSON),
+      //      fall back to appending the diagram to more_content_2, which is
+      //      typically the most data-rich body section.
       if (flowchartImgTag) {
         await send({ type: "progress", message: "Embedding flowchart in article…" });
         try {
           const acf = await fetchPostAcf(postId);
+          let embedded = false;
+
+          // Pass 1 — look for the explicit placeholder
           for (const { acf: fieldName } of FLOWCHART_FIELDS) {
             const fieldValue = acf[fieldName] ?? "";
             if (fieldValue.includes("[FLOWCHART_IMG]")) {
               const updated = fieldValue.replace(/\[FLOWCHART_IMG\]/g, flowchartImgTag);
               await patchWordPressContentField(postId, fieldName, updated);
-              console.log(`[generate-images] Flowchart embedded in ${fieldName}`);
-              break; // only replace in the first field that contains the placeholder
+              console.log(`[generate-images] Flowchart embedded via placeholder in ${fieldName}`);
+              embedded = true;
+              break;
             }
           }
+
+          // Pass 2 — fallback: append to more_content_2
+          if (!embedded) {
+            const fallbackField = "more_content_2";
+            const existing = acf[fallbackField] ?? "";
+            const updated  = existing
+              ? `${existing}\n${flowchartImgTag}`
+              : flowchartImgTag;
+            await patchWordPressContentField(postId, fallbackField, updated);
+            console.log(`[generate-images] Flowchart appended to ${fallbackField} (placeholder not found)`);
+          }
         } catch (embedErr) {
-          // Non-fatal — the post still has its content, just without the flowchart image
           console.warn(`[generate-images] Flowchart embed failed (non-fatal): ${embedErr instanceof Error ? embedErr.message : String(embedErr)}`);
         }
       }
