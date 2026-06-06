@@ -3,24 +3,27 @@
 import { useState, useRef } from "react";
 
 const SAMPLE_TOPICS = [
-  { label: "UAE Free Zone",      title: "How to Set Up a Business in a UAE Free Zone",                keyword: "UAE free zone business setup" },
-  { label: "Corporate banking",  title: "Why Most Businesses Fail at Corporate Banking and How to Fix It", keyword: "international corporate banking" },
-  { label: "Holding structures", title: "How International Holding Structures Work and Why They Matter",   keyword: "international holding company" },
-  { label: "UAE vs UK",          title: "UAE vs UK Company Formation: Which Structure Is Right for You",   keyword: "UAE UK company formation" },
-  { label: "Offshore vehicles",  title: "Seychelles and BVI Companies: What They Are Actually Used For",  keyword: "offshore company formation" },
-  { label: "Tax structuring",    title: "International Tax Structuring: How to Stay Compliant",           keyword: "international tax advisory" },
+  { label: "UAE Free Zone",      title: "How to Set Up a Business in a UAE Free Zone" },
+  { label: "Corporate banking",  title: "Why Most Businesses Fail at Corporate Banking and How to Fix It" },
+  { label: "Holding structures", title: "How International Holding Structures Work and Why They Matter" },
+  { label: "UAE vs UK",          title: "UAE vs UK Company Formation: Which Structure Is Right for You" },
+  { label: "Offshore vehicles",  title: "Seychelles and BVI Companies: What They Are Actually Used For" },
+  { label: "Tax structuring",    title: "International Tax Structuring: How to Stay Compliant" },
 ];
 
 type Status = "idle" | "generating" | "rendering" | "ready" | "error";
 
 export default function VideoPage() {
-  const [title, setTitle]       = useState("");
-  const [status, setStatus]     = useState<Status>("idle");
-  const [progress, setProgress] = useState("");
-  const [elapsed, setElapsed]   = useState(0);
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [renderId, setRenderId] = useState<string | null>(null);
-  const [error, setError]       = useState("");
+  const [title, setTitle]           = useState("");
+  const [status, setStatus]         = useState<Status>("idle");
+  const [progress, setProgress]     = useState("");
+  const [renderPct, setRenderPct]   = useState(0);
+  const [elapsed, setElapsed]       = useState(0);
+  const [videoUrl, setVideoUrl]     = useState<string | null>(null);
+  const [renderId, setRenderId]     = useState<string | null>(null);
+  const [bucketName, setBucketName] = useState<string | null>(null);
+  const [error, setError]           = useState("");
+
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -35,7 +38,7 @@ export default function VideoPage() {
     timerRef.current = setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 1000);
   };
 
-  const startPolling = (id: string) => {
+  const startPolling = (rId: string, bucket: string) => {
     const started = Date.now();
     const MAX_MS  = 15 * 60 * 1000;
 
@@ -47,28 +50,26 @@ export default function VideoPage() {
         return;
       }
       try {
-        const res  = await fetch(`/api/check-video-render?id=${id}`);
-        const data = await res.json() as { status: string; url?: string; error?: string };
-        const labels: Record<string, string> = {
-          queued:    "Queued on Shotstack…",
-          fetching:  "Loading assets…",
-          rendering: "Rendering video frames…",
-          saving:    "Finalising video file…",
-        };
+        const res  = await fetch(`/api/check-video-render?id=${rId}&bucket=${encodeURIComponent(bucket)}`);
+        const data = await res.json() as { status: string; progress?: number; url?: string; error?: string };
+
         if (data.status === "done" && data.url) {
           stopTimers();
           setVideoUrl(data.url);
           setStatus("ready");
           setProgress("Video ready!");
-        } else if (data.status === "failed") {
+          setRenderPct(100);
+        } else if (data.status === "error") {
           stopTimers();
           setStatus("error");
           setError(`Render failed: ${data.error ?? "unknown error"}`);
         } else {
-          setProgress(labels[data.status] ?? `Rendering (${data.status})…`);
+          const pct = data.progress ?? 0;
+          setRenderPct(Math.round(pct * 100));
+          setProgress(`Rendering video frames… (${Math.round(pct * 100)}%)`);
         }
       } catch { /* retry next tick */ }
-    }, 12_000);
+    }, 10_000);
   };
 
   const handleGenerate = async () => {
@@ -78,7 +79,9 @@ export default function VideoPage() {
     setProgress("Writing video script and generating scenes…");
     setVideoUrl(null);
     setRenderId(null);
+    setBucketName(null);
     setError("");
+    setRenderPct(0);
     startElapsed();
 
     try {
@@ -114,12 +117,14 @@ export default function VideoPage() {
             if (event.type === "progress") {
               setProgress(String(event.message ?? ""));
             } else if (event.type === "submitted") {
-              const rId = String(event.renderId);
+              const rId    = String(event.renderId);
+              const bucket = String(event.bucketName ?? "");
               setRenderId(rId);
+              setBucketName(bucket);
               setStatus("rendering");
-              setProgress(String(event.message ?? "Rendering…"));
+              setProgress("Remotion Lambda is rendering your video…");
               stopTimers();
-              startPolling(rId);
+              startPolling(rId, bucket);
               return;
             } else if (event.type === "error") {
               stopTimers();
@@ -127,7 +132,7 @@ export default function VideoPage() {
               setError(String(event.message ?? "Generation failed."));
               return;
             }
-          } catch { /* skip */ }
+          } catch { /* skip malformed */ }
         }
       }
     } catch (err) {
@@ -143,8 +148,10 @@ export default function VideoPage() {
     setProgress("");
     setVideoUrl(null);
     setRenderId(null);
+    setBucketName(null);
     setError("");
     setElapsed(0);
+    setRenderPct(0);
   };
 
   return (
@@ -156,7 +163,7 @@ export default function VideoPage() {
           <div>
             <h1 className="text-lg font-semibold tracking-tight">Video Generator</h1>
             <p className="text-sm text-white/35 mt-0.5">
-              Narrated slideshow video · Shotstack · {process.env.NEXT_PUBLIC_SHOTSTACK_ENV === "production" ? "Production" : "Sandbox"}
+              Narrated slideshow · Remotion Lambda · AWS us-east-1
             </p>
           </div>
           <a href="/" className="text-xs text-white/30 hover:text-white/60 transition-colors">← Back to tool</a>
@@ -208,26 +215,29 @@ export default function VideoPage() {
                 style={{ width: `${Math.min((elapsed / 150) * 90, 90)}%` }}
               />
             </div>
-            <p className="text-[10px] text-white/20">Writing script · generating 7 scene images · preparing audio (~2–3 min)</p>
+            <p className="text-[10px] text-white/20">Segmenting script · generating 7 scene images (Imagen 4) · preparing narration audio (~2–3 min)</p>
           </div>
         )}
 
-        {/* Rendering — Shotstack phase */}
+        {/* Rendering — Remotion Lambda phase */}
         {status === "rendering" && (
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-5 py-5 space-y-3">
             <div className="flex items-center gap-3">
               <svg className="w-4 h-4 text-[#C9A84C] animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeDasharray="31.4" strokeDashoffset="10" />
               </svg>
-              <p className="text-sm text-white/60">{progress || "Rendering on Shotstack…"}</p>
+              <p className="text-sm text-white/60">{progress || "Remotion Lambda is rendering your video…"}</p>
             </div>
             <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
-              <div className="h-full bg-[#C9A84C] rounded-full animate-pulse" style={{ width: "55%" }} />
+              <div
+                className="h-full bg-[#C9A84C] rounded-full transition-all duration-500"
+                style={{ width: `${renderPct > 0 ? renderPct : 10}%` }}
+              />
             </div>
             {renderId && (
               <p className="text-[10px] text-white/20 font-mono">Render ID: {renderId}</p>
             )}
-            <p className="text-[10px] text-white/20">Checking every 12 s · Shotstack sandbox typically renders in 2–5 min</p>
+            <p className="text-[10px] text-white/20">Checking every 10s · typically completes in 2–4 min</p>
           </div>
         )}
 
@@ -248,21 +258,16 @@ export default function VideoPage() {
               src={videoUrl}
               controls
               autoPlay
-              loop
               className="w-full rounded-xl aspect-video bg-black border border-white/[0.06]"
             />
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                <p className="text-xs text-white/50">Video ready · sandbox watermark visible</p>
+                <p className="text-xs text-white/50">Video ready · rendered on AWS Lambda</p>
               </div>
               <div className="flex items-center gap-4">
-                <a
-                  href={videoUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-white/40 hover:text-white/70 transition-colors"
-                >
+                <a href={videoUrl} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-white/40 hover:text-white/70 transition-colors">
                   Open direct URL ↗
                 </a>
                 <button onClick={handleReset} className="text-xs text-white/30 hover:text-white/60 transition-colors">
@@ -296,14 +301,14 @@ export default function VideoPage() {
             <p className="text-[10px] text-white/25 uppercase tracking-widest">What gets generated</p>
             <div className="grid grid-cols-2 gap-x-6 gap-y-2">
               {[
-                ["7 scenes", "script segmented by topic"],
-                ["7 images", "purpose-generated per scene (Imagen 4)"],
-                ["Narration", "text-to-speech via Kokoro"],
-                ["Dark overlay", "55% opacity over each image"],
-                ["Title cards", "navy/gold Aston brand labels"],
-                ["Background music", "soft corporate ambience"],
-                ["Logo watermark", "bottom right throughout"],
-                ["CTA end card", "aston.ae, 8 seconds"],
+                ["7 scenes",          "script segmented by topic"],
+                ["7 images",          "purpose-generated per scene (Imagen 4)"],
+                ["Narration",         "text-to-speech via Kokoro"],
+                ["Dark overlay",      "50% opacity via React opacity"],
+                ["Section cards",     "full-screen navy/gold title cards"],
+                ["Subtitle reveal",   "progressive two-part text reveal"],
+                ["Logo watermark",    "bottom right throughout"],
+                ["CTA end screen",    "aston.ae · 12 seconds"],
               ].map(([label, desc]) => (
                 <div key={label} className="flex items-start gap-2">
                   <div className="w-1 h-1 rounded-full bg-[#C9A84C] mt-1.5 shrink-0" />
