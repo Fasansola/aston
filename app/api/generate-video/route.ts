@@ -29,17 +29,31 @@ export const maxDuration = 300;
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
 
+// Dark navy 1×1 PNG — expanded by CSS to fill the scene frame.
+// Used when an image fails so Remotion always has a valid URL to fetch.
+// Hosted on placehold.co (reliable from AWS us-east-1).
+const FALLBACK_IMG = "https://placehold.co/1280x720/0f1a2e/0f1a2e.png";
+
 async function generateSceneImage(prompt: string): Promise<Buffer> {
   const { GoogleGenAI } = await import("@google/genai");
   const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-  const response = await ai.models.generateImages({
-    model: "imagen-4.0-generate-001",
-    prompt: `Cinematic 16:9 background image for a professional corporate video. ${prompt} No people, no text, no logos.`,
-    config: { numberOfImages: 1, aspectRatio: "16:9", outputMimeType: "image/png" },
-  });
-  const imageData = response.generatedImages?.[0]?.image?.imageBytes;
-  if (!imageData) throw new Error("Imagen 4 returned no image data");
-  return Buffer.from(imageData, "base64");
+
+  // Hard 25 s timeout per image — prevents a single stuck Imagen call
+  // from blocking the whole Promise.all
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25_000);
+  try {
+    const response = await ai.models.generateImages({
+      model: "imagen-4.0-generate-001",
+      prompt: `Cinematic 16:9 background image for a professional corporate video. ${prompt} No people, no text, no logos.`,
+      config: { numberOfImages: 1, aspectRatio: "16:9", outputMimeType: "image/png" },
+    });
+    const imageData = response.generatedImages?.[0]?.image?.imageBytes;
+    if (!imageData) throw new Error("Imagen 4 returned no image data");
+    return Buffer.from(imageData, "base64");
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -89,28 +103,36 @@ export async function POST(req: NextRequest) {
       const timedSegments = await segmentVideoScript(title.trim(), scriptFields);
       console.log(`[generate-video] ${timedSegments.length} scenes segmented`);
 
-      // ── 2. Generate background images in parallel ─────────────
-      await send({ type: "progress", message: `Generating ${timedSegments.length} background images…`, elapsedSecs: elapsed() });
-      const imageBuffers = await Promise.all(
-        timedSegments.map((seg, i) =>
-          generateSceneImage(seg.imagePrompt).catch((err) => {
-            console.warn(`[generate-video] Scene image ${i + 1} failed: ${err.message}`);
-            return null;
-          })
-        )
-      );
+      // ── 2. Generate background images — one at a time with progress ─
+      // Running sequentially avoids overwhelming Imagen 4 and gives the
+      // user live feedback on each scene instead of a long silent wait.
+      const imageBuffers: (Buffer | null)[] = [];
+      for (let i = 0; i < timedSegments.length; i++) {
+        await send({
+          type: "progress",
+          message: `Generating scene image ${i + 1} of ${timedSegments.length}…`,
+          elapsedSecs: elapsed(),
+        });
+        try {
+          const buf = await generateSceneImage(timedSegments[i].imagePrompt);
+          imageBuffers.push(buf);
+        } catch (err) {
+          console.warn(`[generate-video] Scene image ${i + 1} failed: ${err instanceof Error ? err.message : err}`);
+          imageBuffers.push(null);
+        }
+      }
 
       // ── 3. Upload images to WP media — sequential with delay ─────
-      // SiteGround's Anti-Bot (SGCaptcha) blocks parallel upload bursts
-      // from Vercel IPs. Uploading one at a time with a 1.2s gap between
-      // each request avoids the rate-limit trigger.
-      await send({ type: "progress", message: "Uploading scene images…", elapsedSecs: elapsed() });
       const slug = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
-      const FALLBACK_IMG = "https://shotstack-assets.s3-ap-southeast-2.amazonaws.com/images/motionsarray/motionarray-1009154.jpg";
 
       const imageUrls: string[] = [];
       for (let i = 0; i < imageBuffers.length; i++) {
         const buf = imageBuffers[i];
+        await send({
+          type: "progress",
+          message: `Uploading scene image ${i + 1} of ${imageBuffers.length}…`,
+          elapsedSecs: elapsed(),
+        });
         if (!buf) {
           imageUrls.push(FALLBACK_IMG);
           continue;
@@ -122,36 +144,42 @@ export async function POST(req: NextRequest) {
           console.warn(`[generate-video] Image ${i + 1} upload failed: ${err instanceof Error ? err.message : err}`);
           imageUrls.push(FALLBACK_IMG);
         }
-        // Pause between uploads to avoid triggering SiteGround's Anti-Bot
+        // Brief pause between uploads — avoids SiteGround Anti-Bot rate limiting
         if (i < imageBuffers.length - 1) {
-          await new Promise((r) => setTimeout(r, 1200));
+          await new Promise((r) => setTimeout(r, 800));
         }
       }
-      console.log(`[generate-video] Uploaded ${imageUrls.filter(u => u !== FALLBACK_IMG).length}/${imageBuffers.length} images`);
+      const uploaded = imageUrls.filter(u => u !== FALLBACK_IMG).length;
+      console.log(`[generate-video] Uploaded ${uploaded}/${imageBuffers.length} images (${imageBuffers.length - uploaded} used fallback)`);
 
-      // ── 4. Generate narration audio + measure real duration ──────
-      // We use the actual audio file size to calculate each segment's
-      // precise slice of the timeline — this is what keeps the background
-      // image and text in sync with what's being narrated.
+      // ── 4. Generate narration audio ──────────────────────────────
       let audioUrl = providedAudioUrl?.trim() || "";
       let audioDurationSeconds = 0;
 
       if (!audioUrl) {
-        await send({ type: "progress", message: "Generating narration audio…", elapsedSecs: elapsed() });
+        await send({ type: "progress", message: "Generating narration audio (this takes ~1–2 min)…", elapsedSecs: elapsed() });
         const script = hasContent && scriptFields
           ? articleToAudioScript(title.trim(), scriptFields)
           : timedSegments.map((s) => s.narration).join(" ");
-        const { buffer: audioBuf, mimeType } = await generateKokoroSpeech(script);
-        audioDurationSeconds = estimateMp3DurationSeconds(audioBuf);
-        const ext = mimeType === "audio/mpeg" ? "mp3" : "wav";
-        const { url } = await uploadMediaToWordPress(audioBuf, `${slug}-video-audio.${ext}`, mimeType);
+
+        // Wrap Kokoro in a 150 s deadline — if it hangs we fail fast with
+        // a clear error rather than silently hitting Vercel's 300 s limit.
+        const audioResult = await Promise.race([
+          generateKokoroSpeech(script),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Audio generation timed out after 150 s. Try using an existing audio file.")), 150_000)
+          ),
+        ]);
+        audioDurationSeconds = estimateMp3DurationSeconds(audioResult.buffer);
+        const ext = audioResult.mimeType === "audio/mpeg" ? "mp3" : "wav";
+        await send({ type: "progress", message: "Uploading narration audio…", elapsedSecs: elapsed() });
+        const { url } = await uploadMediaToWordPress(audioResult.buffer, `${slug}-video-audio.${ext}`, audioResult.mimeType);
         audioUrl = url;
         console.log(`[generate-video] Audio uploaded: ${audioUrl} (~${Math.round(audioDurationSeconds)}s)`);
       } else {
-        // Provided audio URL — estimate from total word count
         const totalWords = timedSegments.reduce((s, seg) => s + seg.wordCount, 0);
         audioDurationSeconds = (totalWords / 130) * 60;
-        console.log(`[generate-video] Provided audio, estimated duration: ~${Math.round(audioDurationSeconds)}s`);
+        console.log(`[generate-video] Using provided audio, estimated duration: ~${Math.round(audioDurationSeconds)}s`);
       }
 
       // ── 5. Calibrate every segment duration to the real audio ─────
