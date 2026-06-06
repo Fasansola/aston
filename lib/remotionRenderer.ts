@@ -50,6 +50,11 @@ export async function submitRemotionRender(
     privacy:     "public",
     outName:     input.outName,
     downloadBehavior: { type: "play-in-browser" },
+    // Keep concurrency within the default AWS Lambda limit (10 concurrent
+    // executions for new accounts). Each Lambda invocation handles more
+    // frames, so fewer are spawned. Increase once you raise the AWS limit.
+    framesPerLambda: 40,
+    concurrencyPerLambda: 1,
   });
 
   return { renderId, bucketName };
