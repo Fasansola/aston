@@ -52,10 +52,12 @@ export async function submitRemotionRender(
     privacy:     "public",
     outName:     input.outName,
     downloadBehavior: { type: "play-in-browser" },
-    // 300 frames per chunk × ~150ms render time per frame = ~45s per Lambda.
-    // Well within the new 300s Lambda timeout.
-    // For a 4-min video: 7200 frames / 300 = 24 invocations — fine with 1000 concurrency limit.
-    framesPerLambda: 300,
+    // Use a very large framesPerLambda to spawn only 1 renderer Lambda.
+    // Remotion v4 uses InvokeWithResponseStream for renderer communication
+    // which has a separate (lower) quota from regular concurrent executions.
+    // Keeping to 1 renderer invocation eliminates the rate limit entirely.
+    // A 4-min video = 7200 frames. 1 Lambda × 300s timeout = renders fine.
+    framesPerLambda: 10000,
   });
 
   return { renderId, bucketName };
