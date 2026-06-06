@@ -20,7 +20,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { segmentVideoScript, calibrateSegmentDurations } from "@/lib/videoScript";
-import { submitShotstackRender, type VideoSegment }      from "@/lib/shotstack";
+import { submitRemotionRender }                          from "@/lib/remotionRenderer";
+import type { VideoSegment }                             from "@/src/remotion/VideoComposition";
 import { uploadImageToWordPress, uploadMediaToWordPress } from "@/lib/wordpress";
 import { generateKokoroSpeech, articleToAudioScript, estimateMp3DurationSeconds } from "@/lib/replicate";
 
@@ -58,7 +59,8 @@ export async function POST(req: NextRequest) {
   };
 
   if (!title?.trim()) return NextResponse.json({ error: "title is required." }, { status: 400 });
-  if (!process.env.SHOTSTACK_API_KEY) return NextResponse.json({ error: "SHOTSTACK_API_KEY not configured." }, { status: 503 });
+  if (!process.env.REMOTION_FUNCTION_NAME) return NextResponse.json({ error: "REMOTION_FUNCTION_NAME not configured." }, { status: 503 });
+  if (!process.env.REMOTION_SERVE_URL)     return NextResponse.json({ error: "REMOTION_SERVE_URL not configured." }, { status: 503 });
   if (!GEMINI_API_KEY) return NextResponse.json({ error: "GEMINI_API_KEY not configured." }, { status: 503 });
   if (!process.env.ASTON_LOGO_URL) return NextResponse.json({ error: "ASTON_LOGO_URL not configured." }, { status: 503 });
 
@@ -161,8 +163,8 @@ export async function POST(req: NextRequest) {
       const totalDurationSecs = calibrated.reduce((s, seg) => s + seg.durationSeconds, 0);
       console.log(`[generate-video] Scene durations: ${calibrated.map(s => Math.round(s.durationSeconds) + "s").join(", ")}`);
 
-      // ── 6. Submit to Shotstack ────────────────────────────────────
-      await send({ type: "progress", message: "Submitting to Shotstack for rendering…", elapsedSecs: elapsed() });
+      // ── 6. Submit to Remotion Lambda for rendering ───────────────
+      await send({ type: "progress", message: "Submitting to Remotion Lambda for rendering…", elapsedSecs: elapsed() });
 
       const videoSegments: VideoSegment[] = calibrated.map((seg, i) => ({
         sectionTitle:    seg.sectionTitle,
@@ -171,8 +173,13 @@ export async function POST(req: NextRequest) {
         imageUrl:        imageUrls[i],
       }));
 
-      const renderId = await submitShotstackRender(videoSegments, audioUrl, logoUrl);
-      console.log(`[generate-video] Render submitted: ${renderId}`);
+      const { renderId, bucketName } = await submitRemotionRender({
+        segments: videoSegments,
+        audioUrl,
+        logoUrl,
+        outName: `${slug}-video.mp4`,
+      });
+      console.log(`[generate-video] Remotion render submitted: ${renderId} (bucket: ${bucketName})`);
 
       // Build YouTube chapter markers from calibrated scene start times
       let chapterOffset = 0;
@@ -185,6 +192,7 @@ export async function POST(req: NextRequest) {
       await send({
         type:         "submitted",
         renderId,
+        bucketName,
         totalDurationSecs,
         sceneCount:   calibrated.length,
         chapters,

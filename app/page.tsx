@@ -886,8 +886,9 @@ export default function HomePage() {
   const [videoBase64, setVideoBase64]     = useState<string | null>(null);
   const [videoMime, setVideoMime]         = useState("video/mp4");
   const [videoUrl, setVideoUrl]           = useState<string | null>(null);
-  const [videoRenderId, setVideoRenderId] = useState<string | null>(null);
-  const [videoChapters, setVideoChapters] = useState<Array<{ title: string; startSecs: number }>>([]);
+  const [videoRenderId, setVideoRenderId]       = useState<string | null>(null);
+  const [videoBucketName, setVideoBucketName]   = useState<string | null>(null);
+  const [videoChapters, setVideoChapters]       = useState<Array<{ title: string; startSecs: number }>>([]);
   const [youtubeUrl, setYoutubeUrl]       = useState<string | null>(null);
 
   const [imageGenStatus, setImageGenStatus]     = useState<"idle" | "generating" | "done" | "error">("idle");
@@ -1409,6 +1410,7 @@ export default function HomePage() {
     setVideoBase64(null);
     setVideoUrl(null);
     setVideoRenderId(null);
+    setVideoBucketName(null);
     setVideoChapters([]);
     setYoutubeUrl(null);
     setAudioStatus("idle");
@@ -1477,15 +1479,17 @@ export default function HomePage() {
             if (event.type === "progress") {
               setVideoProgress(String(event.message ?? ""));
             } else if (event.type === "submitted") {
-              const rId = String(event.renderId);
+              const rId    = String(event.renderId);
+              const bucket = String(event.bucketName ?? "");
               setVideoRenderId(rId);
+              setVideoBucketName(bucket);
               setVideoStatus("rendering");
-              setVideoProgress(String(event.message ?? "Video rendering on Shotstack…"));
+              setVideoProgress(String(event.message ?? "Video rendering on Remotion Lambda…"));
               if (Array.isArray(event.chapters)) {
                 setVideoChapters(event.chapters as Array<{ title: string; startSecs: number }>);
               }
               clearInterval(timer);
-              pollShotstackRender(rId);
+              pollRemotionRender(rId, bucket);
               return;
             } else if (event.type === "error") {
               setVideoStatus("error");
@@ -1504,40 +1508,35 @@ export default function HomePage() {
   };
 
   // Polls Shotstack every 12 s until the render is done or failed
-  const pollShotstackRender = (renderId: string) => {
-    const POLL_INTERVAL = 12_000;
+  const pollRemotionRender = (renderId: string, bucketName: string) => {
+    const POLL_INTERVAL = 10_000;          // Remotion renders faster than Shotstack
     const MAX_WAIT_MS   = 15 * 60 * 1000; // 15 minutes
-    const startedAt     = Date.now();
+
+    const startedAt = Date.now();
 
     const interval = setInterval(async () => {
       if (Date.now() - startedAt > MAX_WAIT_MS) {
         clearInterval(interval);
         setVideoStatus("error");
-        setVideoProgress("Render timed out after 15 minutes. Check Shotstack dashboard.");
+        setVideoProgress("Render timed out after 15 minutes.");
         return;
       }
       try {
-        const res  = await fetch(`/api/check-video-render?id=${renderId}`);
-        const data = await res.json() as { status: string; url?: string; error?: string };
+        const res  = await fetch(`/api/check-video-render?id=${renderId}&bucket=${encodeURIComponent(bucketName)}`);
+        const data = await res.json() as { status: string; progress?: number; url?: string; error?: string };
 
         if (data.status === "done" && data.url) {
           clearInterval(interval);
           setVideoUrl(data.url);
           setVideoStatus("ready");
           setVideoProgress("Video ready!");
-        } else if (data.status === "failed") {
+        } else if (data.status === "error") {
           clearInterval(interval);
           setVideoStatus("error");
-          setVideoProgress(`Shotstack render failed: ${data.error ?? "unknown error"}`);
+          setVideoProgress(`Render failed: ${data.error ?? "unknown error"}`);
         } else {
-          // Still rendering — update progress label
-          const labels: Record<string, string> = {
-            queued:    "Queued on Shotstack…",
-            fetching:  "Shotstack is loading assets…",
-            rendering: "Rendering video frames…",
-            saving:    "Finalising video file…",
-          };
-          setVideoProgress(labels[data.status] ?? `Rendering (${data.status})…`);
+          const pct = data.progress != null ? ` (${Math.round(data.progress * 100)}%)` : "";
+          setVideoProgress(`Rendering video frames${pct}…`);
         }
       } catch (err) {
         console.warn("[poll] Status check failed:", err);
