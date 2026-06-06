@@ -50,11 +50,13 @@ export async function submitRemotionRender(
     privacy:     "public",
     outName:     input.outName,
     downloadBehavior: { type: "play-in-browser" },
-    // Keep concurrency within the default AWS Lambda limit (10 concurrent
-    // executions for new accounts). Each Lambda invocation handles more
-    // frames, so fewer are spawned. Increase once you raise the AWS limit.
-    framesPerLambda: 40,
-    concurrencyPerLambda: 1,
+    // New AWS accounts have a default concurrent execution limit of 10.
+    // framesPerLambda controls how many Lambdas are spawned:
+    //   total invocations = video_frames / framesPerLambda
+    // A 4-min video at 30fps = 7,200 frames.
+    // 7200 / 900 = 8 invocations — within the 10 limit.
+    // Increase this limit in AWS Service Quotas for faster rendering.
+    framesPerLambda: 900,
   });
 
   return { renderId, bucketName };
