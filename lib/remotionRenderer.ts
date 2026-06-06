@@ -46,16 +46,14 @@ export async function submitRemotionRender(
     },
     codec:       "h264",
     imageFormat: "jpeg",
-    maxRetries:  1,
+    // Retry up to 5× with exponential backoff — handles transient
+    // TooManyRequestsException (rate limit) errors automatically.
+    maxRetries:  5,
     privacy:     "public",
     outName:     input.outName,
     downloadBehavior: { type: "play-in-browser" },
-    // New AWS accounts have a default concurrent execution limit of 10.
-    // framesPerLambda controls how many Lambdas are spawned:
-    //   total invocations = video_frames / framesPerLambda
-    // A 4-min video at 30fps = 7,200 frames.
-    // 7200 / 900 = 8 invocations — within the 10 limit.
-    // Increase this limit in AWS Service Quotas for faster rendering.
+    // Fewer Lambda invocations = less chance of hitting invocation rate limit.
+    // 4-min video at 30fps = 7200 frames → 7200/900 = 8 invocations.
     framesPerLambda: 900,
   });
 
