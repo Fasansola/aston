@@ -41,7 +41,7 @@ export interface VideoProps {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const FPS               = 30;
+const FPS               = 24;   // 24fps reduces frame count by 20% vs 30fps
 const TITLE_CARD_SECS   = 2.5;
 const CTA_SECS          = 12;
 const NAVY              = "#0f1a2e";
@@ -149,34 +149,24 @@ const Scene: React.FC<SceneProps> = ({ segment, index, segFrames }) => {
   const frame = useCurrentFrame();
   const titleFrames = Math.round(TITLE_CARD_SECS * FPS);
 
-  // Ken Burns: slow zoom, alternating direction per scene
-  const scale = interpolate(frame, [0, segFrames], [1.0, 1.08], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
-  const transformOrigin = index % 2 === 0 ? "left center" : "right center";
+  // Simple fade-in at scene start (no per-frame scale calc = faster render)
+  const fadeIn = frame < 8 ? frame / 8 : 1;
 
-  // Fade whole scene in at start
-  const fadeIn = interpolate(frame, [0, 10], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
+  // Title card opacity: fade in first 6 frames, hold, fade out last 6 frames
+  const titleOpacity = fade(frame, 0, 6, titleFrames - 6, titleFrames);
 
-  // Title card: fade in → hold → fade out before subtitle appears
-  const titleOpacity = fade(frame, 0, 8, titleFrames - 8, titleFrames);
-
-  // Subtitle timings
-  const subStart   = titleFrames;
-  const subDur     = segFrames - titleFrames;
-  const halfDur    = Math.floor(subDur / 2);
-  const sub1Opacity = fade(frame, subStart, subStart + 8, subStart + halfDur - 6, subStart + halfDur);
-  const sub2Opacity = fade(frame, subStart + halfDur, subStart + halfDur + 8, segFrames - 6, segFrames);
+  // Subtitle: first half then second half, simple step with short fades
+  const subStart    = titleFrames;
+  const subDur      = segFrames - titleFrames;
+  const halfDur     = Math.floor(subDur / 2);
+  const sub1Opacity = frame >= subStart && frame < subStart + halfDur ? 1 : 0;
+  const sub2Opacity = frame >= subStart + halfDur ? 1 : 0;
 
   const [firstHalf, secondHalf] = splitText(segment.displayText);
 
   return (
     <AbsoluteFill style={{ opacity: fadeIn }}>
-      {/* Background image with Ken Burns */}
+      {/* Background image — static (no Ken Burns per-frame calc) */}
       <AbsoluteFill style={{ overflow: "hidden" }}>
         <Img
           src={segment.imageUrl}
@@ -184,8 +174,6 @@ const Scene: React.FC<SceneProps> = ({ segment, index, segFrames }) => {
             width: "100%",
             height: "100%",
             objectFit: "cover",
-            transform: `scale(${scale})`,
-            transformOrigin,
           }}
         />
       </AbsoluteFill>
