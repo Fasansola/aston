@@ -52,9 +52,10 @@ export async function submitRemotionRender(
     privacy:     "public",
     outName:     input.outName,
     downloadBehavior: { type: "play-in-browser" },
-    // Fewer Lambda invocations = less chance of hitting invocation rate limit.
-    // 4-min video at 30fps = 7200 frames → 7200/900 = 8 invocations.
-    framesPerLambda: 900,
+    // 300 frames per chunk × ~150ms render time per frame = ~45s per Lambda.
+    // Well within the new 300s Lambda timeout.
+    // For a 4-min video: 7200 frames / 300 = 24 invocations — fine with 1000 concurrency limit.
+    framesPerLambda: 300,
   });
 
   return { renderId, bucketName };
