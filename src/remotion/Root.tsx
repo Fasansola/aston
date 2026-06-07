@@ -4,7 +4,7 @@ import { Composition } from "remotion";
 import { VideoComposition, type VideoProps, type VideoSegment } from "./VideoComposition";
 
 const DEFAULT_PROPS: VideoProps = {
-  segments: [{ sectionTitle: "Introduction", displayText: "Welcome to Aston VIP Corporate Advisory.", durationSeconds: 10, imageUrl: "https://placehold.co/1280x720/0f1a2e/0f1a2e.png" }],
+  segments: [{ sectionTitle: "Introduction", displayText: "Welcome to Aston VIP Corporate Advisory.", bullets: ["Expert corporate advisory services", "Operating across UAE and international jurisdictions", "Speak with our advisers today"], durationSeconds: 10, imageUrl: "https://placehold.co/1280x720/0f1a2e/0f1a2e.png" }],
   audioUrl: "",
   logoUrl:  "",
 };
