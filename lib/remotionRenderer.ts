@@ -44,10 +44,7 @@ export async function submitRemotionRender(
     privacy:     "public",
     outName:     input.outName,
     downloadBehavior: { type: "play-in-browser" },
-    // Single renderer Lambda — eliminates concurrent streaming invocation issues.
-    // Images now served from S3 (same region) so each frame renders in ~30ms.
-    // A 3-min video = 5400 frames × 30ms = 162s — well within 300s timeout.
-    framesPerLambda: 10000,
+    framesPerLambda: 150,
   });
 
   return { renderId, bucketName };
