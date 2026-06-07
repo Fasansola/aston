@@ -1,9 +1,7 @@
 /**
  * lib/remotionRenderer.ts
  *
- * Thin wrapper around @remotion/lambda/client for use in Next.js API routes.
- * Import from here — not directly from @remotion/lambda — so we always use
- * the /client sub-path which excludes browser-only code.
+ * Thin wrapper around @remotion/lambda-client for use in Next.js API routes.
  */
 
 import {
@@ -27,50 +25,34 @@ export interface RenderInput {
   outName:   string;
 }
 
-/**
- * Submits a video render job to AWS Lambda via Remotion.
- * Returns { renderId, bucketName } — both needed for polling.
- */
 export async function submitRemotionRender(
   input: RenderInput
 ): Promise<{ renderId: string; bucketName: string }> {
   const { renderId, bucketName } = await renderMediaOnLambda({
-    region:      REGION,
+    region:       REGION,
     functionName: FUNCTION_NAME,
-    serveUrl:    SERVE_URL,
-    composition: "AstonVideo",
-    inputProps:  {
+    serveUrl:     SERVE_URL,
+    composition:  "AstonVideo",
+    inputProps: {
       segments: input.segments,
       audioUrl: input.audioUrl,
       logoUrl:  input.logoUrl,
     },
     codec:       "h264",
     imageFormat: "jpeg",
-    // Retry up to 5× with exponential backoff — handles transient
-    // TooManyRequestsException (rate limit) errors automatically.
     maxRetries:  5,
     privacy:     "public",
     outName:     input.outName,
     downloadBehavior: { type: "play-in-browser" },
-    // Use a very large framesPerLambda to spawn only 1 renderer Lambda.
-    // Remotion v4 uses InvokeWithResponseStream for renderer communication
-    // which has a separate (lower) quota from regular concurrent executions.
-    // Keeping to 1 renderer invocation eliminates the rate limit entirely.
-    // A 4-min video = 7200 frames. 1 Lambda × 300s timeout = renders fine.
+    // Single renderer Lambda — eliminates concurrent streaming invocation issues.
+    // Images now served from S3 (same region) so each frame renders in ~30ms.
+    // A 3-min video = 5400 frames × 30ms = 162s — well within 300s timeout.
     framesPerLambda: 10000,
   });
 
   return { renderId, bucketName };
 }
 
-/**
- * Polls a render job for its current status.
- * Returns:
- *   status  — "rendering" | "done" | "error"
- *   progress — 0–1
- *   url      — public MP4 URL (only when status === "done")
- *   error    — error message (only when status === "error")
- */
 export async function pollRemotionRender(
   renderId:   string,
   bucketName: string
@@ -88,15 +70,8 @@ export async function pollRemotionRender(
   }
 
   if (result.done) {
-    return {
-      status:   "done",
-      progress: 1,
-      url:      result.outputFile ?? undefined,
-    };
+    return { status: "done", progress: 1, url: result.outputFile ?? undefined };
   }
 
-  return {
-    status:   "rendering",
-    progress: result.overallProgress ?? 0,
-  };
+  return { status: "rendering", progress: result.overallProgress ?? 0 };
 }

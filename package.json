@@ -9,9 +9,12 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1063.0",
+    "@aws-sdk/s3-request-presigner": "^3.1063.0",
     "@breezystack/lamejs": "^1.2.7",
     "@google/genai": "^1.50.1",
     "@remotion/lambda": "^4.0.473",
+    "@remotion/lambda-client": "^4.0.473",
     "@upstash/redis": "^1.37.0",
     "axios": "^1.15.0",
     "form-data": "^4.0.5",

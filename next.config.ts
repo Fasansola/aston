@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
     "@remotion/lambda",
     "@aws-sdk/client-lambda",
     "@aws-sdk/client-s3",
+    "@aws-sdk/s3-request-presigner",
     "@aws-sdk/client-iam",
     "@aws-sdk/client-cloudwatch-logs",
     "@aws-sdk/client-service-quotas",

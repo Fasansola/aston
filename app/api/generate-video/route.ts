@@ -22,7 +22,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { segmentVideoScript, calibrateSegmentDurations } from "@/lib/videoScript";
 import { submitRemotionRender }                          from "@/lib/remotionRenderer";
 import type { VideoSegment }                             from "@/src/remotion/VideoComposition";
-import { uploadImageToWordPress, uploadMediaToWordPress } from "@/lib/wordpress";
+import { uploadSceneImageToS3 }                          from "@/lib/sceneImageS3";
+import { uploadMediaToWordPress }                        from "@/lib/wordpress";
 import { generateKokoroSpeech, articleToAudioScript, estimateMp3DurationSeconds } from "@/lib/replicate";
 
 export const maxDuration = 300;
@@ -138,15 +139,14 @@ export async function POST(req: NextRequest) {
           continue;
         }
         try {
-          const { url } = await uploadImageToWordPress(buf, `${slug}-scene-${i + 1}.png`, `Video scene ${i + 1}`);
+          // Upload to Remotion S3 (same AWS region as Lambda renderer).
+          // Lambda fetches these in ~10ms vs 200–500ms from WordPress/SiteGround
+          // which was causing the 300s render timeout.
+          const url = await uploadSceneImageToS3(buf, `${slug}-scene-${i + 1}.png`);
           imageUrls.push(url);
         } catch (err) {
-          console.warn(`[generate-video] Image ${i + 1} upload failed: ${err instanceof Error ? err.message : err}`);
+          console.warn(`[generate-video] Image ${i + 1} S3 upload failed: ${err instanceof Error ? err.message : err}`);
           imageUrls.push(FALLBACK_IMG);
-        }
-        // Brief pause between uploads — avoids SiteGround Anti-Bot rate limiting
-        if (i < imageBuffers.length - 1) {
-          await new Promise((r) => setTimeout(r, 800));
         }
       }
       const uploaded = imageUrls.filter(u => u !== FALLBACK_IMG).length;
