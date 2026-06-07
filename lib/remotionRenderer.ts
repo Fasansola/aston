@@ -22,6 +22,7 @@ export interface RenderInput {
   segments:  VideoSegment[];
   audioUrl:  string;
   logoUrl:   string;
+  musicUrl?: string;
   outName:   string;
 }
 
@@ -37,6 +38,7 @@ export async function submitRemotionRender(
       segments: input.segments,
       audioUrl: input.audioUrl,
       logoUrl:  input.logoUrl,
+      musicUrl: input.musicUrl ?? "",
     },
     codec:       "h264",
     imageFormat: "jpeg",

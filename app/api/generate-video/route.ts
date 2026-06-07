@@ -206,6 +206,7 @@ export async function POST(req: NextRequest) {
         segments: videoSegments,
         audioUrl,
         logoUrl,
+        musicUrl: process.env.BACKGROUND_MUSIC_URL ?? "",
         outName: `${slug}-video.mp4`,
       });
       console.log(`[generate-video] Remotion render submitted: ${renderId} (bucket: ${bucketName})`);

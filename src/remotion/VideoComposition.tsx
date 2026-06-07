@@ -1,7 +1,7 @@
 import React from "react";
 import {
   AbsoluteFill, Audio, Img, Sequence,
-  interpolate, useCurrentFrame, useVideoConfig,
+  interpolate, useCurrentFrame, useVideoConfig, Loop,
 } from "remotion";
 
 export interface VideoSegment {
@@ -13,9 +13,10 @@ export interface VideoSegment {
 }
 
 export interface VideoProps {
-  segments: VideoSegment[];
-  audioUrl: string;
-  logoUrl:  string;
+  segments:  VideoSegment[];
+  audioUrl:  string;
+  logoUrl:   string;
+  musicUrl?: string;
 }
 
 const FPS             = 30;
@@ -119,8 +120,8 @@ const LogoWatermark: React.FC<{ logoUrl: string }> = ({ logoUrl }) => (
   </AbsoluteFill>
 );
 
-export const VideoComposition: React.FC<VideoProps> = ({ segments, audioUrl, logoUrl }) => {
-  const { fps } = useVideoConfig();
+export const VideoComposition: React.FC<VideoProps> = ({ segments, audioUrl, logoUrl, musicUrl }) => {
+  const { fps, durationInFrames } = useVideoConfig();
   const segFrameCounts = segments.map(s => Math.round(s.durationSeconds * fps));
   const segStarts      = segFrameCounts.map((_, i) => segFrameCounts.slice(0, i).reduce((a, b) => a + b, 0));
   const totalFrames    = segFrameCounts.reduce((a, b) => a + b, 0);
@@ -130,6 +131,21 @@ export const VideoComposition: React.FC<VideoProps> = ({ segments, audioUrl, log
   return (
     <AbsoluteFill style={{ backgroundColor: "#000000" }}>
       {audioUrl && <Audio src={audioUrl} />}
+      {musicUrl && (
+        <Loop durationInFrames={durationInFrames}>
+          <Audio
+            src={musicUrl}
+            volume={(f) =>
+              interpolate(
+                f,
+                [0, 45, durationInFrames - 45, durationInFrames],
+                [0, 0.12, 0.12, 0],
+                { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
+              )
+            }
+          />
+        </Loop>
+      )}
       {segments.map((seg, i) => (
         <Sequence key={i} from={segStarts[i]} durationInFrames={segFrameCounts[i]}>
           <Scene segment={seg} index={i} segFrames={segFrameCounts[i]} />
