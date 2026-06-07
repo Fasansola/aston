@@ -23,11 +23,6 @@ const CTA_SECS        = 12;
 const NAVY            = "#0f1a2e";
 const GOLD            = "#C9A84C";
 
-function splitText(text: string): [string, string] {
-  const words = text.split(" ");
-  const mid   = Math.ceil(words.length / 2);
-  return [words.slice(0, mid).join(" "), words.slice(mid).join(" ")];
-}
 
 function fade(frame: number, i0: number, i1: number, o0: number, o1: number) {
   return interpolate(frame, [i0, i1, o0, o1], [0, 1, 1, 0], {
@@ -48,9 +43,9 @@ const TitleCard: React.FC<{ title: string; index: number }> = ({ title, index })
   </AbsoluteFill>
 );
 
-const SubtitleBar: React.FC<{ text: string; gold?: boolean }> = ({ text, gold = false }) => (
+const SubtitleBar: React.FC<{ text: string }> = ({ text }) => (
   <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "stretch" }}>
-    <div style={{ backgroundColor: gold ? "rgba(27,42,74,0.97)" : "rgba(10,18,34,0.90)", borderTop: `3px solid ${gold ? GOLD : "rgba(201,168,76,0.45)"}`, padding: "18px 60px 20px", textAlign: "center" }}>
+    <div style={{ backgroundColor: "rgba(10,18,34,0.90)", borderTop: `3px solid rgba(201,168,76,0.45)`, padding: "18px 60px 20px", textAlign: "center" }}>
       <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 27, lineHeight: 1.5, margin: 0 }}>{text}</p>
     </div>
   </AbsoluteFill>
@@ -62,11 +57,8 @@ const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number 
   const scale       = interpolate(frame, [0, segFrames], [1.0, 1.08], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const fadeIn      = interpolate(frame, [0, 10], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const titleOp     = fade(frame, 0, 8, titleFrames - 8, titleFrames);
-  const subStart    = titleFrames;
-  const halfDur     = Math.floor((segFrames - titleFrames) / 2);
-  const sub1Op      = fade(frame, subStart, subStart + 8, subStart + halfDur - 6, subStart + halfDur);
-  const sub2Op      = fade(frame, subStart + halfDur, subStart + halfDur + 8, segFrames - 6, segFrames);
-  const [first, second] = splitText(segment.displayText);
+  const subStart = titleFrames;
+  const subOp    = fade(frame, subStart, subStart + 8, segFrames - 6, segFrames);
 
   return (
     <AbsoluteFill style={{ opacity: fadeIn }}>
@@ -75,8 +67,7 @@ const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number 
       </AbsoluteFill>
       <AbsoluteFill style={{ backgroundColor: "rgba(0,0,0,0.52)" }} />
       <AbsoluteFill style={{ opacity: titleOp }}><TitleCard title={segment.sectionTitle} index={index} /></AbsoluteFill>
-      <AbsoluteFill style={{ opacity: sub1Op }}><SubtitleBar text={first} /></AbsoluteFill>
-      {second.trim() && <AbsoluteFill style={{ opacity: sub2Op }}><SubtitleBar text={second} gold /></AbsoluteFill>}
+      <AbsoluteFill style={{ opacity: subOp }}><SubtitleBar text={segment.displayText} /></AbsoluteFill>
     </AbsoluteFill>
   );
 };
