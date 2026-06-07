@@ -20,6 +20,7 @@ export interface RawVideoSegment {
   sectionTitle: string;
   narration: string;
   displayText: string;
+  bullets: string[];
   imagePrompt: string;
 }
 
@@ -94,7 +95,8 @@ export async function segmentVideoScript(
 
 SCENE RULES:
 - narration: 90–110 words taken verbatim from the script — this is read aloud by TTS
-- displayText: the single most important sentence from the narration (max 40 words) — shown on screen
+- displayText: the single most important sentence from the narration (max 40 words) — used internally
+- bullets: exactly 3 short checklist items (6–10 words each) — distil the key actions, steps, or facts from this scene. Written as punchy imperatives or facts (e.g. "Choose a free zone matching your activity", "Minimum share capital from AED 1,000")
 - sectionTitle: 2–4 words naming this scene's topic (e.g. "Introduction", "Key Requirements", "Banking Setup")
 - imagePrompt: 2–3 sentences describing a cinematic background scene
 
@@ -121,6 +123,7 @@ Return a JSON array only — no markdown, no code fences, no explanation:
     "sectionTitle": "Introduction",
     "narration": "...",
     "displayText": "...",
+    "bullets": ["...", "...", "..."],
     "imagePrompt": "..."
   }
 ]`
@@ -138,6 +141,7 @@ Return a JSON array only — no markdown, no code fences:
     "sectionTitle": "Introduction",
     "narration": "...",
     "displayText": "...",
+    "bullets": ["...", "...", "..."],
     "imagePrompt": "..."
   }
 ]`,

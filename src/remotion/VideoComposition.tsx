@@ -7,6 +7,7 @@ import {
 export interface VideoSegment {
   sectionTitle:    string;
   displayText:     string;
+  bullets:         string[];
   durationSeconds: number;
   imageUrl:        string;
 }
@@ -43,13 +44,36 @@ const TitleCard: React.FC<{ title: string; index: number }> = ({ title, index })
   </AbsoluteFill>
 );
 
-const SubtitleBar: React.FC<{ text: string }> = ({ text }) => (
-  <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "stretch" }}>
-    <div style={{ backgroundColor: "rgba(10,18,34,0.90)", borderTop: `3px solid rgba(201,168,76,0.45)`, padding: "18px 60px 20px", textAlign: "center" }}>
-      <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 27, lineHeight: 1.5, margin: 0 }}>{text}</p>
-    </div>
-  </AbsoluteFill>
-);
+const ContentPanel: React.FC<{
+  sectionTitle: string;
+  bullets:      string[];
+  frame:        number;
+  subStart:     number;
+  segFrames:    number;
+}> = ({ sectionTitle, bullets, frame, subStart, segFrames }) => {
+  const panelOp = fade(frame, subStart, subStart + 12, segFrames - 8, segFrames);
+  return (
+    <AbsoluteFill style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", paddingLeft: 64 }}>
+      <div style={{ backgroundColor: "rgba(15,26,46,0.93)", borderLeft: `4px solid ${GOLD}`, padding: "32px 44px", maxWidth: "50%", opacity: panelOp }}>
+        <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.38em", margin: "0 0 12px" }}>
+          {sectionTitle}
+        </p>
+        <div style={{ width: 36, height: 2, backgroundColor: GOLD, marginBottom: 24 }} />
+        {bullets.map((bullet, i) => {
+          const bulletOp = interpolate(frame, [subStart + 18 + i * 28, subStart + 28 + i * 28], [0, 1], {
+            extrapolateLeft: "clamp", extrapolateRight: "clamp",
+          });
+          return (
+            <div key={i} style={{ display: "flex", alignItems: "flex-start", marginBottom: i < bullets.length - 1 ? 20 : 0, opacity: bulletOp }}>
+              <span style={{ color: GOLD, fontSize: 17, marginRight: 14, marginTop: 4, flexShrink: 0, lineHeight: 1 }}>✓</span>
+              <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 22, lineHeight: 1.45, margin: 0 }}>{bullet}</p>
+            </div>
+          );
+        })}
+      </div>
+    </AbsoluteFill>
+  );
+};
 
 const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number }> = ({ segment, index, segFrames }) => {
   const frame       = useCurrentFrame();
@@ -58,16 +82,15 @@ const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number 
   const fadeIn      = interpolate(frame, [0, 10], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const titleOp     = fade(frame, 0, 8, titleFrames - 8, titleFrames);
   const subStart = titleFrames;
-  const subOp    = fade(frame, subStart, subStart + 8, segFrames - 6, segFrames);
 
   return (
     <AbsoluteFill style={{ opacity: fadeIn }}>
       <AbsoluteFill style={{ overflow: "hidden" }}>
         <Img src={segment.imageUrl} style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${scale})`, transformOrigin: index % 2 === 0 ? "left center" : "right center" }} />
       </AbsoluteFill>
-      <AbsoluteFill style={{ backgroundColor: "rgba(0,0,0,0.52)" }} />
+      <AbsoluteFill style={{ backgroundColor: "rgba(0,0,0,0.60)" }} />
       <AbsoluteFill style={{ opacity: titleOp }}><TitleCard title={segment.sectionTitle} index={index} /></AbsoluteFill>
-      <AbsoluteFill style={{ opacity: subOp }}><SubtitleBar text={segment.displayText} /></AbsoluteFill>
+      <ContentPanel sectionTitle={segment.sectionTitle} bullets={segment.bullets ?? []} frame={frame} subStart={subStart} segFrames={segFrames} />
     </AbsoluteFill>
   );
 };

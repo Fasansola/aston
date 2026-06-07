@@ -197,6 +197,7 @@ export async function POST(req: NextRequest) {
       const videoSegments: VideoSegment[] = calibrated.map((seg, i) => ({
         sectionTitle:    seg.sectionTitle,
         displayText:     seg.displayText,
+        bullets:         seg.bullets ?? [],
         durationSeconds: seg.durationSeconds,
         imageUrl:        imageUrls[i],
       }));
