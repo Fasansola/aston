@@ -19,7 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI }                                   from "@google/genai";
+import OpenAI                                            from "openai";
 import { segmentVideoScript, calibrateSegmentDurations } from "@/lib/videoScript";
 import { submitRemotionRender }                          from "@/lib/remotionRenderer";
 import type { VideoSegment }                             from "@/src/remotion/VideoComposition";
@@ -33,22 +33,24 @@ export const maxDuration = 300;
 const FALLBACK_IMG = "https://placehold.co/1280x720/0f1a2e/0f1a2e.png";
 
 async function generateSceneImage(prompt: string): Promise<Buffer> {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-  const response = await ai.models.generateImages({
-    model:  "imagen-4.0-generate-001",
-    prompt: `Professional cinematic 16:9 photograph for a corporate advisory video. ${prompt} No human figures, faces, hands, or body parts. No text, words, letters, numbers, signage, labels, logos, or writing of any kind.`,
-    config: {
-      numberOfImages: 1,
-      aspectRatio:    "16:9",
-      outputMimeType: "image/jpeg",
-      negativePrompt: "people, faces, hands, silhouettes, human figures, text, words, letters, numbers, signs, labels, logos, watermarks, typography, captions, subtitles, writing, handwriting",
+  const response = await openai.images.generate(
+    {
+      model:         "gpt-image-1",
+      prompt:        `Cinematic 16:9 photograph for a professional corporate advisory video. ${prompt}`,
+      n:             1,
+      size:          "1536x1024",
+      quality:       "medium",
+      output_format: "jpeg",
+      moderation:    "low",
     },
-  });
+    { signal: AbortSignal.timeout(120_000) }
+  );
 
-  const imgBytes = response.generatedImages?.[0]?.image?.imageBytes;
-  if (!imgBytes) throw new Error("Imagen 4 returned no image bytes");
-  return Buffer.from(imgBytes, "base64");
+  const b64 = response.data?.[0]?.b64_json;
+  if (!b64) throw new Error("gpt-image-1 returned no image data");
+  return Buffer.from(b64, "base64");
 }
 
 // Fetches the logo from its source URL and re-uploads to S3 so Lambda can
@@ -87,7 +89,6 @@ export async function POST(req: NextRequest) {
   if (!process.env.REMOTION_FUNCTION_NAME) return NextResponse.json({ error: "REMOTION_FUNCTION_NAME not configured." }, { status: 503 });
   if (!process.env.REMOTION_SERVE_URL)     return NextResponse.json({ error: "REMOTION_SERVE_URL not configured." }, { status: 503 });
   if (!process.env.OPENAI_API_KEY)         return NextResponse.json({ error: "OPENAI_API_KEY not configured." }, { status: 503 });
-  if (!process.env.GEMINI_API_KEY)         return NextResponse.json({ error: "GEMINI_API_KEY not configured." }, { status: 503 });
   if (!process.env.ASTON_LOGO_URL)         return NextResponse.json({ error: "ASTON_LOGO_URL not configured." }, { status: 503 });
 
   const logoUrl = process.env.ASTON_LOGO_URL;
