@@ -275,6 +275,85 @@ export function estimateMp3DurationSeconds(buffer: Buffer): number {
 }
 
 /**
+ * Generates a scene image using Flux 1.1 Pro Ultra on Replicate.
+ * Returns a JPEG buffer. Aspect ratio is locked to 16:9 for video.
+ *
+ * Flux Pro Ultra is chosen for its best-in-class prompt adherence —
+ * images closely match detailed descriptive prompts, unlike models
+ * that produce generic backdrops.
+ */
+export async function generateFluxImage(prompt: string): Promise<Buffer> {
+  const apiToken = process.env.REPLICATE_API_TOKEN;
+  if (!apiToken) throw new Error("REPLICATE_API_TOKEN not configured.");
+
+  // Official model endpoint — no version hash needed for BFL's published models
+  const createRes = await fetch(
+    `${REPLICATE_BASE}/models/black-forest-labs/flux-1.1-pro-ultra/predictions`,
+    {
+      method: "POST",
+      headers: {
+        Authorization:  `Bearer ${apiToken}`,
+        "Content-Type": "application/json",
+        Prefer:         "wait=60",   // wait up to 60 s before falling back to polling
+      },
+      body: JSON.stringify({
+        input: {
+          prompt,
+          aspect_ratio:     "16:9",
+          output_format:    "jpg",
+          output_quality:   90,
+          safety_tolerance: 5,       // balanced — not overly restrictive
+        },
+      }),
+      signal: AbortSignal.timeout(90_000),
+    }
+  );
+
+  if (!createRes.ok) {
+    const err = await createRes.text().catch(() => createRes.statusText);
+    throw new Error(`Flux prediction failed (${createRes.status}): ${err.slice(0, 300)}`);
+  }
+
+  let result = await createRes.json() as {
+    id: string; status: string;
+    output?: string | string[] | null; error?: string | null;
+    urls?: { get?: string };
+  };
+
+  // Poll if Replicate didn't finish within the wait window
+  if (result.status !== "succeeded" && result.status !== "failed") {
+    const pollUrl = result.urls?.get;
+    if (!pollUrl) throw new Error("Replicate returned no poll URL.");
+    const deadline = Date.now() + 3 * 60_000; // 3-minute hard cap per image
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 3_000));
+      const pollRes = await fetch(pollUrl, {
+        headers: { Authorization: `Bearer ${apiToken}` },
+        signal:  AbortSignal.timeout(30_000),
+      });
+      if (!pollRes.ok) continue;
+      result = await pollRes.json() as typeof result;
+      if (result.status === "succeeded" || result.status === "failed") break;
+    }
+  }
+
+  if (result.status === "failed" || result.error) {
+    throw new Error(`Flux image failed: ${result.error ?? "unknown error"}`);
+  }
+
+  // Output is a single URL string for Flux Pro Ultra
+  const imageUrl = typeof result.output === "string"
+    ? result.output
+    : Array.isArray(result.output) ? result.output[0] : null;
+
+  if (!imageUrl) throw new Error("Flux 1.1 Pro Ultra returned no image URL.");
+
+  const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(60_000) });
+  if (!imgRes.ok) throw new Error(`Flux image download failed (${imgRes.status})`);
+  return Buffer.from(await imgRes.arrayBuffer());
+}
+
+/**
  * Strips HTML and builds a clean plain-text narration script from all article fields.
  * Removes visual block markup (infographics, charts, flowcharts, quick-answer, definition)
  * since those are visual-only and make no sense when spoken aloud.

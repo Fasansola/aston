@@ -19,13 +19,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI                                            from "openai";
-import { segmentVideoScript, calibrateSegmentDurations } from "@/lib/videoScript";
-import { submitRemotionRender }                          from "@/lib/remotionRenderer";
-import type { VideoSegment }                             from "@/src/remotion/VideoComposition";
-import { uploadSceneImageToS3, uploadAssetToS3 }         from "@/lib/sceneImageS3";
-import { uploadMediaToWordPress }                        from "@/lib/wordpress";
-import { generateKokoroSpeech, articleToAudioScript, estimateMp3DurationSeconds } from "@/lib/replicate";
+import { segmentVideoScript, calibrateSegmentDurations }                          from "@/lib/videoScript";
+import { submitRemotionRender }                                                    from "@/lib/remotionRenderer";
+import type { VideoSegment }                                                       from "@/src/remotion/VideoComposition";
+import { uploadSceneImageToS3, uploadAssetToS3 }                                  from "@/lib/sceneImageS3";
+import { uploadMediaToWordPress }                                                  from "@/lib/wordpress";
+import { generateKokoroSpeech, generateFluxImage, articleToAudioScript, estimateMp3DurationSeconds } from "@/lib/replicate";
 
 export const maxDuration = 300;
 
@@ -33,24 +32,7 @@ export const maxDuration = 300;
 const FALLBACK_IMG = "https://placehold.co/1280x720/0f1a2e/0f1a2e.png";
 
 async function generateSceneImage(prompt: string): Promise<Buffer> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-  const response = await openai.images.generate(
-    {
-      model:         "gpt-image-1",
-      prompt:        `${prompt} Photorealistic, cinematic 16:9, professional colour grading.`,
-      n:             1,
-      size:          "1536x1024",
-      quality:       "medium",
-      output_format: "jpeg",
-      moderation:    "low",
-    },
-    { signal: AbortSignal.timeout(120_000) }
-  );
-
-  const b64 = response.data?.[0]?.b64_json;
-  if (!b64) throw new Error("gpt-image-1 returned no image data");
-  return Buffer.from(b64, "base64");
+  return generateFluxImage(prompt);
 }
 
 // Fetches an asset from its source URL and re-uploads to S3 so Lambda can
