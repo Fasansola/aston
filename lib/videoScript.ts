@@ -85,7 +85,7 @@ export async function segmentVideoScript(
   console.log(`[videoScript] ${hasContent ? `${wordCount} words from article` : "standalone — GPT will write script"}`);
 
   const { choices } = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-4o",
     temperature: 0.3,
     max_completion_tokens: 5000,
     messages: [
@@ -100,15 +100,19 @@ SCENE RULES:
 - displayText: the single most important sentence from the narration (max 30 words) — shown on screen
 - bullets: exactly 3 short checklist items (6–10 words each) — distil the key actions, steps, or facts from this scene. Written as punchy imperatives or facts (e.g. "Choose a free zone matching your activity", "Minimum share capital from AED 1,000")
 - sectionTitle: 2–4 words naming this scene's topic (e.g. "Introduction", "Key Requirements", "Banking Setup")
-- imagePrompt: 2–3 sentences describing a cinematic image that precisely illustrates THIS scene's narration
+- imagePrompt: 2–3 sentences written as a PHOTOGRAPHY BRIEF for a real photograph that illustrates this scene
 
-IMAGE PROMPT RULES:
-- The image must be specific to the narration of this scene — a viewer should be able to guess the topic just from looking at the image
-- Describe the exact subject, setting, and atmosphere that fits the scene: if the narration is about UAE free zones write a UAE free zone scene; if it's about banking write a banking scene; if it's about tax write an accounting/legal scene
-- Be concrete and specific — name locations, objects, environments, actions, moods (e.g. "stacks of legal incorporation documents on a mahogany desk in a Dubai law office, warm lamp light")
-- Do NOT default to generic imagery (empty cityscapes, abstract light, random skylines) unless the narration itself is abstract
-- No artificial restrictions on what can appear — let the subject matter drive every element of the image
-- Photorealistic, cinematic 16:9, subject and key action centred in the frame — the left and right edges may be cropped, so never place important content near the edges. Premium corporate aesthetic.`,
+IMAGE PROMPT RULES — write as if briefing a professional photographer:
+- Start with "A photograph of…" — this forces the model into photorealistic mode rather than illustration mode
+- Describe EXACTLY what is happening: specific people (their role, attire, action), specific objects, specific real-world location
+- Ground it in the narration: UAE banking scene → show a banker and client at a desk reviewing account documents; company formation → show someone signing incorporation papers; tax scene → show a tax adviser with spreadsheets and a laptop
+- Include camera and lens details — this is the single most important trick for realism: e.g. "shot on Sony A7R V, 85mm f/1.8 lens, shallow depth of field" or "shot on Canon EOS R5, 50mm f/2.0"
+- Include specific, natural lighting: "afternoon light from floor-to-ceiling windows", "overhead office LED lighting", "warm desk lamp casting shadows"
+- Name the real location type: "a glass-walled boardroom in a Dubai free zone tower", "a private banking suite in a Zurich financial centre", "a modern co-working space in DIFC"
+- Keep the main subject centred — the image is cropped on the left and right edges when displayed, so never place important content near the edges
+- NEVER use these words — they produce AI-looking results: cinematic, dramatic, glowing, ethereal, stunning, vibrant, majestic, epic, surreal, fantasy, artistic, render, 3D
+- GOOD example: "A photograph of a male legal consultant in a navy suit reviewing UAE company formation documents with a client across a glass desk in a sunlit DIFC office tower, floor-to-ceiling windows with soft afternoon light, shot on Sony A7R V 85mm f/1.8, shallow depth of field, warm neutral tones"
+- BAD example: "Professional business meeting in a modern office with dramatic cinematic lighting and vibrant colours" — too generic, no photography language, will look AI-generated`,
       },
       {
         role: "user",
