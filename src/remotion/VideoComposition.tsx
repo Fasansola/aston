@@ -26,8 +26,9 @@ const CTA_SECS        = 12;
 const NAVY            = "#0f1a2e";
 const GOLD            = "#C9A84C";
 
-export const INTRO_FRAMES = INTRO_SECS * FPS;
-export const OUTRO_FRAMES = 5 * FPS;
+export const INTRO_FRAMES   = INTRO_SECS * FPS;
+export const OUTRO_FRAMES   = 5 * FPS;
+const MUSIC_LOOP_FRAMES     = 120 * FPS; // loop every ~2 min
 
 
 function fade(frame: number, i0: number, i1: number, o0: number, o1: number) {
@@ -36,8 +37,23 @@ function fade(frame: number, i0: number, i1: number, o0: number, o1: number) {
   });
 }
 
+const MusicTrack: React.FC<{ src: string; totalFrames: number }> = ({ src, totalFrames }) => {
+  const frame  = useCurrentFrame();
+  const volume = interpolate(
+    frame,
+    [0, 45, Math.max(46, totalFrames - OUTRO_FRAMES), totalFrames],
+    [0, 0.07, 0.07, 0],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
+  );
+  return (
+    <Loop durationInFrames={MUSIC_LOOP_FRAMES}>
+      <Audio src={src} volume={volume} />
+    </Loop>
+  );
+};
+
 const TitleCard: React.FC<{ title: string; index: number }> = ({ title, index }) => (
-  <AbsoluteFill style={{ backgroundColor: "rgba(15,26,46,0.96)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+  <AbsoluteFill style={{ backgroundColor: NAVY, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
     <div style={{ width: 48, height: 3, backgroundColor: GOLD, marginBottom: 28 }} />
     <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 13, textTransform: "uppercase", letterSpacing: "0.35em", margin: "0 0 18px" }}>
       {String(index + 1).padStart(2, "0")}
@@ -171,21 +187,7 @@ export const VideoComposition: React.FC<VideoProps> = ({ segments, audioUrl, log
   return (
     <AbsoluteFill style={{ backgroundColor: "#000000" }}>
       {audioUrl && <Sequence from={INTRO_FRAMES}><Audio src={audioUrl} /></Sequence>}
-      {musicUrl && (
-        <Loop durationInFrames={durationInFrames}>
-          <Audio
-            src={musicUrl}
-            volume={(f) =>
-              interpolate(
-                f,
-                [0, 45, durationInFrames - OUTRO_FRAMES, durationInFrames],
-                [0, 0.12, 0.12, 0],
-                { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
-              )
-            }
-          />
-        </Loop>
-      )}
+      {musicUrl && <MusicTrack src={musicUrl} totalFrames={durationInFrames} />}
       <Sequence from={0} durationInFrames={INTRO_FRAMES}>
         <IntroCard logoUrl={logoUrl} />
       </Sequence>
