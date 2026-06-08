@@ -22,7 +22,7 @@ export interface VideoProps {
 const FPS             = 30;
 const INTRO_SECS      = 3;
 const TITLE_CARD_SECS = 2.5;
-const CTA_SECS        = 12;
+const TRANS_FRAMES    = 22; // scene cross-fade duration (~0.73 s)
 const NAVY            = "#0f1a2e";
 const GOLD            = "#C9A84C";
 
@@ -69,13 +69,23 @@ const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number 
   const frame       = useCurrentFrame();
   const titleFrames = Math.round(TITLE_CARD_SECS * FPS);
   const scale       = interpolate(frame, [0, segFrames], [1.0, 1.06], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-  const fadeIn      = interpolate(frame, [0, 10], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-  const titleOp     = fade(frame, 0, 8, titleFrames - 8, titleFrames);
-  const contentOp   = fade(frame, titleFrames, titleFrames + 10, segFrames - 6, segFrames);
-  const subStart    = titleFrames;
+
+  // Outer: snaps in immediately, then fades smoothly to navy background at scene end
+  const sceneOp  = interpolate(frame, [0, 6, segFrames - TRANS_FRAMES, segFrames], [0, 1, 1, 0],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+
+  // Title card: slower fade-in/out so it's always fully opaque before content is revealed
+  const titleOp  = fade(frame, 0, 15, titleFrames - 18, titleFrames);
+
+  // Content (both panels): fades IN after title card disappears — no explicit fade-out
+  // (the outer sceneOp handles the end-of-scene fade to navy)
+  const contentOp = interpolate(frame, [titleFrames, titleFrames + 18], [0, 1],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+
+  const subStart = titleFrames;
 
   return (
-    <AbsoluteFill style={{ opacity: fadeIn }}>
+    <AbsoluteFill style={{ opacity: sceneOp }}>
 
       {/* LEFT: solid navy editorial panel */}
       <div style={{
@@ -118,11 +128,12 @@ const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number 
         </div>
       </div>
 
-      {/* RIGHT: image with lighter overlay */}
+      {/* RIGHT: image with lighter overlay — contentOp keeps it hidden while title card is up */}
       <div style={{
         position: "absolute", right: 0, top: 0,
         width: "56%", height: "100%",
         overflow: "hidden",
+        opacity: contentOp,
       }}>
         <Img
           src={segment.imageUrl}
@@ -139,9 +150,10 @@ const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number 
   );
 };
 
-const CtaEndScreen: React.FC<{ logoUrl: string; totalDuration: number }> = ({ logoUrl, totalDuration }) => {
+const CtaEndScreen: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
   const frame   = useCurrentFrame();
-  const opacity = interpolate(frame, [0, 18, totalDuration - OUTRO_FRAMES, totalDuration], [0, 1, 1, 0], {
+  // Fade in over 18 frames; hold for the full 5 s; fade out gently in the final 10 frames
+  const opacity = interpolate(frame, [0, 18, OUTRO_FRAMES - 10, OUTRO_FRAMES], [0, 1, 1, 0], {
     extrapolateLeft: "clamp", extrapolateRight: "clamp",
   });
   return (
@@ -182,11 +194,12 @@ export const VideoComposition: React.FC<VideoProps> = ({ segments, audioUrl, log
   const segFrameCounts = segments.map(s => Math.round(s.durationSeconds * fps));
   const segStarts      = segFrameCounts.map((_, i) => INTRO_FRAMES + segFrameCounts.slice(0, i).reduce((a, b) => a + b, 0));
   const contentFrames  = segFrameCounts.reduce((a, b) => a + b, 0);
-  const ctaFrames      = Math.round(CTA_SECS * fps);
-  const ctaStart       = Math.max(INTRO_FRAMES, INTRO_FRAMES + contentFrames - ctaFrames);
+  // CTA starts the instant the last content scene ends and lasts exactly OUTRO_FRAMES (5 s)
+  const ctaStart       = INTRO_FRAMES + contentFrames;
 
   return (
-    <AbsoluteFill style={{ backgroundColor: "#000000" }}>
+    // NAVY background — scenes fade to/from navy, giving smooth cross-fades without black flashes
+    <AbsoluteFill style={{ backgroundColor: NAVY }}>
       {audioUrl && <Sequence from={INTRO_FRAMES}><Audio src={audioUrl} /></Sequence>}
       {musicUrl && <MusicTrack src={musicUrl} totalFrames={durationInFrames} />}
       <Sequence from={0} durationInFrames={INTRO_FRAMES}>
@@ -197,8 +210,8 @@ export const VideoComposition: React.FC<VideoProps> = ({ segments, audioUrl, log
           <Scene segment={seg} index={i} segFrames={segFrameCounts[i]} />
         </Sequence>
       ))}
-      <Sequence from={ctaStart} durationInFrames={ctaFrames + OUTRO_FRAMES}>
-        <CtaEndScreen logoUrl={logoUrl} totalDuration={ctaFrames + OUTRO_FRAMES} />
+      <Sequence from={ctaStart} durationInFrames={OUTRO_FRAMES}>
+        <CtaEndScreen logoUrl={logoUrl} />
       </Sequence>
       {logoUrl && <LogoWatermark logoUrl={logoUrl} />}
     </AbsoluteFill>
