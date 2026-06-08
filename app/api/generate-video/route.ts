@@ -53,20 +53,28 @@ async function generateSceneImage(prompt: string): Promise<Buffer> {
   return Buffer.from(b64, "base64");
 }
 
-// Fetches the logo from its source URL and re-uploads to S3 so Lambda can
+// Fetches an asset from its source URL and re-uploads to S3 so Lambda can
 // load it reliably (SiteGround blocks many AWS IP ranges).
-async function fetchLogoToS3(logoUrl: string): Promise<string> {
+async function fetchAssetToS3(
+  sourceUrl: string,
+  s3Filename: string,
+  fallbackContentType: string
+): Promise<string> {
   try {
-    const res = await fetch(logoUrl, { signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) throw new Error(`Logo fetch failed: ${res.status}`);
+    const res = await fetch(sourceUrl, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`Asset fetch failed: ${res.status}`);
     const buf         = Buffer.from(await res.arrayBuffer());
-    const contentType = res.headers.get("content-type") ?? "image/svg+xml";
-    const ext         = contentType.includes("svg") ? "svg" : "png";
-    return await uploadAssetToS3(buf, `aston-logo.${ext}`, contentType);
+    const contentType = res.headers.get("content-type") ?? fallbackContentType;
+    return await uploadAssetToS3(buf, s3Filename, contentType);
   } catch (err) {
-    console.warn(`[generate-video] Logo S3 upload failed, using original URL: ${err instanceof Error ? err.message : err}`);
-    return logoUrl;
+    console.warn(`[generate-video] S3 upload failed for ${s3Filename}, using original URL: ${err instanceof Error ? err.message : err}`);
+    return sourceUrl;
   }
+}
+
+async function fetchLogoToS3(logoUrl: string): Promise<string> {
+  const ext = logoUrl.endsWith(".svg") ? "svg" : "png";
+  return fetchAssetToS3(logoUrl, `aston-logo.${ext}`, "image/svg+xml");
 }
 
 export async function POST(req: NextRequest) {
@@ -108,8 +116,14 @@ export async function POST(req: NextRequest) {
         more_content_4, more_content_5, more_content_6, final_points,
       } : undefined;
 
-      // ── 0. Upload logo to S3 so Lambda can load it reliably ──
-      const logoS3Url = await fetchLogoToS3(logoUrl);
+      // ── 0. Upload static assets to S3 so Lambda can load them reliably ──
+      // SiteGround blocks AWS Lambda IP ranges, so any WordPress-hosted file
+      // must be re-hosted on S3 (same region as Lambda) before rendering.
+      const rawMusicUrl = process.env.BACKGROUND_MUSIC_URL ?? "";
+      const [logoS3Url, musicS3Url] = await Promise.all([
+        fetchLogoToS3(logoUrl),
+        rawMusicUrl ? fetchAssetToS3(rawMusicUrl, "background-music.mp3", "audio/mpeg") : Promise.resolve(""),
+      ]);
 
       // ── 1. Segment script ─────────────────────────────────────
       const segMsg = hasContent
@@ -223,7 +237,7 @@ export async function POST(req: NextRequest) {
         segments: videoSegments,
         audioUrl,
         logoUrl:  logoS3Url,
-        musicUrl: process.env.BACKGROUND_MUSIC_URL ?? "",
+        musicUrl: musicS3Url,
         outName: `${slug}-video.mp4`,
       });
       console.log(`[generate-video] Remotion render submitted: ${renderId} (bucket: ${bucketName})`);
