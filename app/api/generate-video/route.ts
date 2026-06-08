@@ -19,6 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import OpenAI                                             from "openai";
 import { segmentVideoScript, calibrateSegmentDurations } from "@/lib/videoScript";
 import { submitRemotionRender }                          from "@/lib/remotionRenderer";
 import type { VideoSegment }                             from "@/src/remotion/VideoComposition";
@@ -28,29 +29,26 @@ import { generateKokoroSpeech, articleToAudioScript, estimateMp3DurationSeconds 
 
 export const maxDuration = 300;
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
-
-// Dark navy 1×1 PNG — expanded by CSS to fill the scene frame.
-// Used when an image fails so Remotion always has a valid URL to fetch.
-// Hosted on placehold.co (reliable from AWS us-east-1).
+// Dark navy 1×1 PNG — used when image generation fails so Remotion always has a valid URL.
 const FALLBACK_IMG = "https://placehold.co/1280x720/0f1a2e/0f1a2e.png";
 
 async function generateSceneImage(prompt: string): Promise<Buffer> {
-  const { GoogleGenAI } = await import("@google/genai");
-  const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-  // Hard 25 s timeout per image — prevents a single stuck Imagen call
-  // from blocking the whole Promise.all
+  // 60 s timeout — DALL-E 3 HD can take up to 30–40 s per image.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25_000);
+  const timer = setTimeout(() => controller.abort(), 60_000);
   try {
-    const response = await ai.models.generateImages({
-      model: "imagen-4.0-generate-001",
-      prompt: `Cinematic 16:9 background image for a professional corporate video. ${prompt} No people, no text, no logos.`,
-      config: { numberOfImages: 1, aspectRatio: "16:9", outputMimeType: "image/png" },
+    const response = await openai.images.generate({
+      model:           "dall-e-3",
+      prompt:          `Cinematic 16:9 background image for a professional corporate video. ${prompt} Absolutely no people, faces, hands, text, words, signs, labels, or logos anywhere in the scene.`,
+      n:               1,
+      size:            "1792x1024",
+      quality:         "hd",
+      response_format: "b64_json",
     });
-    const imageData = response.generatedImages?.[0]?.image?.imageBytes;
-    if (!imageData) throw new Error("Imagen 4 returned no image data");
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error("DALL-E 3 returned no image data");
     return Buffer.from(imageData, "base64");
   } finally {
     clearTimeout(timer);
@@ -76,8 +74,8 @@ export async function POST(req: NextRequest) {
   if (!title?.trim()) return NextResponse.json({ error: "title is required." }, { status: 400 });
   if (!process.env.REMOTION_FUNCTION_NAME) return NextResponse.json({ error: "REMOTION_FUNCTION_NAME not configured." }, { status: 503 });
   if (!process.env.REMOTION_SERVE_URL)     return NextResponse.json({ error: "REMOTION_SERVE_URL not configured." }, { status: 503 });
-  if (!GEMINI_API_KEY) return NextResponse.json({ error: "GEMINI_API_KEY not configured." }, { status: 503 });
-  if (!process.env.ASTON_LOGO_URL) return NextResponse.json({ error: "ASTON_LOGO_URL not configured." }, { status: 503 });
+  if (!process.env.OPENAI_API_KEY)         return NextResponse.json({ error: "OPENAI_API_KEY not configured." }, { status: 503 });
+  if (!process.env.ASTON_LOGO_URL)         return NextResponse.json({ error: "ASTON_LOGO_URL not configured." }, { status: 503 });
 
   const logoUrl = process.env.ASTON_LOGO_URL;
   const encoder = new TextEncoder();

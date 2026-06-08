@@ -27,6 +27,7 @@ const NAVY            = "#0f1a2e";
 const GOLD            = "#C9A84C";
 
 export const INTRO_FRAMES = INTRO_SECS * FPS;
+export const OUTRO_FRAMES = 5 * FPS;
 
 
 function fade(frame: number, i0: number, i1: number, o0: number, o1: number) {
@@ -154,7 +155,7 @@ export const VideoComposition: React.FC<VideoProps> = ({ segments, audioUrl, log
             volume={(f) =>
               interpolate(
                 f,
-                [0, 45, durationInFrames - 45, durationInFrames],
+                [0, 45, durationInFrames - OUTRO_FRAMES, durationInFrames],
                 [0, 0.12, 0.12, 0],
                 { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
               )
