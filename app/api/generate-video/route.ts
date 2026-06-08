@@ -34,25 +34,25 @@ const FALLBACK_IMG = "https://placehold.co/1280x720/0f1a2e/0f1a2e.png";
 
 async function generateSceneImage(prompt: string): Promise<Buffer> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const signal = AbortSignal.timeout(90_000);
 
-  // 60 s timeout — DALL-E 3 HD can take up to 30–40 s per image.
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60_000);
-  try {
-    const response = await openai.images.generate({
-      model:           "dall-e-3",
-      prompt:          `Cinematic 16:9 background image for a professional corporate video. ${prompt} Absolutely no people, faces, hands, text, words, signs, labels, or logos anywhere in the scene.`,
-      n:               1,
-      size:            "1792x1024",
-      quality:         "hd",
-      response_format: "b64_json",
-    });
-    const imageData = response.data?.[0]?.b64_json;
-    if (!imageData) throw new Error("DALL-E 3 returned no image data");
-    return Buffer.from(imageData, "base64");
-  } finally {
-    clearTimeout(timer);
-  }
+  const response = await openai.images.generate(
+    {
+      model:   "dall-e-3",
+      prompt:  `Cinematic 16:9 background image for a professional corporate video. ${prompt} Absolutely no people, faces, hands, text, words, signs, labels, or logos anywhere in the scene.`,
+      n:       1,
+      size:    "1792x1024",
+      quality: "standard",
+    },
+    { signal }
+  );
+
+  const url = response.data?.[0]?.url;
+  if (!url) throw new Error("DALL-E 3 returned no image URL");
+
+  const imgRes = await fetch(url, { signal });
+  if (!imgRes.ok) throw new Error(`DALL-E 3 image fetch failed: ${imgRes.status}`);
+  return Buffer.from(await imgRes.arrayBuffer());
 }
 
 export async function POST(req: NextRequest) {
