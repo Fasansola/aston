@@ -25,7 +25,7 @@ import { submitRemotionRender }                                                 
 import type { VideoSegment }                                                       from "@/src/remotion/VideoComposition";
 import { uploadSceneImageToS3, uploadAssetToS3 }                                  from "@/lib/sceneImageS3";
 import { uploadMediaToWordPress }                                                  from "@/lib/wordpress";
-import { generateKokoroSpeech, articleToAudioScript, estimateMp3DurationSeconds } from "@/lib/replicate";
+import { generateKokoroSpeech, estimateMp3DurationSeconds } from "@/lib/replicate";
 
 export const maxDuration = 300;
 
@@ -187,9 +187,9 @@ export async function POST(req: NextRequest) {
 
       if (!audioUrl) {
         await send({ type: "progress", message: "Generating narration audio (this takes ~1–2 min)…", elapsedSecs: elapsed() });
-        const script = hasContent && scriptFields
-          ? articleToAudioScript(title.trim(), scriptFields)
-          : timedSegments.map((s) => s.narration).join(" ");
+        // Always narrate from the condensed 3–4 min video script GPT wrote,
+        // never from the full article (which could be 20+ minutes of content).
+        const script = timedSegments.map((s) => s.narration).join(" ");
 
         // Wrap Kokoro in a 150 s deadline — if it hangs we fail fast with
         // a clear error rather than silently hitting Vercel's 300 s limit.

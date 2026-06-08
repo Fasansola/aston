@@ -91,11 +91,13 @@ export async function segmentVideoScript(
     messages: [
       {
         role: "system",
-        content: `You divide article scripts into exactly 7 scenes for professional narrated slideshow videos.
+        content: `You are a video script writer. Given a long blog article, you produce a tight 3–4 minute video script divided into exactly 7 scenes. The video must stand alone as a summary — it should not read like an excerpt of the article.
+
+TARGET LENGTH: 3–4 minutes total. At ~130 words per minute that means 60–70 words of narration per scene (420–490 words total). Do not exceed 70 words per scene.
 
 SCENE RULES:
-- narration: 90–110 words taken verbatim from the script — this is read aloud by TTS
-- displayText: the single most important sentence from the narration (max 40 words) — used internally
+- narration: 60–70 words written fresh as a spoken video script — clear, punchy, conversational. Summarise the key point of this section; do NOT copy verbatim from the article. Written to be read aloud by a professional voiceover.
+- displayText: the single most important sentence from the narration (max 30 words) — shown on screen
 - bullets: exactly 3 short checklist items (6–10 words each) — distil the key actions, steps, or facts from this scene. Written as punchy imperatives or facts (e.g. "Choose a free zone matching your activity", "Minimum share capital from AED 1,000")
 - sectionTitle: 2–4 words naming this scene's topic (e.g. "Introduction", "Key Requirements", "Banking Setup")
 - imagePrompt: 2–3 sentences describing a cinematic image that precisely illustrates THIS scene's narration
@@ -113,10 +115,12 @@ IMAGE PROMPT RULES:
         content: hasContent
           ? `Article title: "${title}"
 
-Full script (${wordCount} words):
+Full article (${wordCount} words):
 ${fullScript}
 
-Divide this into exactly 7 scenes. Use the actual script text — do not invent content.
+Write a tight 3–4 minute video script that summarises this article across exactly 7 scenes.
+Each narration must be 60–70 words — written fresh for video, NOT copied verbatim from the article.
+Cover the article's key points. Make each scene self-contained and engaging when spoken aloud.
 Return a JSON array only — no markdown, no code fences, no explanation:
 
 [
@@ -130,10 +134,11 @@ Return a JSON array only — no markdown, no code fences, no explanation:
 ]`
           : `Topic / title: "${title}"
 
-No article text is provided. Write a complete 7-scene educational video script on this topic from scratch.
-Target audience: business owners and entrepreneurs interested in UAE and international corporate advisory services.
+No article text is provided. Write a complete 7-scene video script on this topic from scratch.
+Target: 3–4 minutes total — 60–70 words of narration per scene.
+Target audience: business owners and entrepreneurs interested in UAE and international corporate advisory.
 Write with authority — real jurisdiction names, regulator names, realistic fee ranges, practical advice.
-Each scene should cover a distinct aspect of the topic.
+Each scene must cover a distinct aspect of the topic and flow naturally when spoken aloud.
 
 Return a JSON array only — no markdown, no code fences:
 
