@@ -29,8 +29,7 @@ const WP_HEADERS  = {
   "Content-Type": "application/json",
 };
 
-const PER_PAGE   = 25; // images per batch — keeps each request well under 300s
-const OPENAI     = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const PER_PAGE = 25; // images per batch — keeps each request well under 300s
 
 // GPT-4o vision only accepts these formats — AVIF, SVG, BMP, TIFF etc. will be skipped
 const SUPPORTED_MIME_TYPES = new Set([
@@ -69,7 +68,8 @@ async function fetchMediaPage(page: number) {
 
 // ── Generate alt text via GPT-4o vision ───────────────────────────────────────
 async function generateAltText(imageUrl: string, imageTitle: string): Promise<string> {
-  const response = await OPENAI.chat.completions.create({
+  const openai   = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const response = await openai.chat.completions.create({
     model:      "gpt-4o",
     max_tokens: 60,
     messages: [
