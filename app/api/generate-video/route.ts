@@ -19,7 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI                                             from "openai";
+import { GoogleGenAI }                                   from "@google/genai";
 import { segmentVideoScript, calibrateSegmentDurations } from "@/lib/videoScript";
 import { submitRemotionRender }                          from "@/lib/remotionRenderer";
 import type { VideoSegment }                             from "@/src/remotion/VideoComposition";
@@ -33,26 +33,22 @@ export const maxDuration = 300;
 const FALLBACK_IMG = "https://placehold.co/1280x720/0f1a2e/0f1a2e.png";
 
 async function generateSceneImage(prompt: string): Promise<Buffer> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const signal = AbortSignal.timeout(90_000);
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
-  const response = await openai.images.generate(
-    {
-      model:   "dall-e-3",
-      prompt:  `Cinematic 16:9 background image for a professional corporate video. ${prompt} Absolutely no people, faces, hands, text, words, signs, labels, or logos anywhere in the scene.`,
-      n:       1,
-      size:    "1792x1024",
-      quality: "standard",
+  const response = await ai.models.generateImages({
+    model:  "imagen-4.0-generate-001",
+    prompt: `Professional cinematic 16:9 photograph for a corporate advisory video. ${prompt} No human figures, faces, hands, or body parts. No text, words, letters, numbers, signage, labels, logos, or writing of any kind.`,
+    config: {
+      numberOfImages: 1,
+      aspectRatio:    "16:9",
+      outputMimeType: "image/jpeg",
+      negativePrompt: "people, faces, hands, silhouettes, human figures, text, words, letters, numbers, signs, labels, logos, watermarks, typography, captions, subtitles, writing, handwriting",
     },
-    { signal }
-  );
+  });
 
-  const url = response.data?.[0]?.url;
-  if (!url) throw new Error("DALL-E 3 returned no image URL");
-
-  const imgRes = await fetch(url, { signal });
-  if (!imgRes.ok) throw new Error(`DALL-E 3 image fetch failed: ${imgRes.status}`);
-  return Buffer.from(await imgRes.arrayBuffer());
+  const imgBytes = response.generatedImages?.[0]?.image?.imageBytes;
+  if (!imgBytes) throw new Error("Imagen 4 returned no image bytes");
+  return Buffer.from(imgBytes, "base64");
 }
 
 // Fetches the logo from its source URL and re-uploads to S3 so Lambda can
@@ -91,6 +87,7 @@ export async function POST(req: NextRequest) {
   if (!process.env.REMOTION_FUNCTION_NAME) return NextResponse.json({ error: "REMOTION_FUNCTION_NAME not configured." }, { status: 503 });
   if (!process.env.REMOTION_SERVE_URL)     return NextResponse.json({ error: "REMOTION_SERVE_URL not configured." }, { status: 503 });
   if (!process.env.OPENAI_API_KEY)         return NextResponse.json({ error: "OPENAI_API_KEY not configured." }, { status: 503 });
+  if (!process.env.GEMINI_API_KEY)         return NextResponse.json({ error: "GEMINI_API_KEY not configured." }, { status: 503 });
   if (!process.env.ASTON_LOGO_URL)         return NextResponse.json({ error: "ASTON_LOGO_URL not configured." }, { status: 503 });
 
   const logoUrl = process.env.ASTON_LOGO_URL;
@@ -135,7 +132,9 @@ export async function POST(req: NextRequest) {
           const buf = await generateSceneImage(timedSegments[i].imagePrompt);
           imageBuffers.push(buf);
         } catch (err) {
-          console.warn(`[generate-video] Scene image ${i + 1} failed: ${err instanceof Error ? err.message : err}`);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          console.warn(`[generate-video] Scene image ${i + 1} failed: ${errMsg}`);
+          await send({ type: "progress", message: `Scene ${i + 1} image failed (${errMsg}) — using placeholder`, elapsedSecs: elapsed() });
           imageBuffers.push(null);
         }
       }
