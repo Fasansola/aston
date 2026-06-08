@@ -182,10 +182,13 @@ export async function POST(req: NextRequest) {
       console.log(`[generate-video] Uploaded ${uploaded}/${imageBuffers.length} images (${imageBuffers.length - uploaded} used fallback)`);
 
       // ── 4. Generate narration audio ──────────────────────────────
-      let audioUrl = providedAudioUrl?.trim() || "";
+      // NOTE: audio is always uploaded to S3 (same region as Lambda) before
+      // the render is submitted. SiteGround blocks Lambda's IP ranges, so
+      // any WordPress-hosted audio URL would fail during rendering.
+      let audioS3Url = "";
       let audioDurationSeconds = 0;
 
-      if (!audioUrl) {
+      if (!providedAudioUrl?.trim()) {
         await send({ type: "progress", message: "Generating narration audio (this takes ~1–2 min)…", elapsedSecs: elapsed() });
         // Always narrate from the condensed 3–4 min video script GPT wrote,
         // never from the full article (which could be 20+ minutes of content).
@@ -201,14 +204,25 @@ export async function POST(req: NextRequest) {
         ]);
         audioDurationSeconds = estimateMp3DurationSeconds(audioResult.buffer);
         const ext = audioResult.mimeType === "audio/mpeg" ? "mp3" : "wav";
+        const filename = `${slug}-video-audio.${ext}`;
+
+        // Upload to WordPress (for archival / reuse later)
         await send({ type: "progress", message: "Uploading narration audio…", elapsedSecs: elapsed() });
-        const { url } = await uploadMediaToWordPress(audioResult.buffer, `${slug}-video-audio.${ext}`, audioResult.mimeType);
-        audioUrl = url;
-        console.log(`[generate-video] Audio uploaded: ${audioUrl} (~${Math.round(audioDurationSeconds)}s)`);
+        uploadMediaToWordPress(audioResult.buffer, filename, audioResult.mimeType).catch(err =>
+          console.warn(`[generate-video] WordPress audio upload failed (non-fatal): ${err.message}`)
+        );
+
+        // Upload to S3 so Lambda can fetch it (SiteGround blocks Lambda IPs)
+        audioS3Url = await uploadAssetToS3(audioResult.buffer, filename, audioResult.mimeType, "audio");
+        console.log(`[generate-video] Audio uploaded to S3 (~${Math.round(audioDurationSeconds)}s)`);
       } else {
+        // Pre-provided URL (WordPress-hosted) — fetch and re-host on S3
+        await send({ type: "progress", message: "Copying audio to S3 for rendering…", elapsedSecs: elapsed() });
+        const audioFilename = providedAudioUrl.trim().split("/").pop() ?? "video-audio.mp3";
+        audioS3Url = await fetchAssetToS3(providedAudioUrl.trim(), audioFilename, "audio/mpeg");
         const totalWords = timedSegments.reduce((s, seg) => s + seg.wordCount, 0);
         audioDurationSeconds = (totalWords / 130) * 60;
-        console.log(`[generate-video] Using provided audio, estimated duration: ~${Math.round(audioDurationSeconds)}s`);
+        console.log(`[generate-video] Using provided audio via S3, estimated duration: ~${Math.round(audioDurationSeconds)}s`);
       }
 
       // ── 5. Calibrate every segment duration to the real audio ─────
@@ -233,7 +247,7 @@ export async function POST(req: NextRequest) {
 
       const { renderId, bucketName } = await submitRemotionRender({
         segments: videoSegments,
-        audioUrl,
+        audioUrl: audioS3Url,
         logoUrl:  logoS3Url,
         musicUrl: musicS3Url,
         outName: `${slug}-video.mp4`,
