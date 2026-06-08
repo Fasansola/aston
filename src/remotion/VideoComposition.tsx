@@ -20,10 +20,13 @@ export interface VideoProps {
 }
 
 const FPS             = 30;
+const INTRO_SECS      = 3;
 const TITLE_CARD_SECS = 2.5;
 const CTA_SECS        = 12;
 const NAVY            = "#0f1a2e";
 const GOLD            = "#C9A84C";
+
+export const INTRO_FRAMES = INTRO_SECS * FPS;
 
 
 function fade(frame: number, i0: number, i1: number, o0: number, o1: number) {
@@ -112,6 +115,19 @@ const CtaEndScreen: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
   );
 };
 
+const IntroCard: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
+  const frame   = useCurrentFrame();
+  const opacity = interpolate(frame, [0, 20, INTRO_FRAMES - 15, INTRO_FRAMES], [0, 1, 1, 0], {
+    extrapolateLeft: "clamp", extrapolateRight: "clamp",
+  });
+  return (
+    <AbsoluteFill style={{ backgroundColor: NAVY, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", opacity }}>
+      {logoUrl && <Img src={logoUrl} style={{ height: 72, objectFit: "contain", marginBottom: 24 }} />}
+      <div style={{ width: 60, height: 2, backgroundColor: GOLD }} />
+    </AbsoluteFill>
+  );
+};
+
 const LogoWatermark: React.FC<{ logoUrl: string }> = ({ logoUrl }) => (
   <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "flex-end" }}>
     <div style={{ padding: "0 18px 14px 0" }}>
@@ -123,14 +139,14 @@ const LogoWatermark: React.FC<{ logoUrl: string }> = ({ logoUrl }) => (
 export const VideoComposition: React.FC<VideoProps> = ({ segments, audioUrl, logoUrl, musicUrl }) => {
   const { fps, durationInFrames } = useVideoConfig();
   const segFrameCounts = segments.map(s => Math.round(s.durationSeconds * fps));
-  const segStarts      = segFrameCounts.map((_, i) => segFrameCounts.slice(0, i).reduce((a, b) => a + b, 0));
-  const totalFrames    = segFrameCounts.reduce((a, b) => a + b, 0);
+  const segStarts      = segFrameCounts.map((_, i) => INTRO_FRAMES + segFrameCounts.slice(0, i).reduce((a, b) => a + b, 0));
+  const contentFrames  = segFrameCounts.reduce((a, b) => a + b, 0);
   const ctaFrames      = Math.round(CTA_SECS * fps);
-  const ctaStart       = Math.max(0, totalFrames - ctaFrames);
+  const ctaStart       = Math.max(INTRO_FRAMES, INTRO_FRAMES + contentFrames - ctaFrames);
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000000" }}>
-      {audioUrl && <Audio src={audioUrl} />}
+      {audioUrl && <Sequence from={INTRO_FRAMES}><Audio src={audioUrl} /></Sequence>}
       {musicUrl && (
         <Loop durationInFrames={durationInFrames}>
           <Audio
@@ -146,6 +162,9 @@ export const VideoComposition: React.FC<VideoProps> = ({ segments, audioUrl, log
           />
         </Loop>
       )}
+      <Sequence from={0} durationInFrames={INTRO_FRAMES}>
+        <IntroCard logoUrl={logoUrl} />
+      </Sequence>
       {segments.map((seg, i) => (
         <Sequence key={i} from={segStarts[i]} durationInFrames={segFrameCounts[i]}>
           <Scene segment={seg} index={i} segFrames={segFrameCounts[i]} />

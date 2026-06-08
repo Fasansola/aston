@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from "react";
 import { Composition } from "remotion";
-import { VideoComposition, type VideoProps, type VideoSegment } from "./VideoComposition";
+import { VideoComposition, type VideoProps, type VideoSegment, INTRO_FRAMES } from "./VideoComposition";
 
 const DEFAULT_PROPS: VideoProps = {
   segments: [{ sectionTitle: "Introduction", displayText: "Welcome to Aston VIP Corporate Advisory.", bullets: ["Expert corporate advisory services", "Operating across UAE and international jurisdictions", "Speak with our advisers today"], durationSeconds: 10, imageUrl: "https://placehold.co/1280x720/0f1a2e/0f1a2e.png" }],
@@ -21,7 +21,7 @@ export const RemotionRoot: React.FC = () => (
       const p = props as VideoProps;
       return {
         durationInFrames: Math.max(
-          p.segments.reduce((acc: number, s: VideoSegment) => acc + Math.round(s.durationSeconds * 30), 0),
+          p.segments.reduce((acc: number, s: VideoSegment) => acc + Math.round(s.durationSeconds * 30), 0) + INTRO_FRAMES,
           30
         ),
       };
