@@ -108,7 +108,7 @@ IMAGE PROMPT RULES:
 - Be concrete and specific — name locations, objects, environments, actions, moods (e.g. "stacks of legal incorporation documents on a mahogany desk in a Dubai law office, warm lamp light")
 - Do NOT default to generic imagery (empty cityscapes, abstract light, random skylines) unless the narration itself is abstract
 - No artificial restrictions on what can appear — let the subject matter drive every element of the image
-- Photorealistic, cinematic, square composition — subject centred, premium corporate aesthetic`,
+- Photorealistic, cinematic 16:9, subject and key action centred in the frame — the left and right edges may be cropped, so never place important content near the edges. Premium corporate aesthetic.`,
       },
       {
         role: "user",
