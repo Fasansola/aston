@@ -40,7 +40,7 @@ async function generateSceneImage(prompt: string): Promise<Buffer> {
     prompt,
     config: {
       numberOfImages: 1,
-      aspectRatio:    "16:9",
+      aspectRatio:    "1:1",
       outputMimeType: "image/jpeg",
     },
   });
