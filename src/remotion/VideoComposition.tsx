@@ -49,53 +49,76 @@ const TitleCard: React.FC<{ title: string; index: number }> = ({ title, index })
   </AbsoluteFill>
 );
 
-const ContentPanel: React.FC<{
-  sectionTitle: string;
-  bullets:      string[];
-  frame:        number;
-  subStart:     number;
-  segFrames:    number;
-}> = ({ sectionTitle, bullets, frame, subStart, segFrames }) => {
-  const panelOp = fade(frame, subStart, subStart + 12, segFrames - 8, segFrames);
-  return (
-    <AbsoluteFill style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", paddingLeft: 64 }}>
-      <div style={{ backgroundColor: "rgba(15,26,46,0.93)", borderLeft: `4px solid ${GOLD}`, padding: "32px 44px", maxWidth: "50%", opacity: panelOp }}>
-        <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.38em", margin: "0 0 12px" }}>
-          {sectionTitle}
-        </p>
-        <div style={{ width: 36, height: 2, backgroundColor: GOLD, marginBottom: 24 }} />
-        {bullets.map((bullet, i) => {
-          const bulletOp = interpolate(frame, [subStart + 18 + i * 28, subStart + 28 + i * 28], [0, 1], {
-            extrapolateLeft: "clamp", extrapolateRight: "clamp",
-          });
-          return (
-            <div key={i} style={{ display: "flex", alignItems: "flex-start", marginBottom: i < bullets.length - 1 ? 20 : 0, opacity: bulletOp }}>
-              <span style={{ color: GOLD, fontSize: 17, marginRight: 14, marginTop: 4, flexShrink: 0, lineHeight: 1 }}>✓</span>
-              <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 22, lineHeight: 1.45, margin: 0 }}>{bullet}</p>
-            </div>
-          );
-        })}
-      </div>
-    </AbsoluteFill>
-  );
-};
-
 const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number }> = ({ segment, index, segFrames }) => {
   const frame       = useCurrentFrame();
   const titleFrames = Math.round(TITLE_CARD_SECS * FPS);
-  const scale       = interpolate(frame, [0, segFrames], [1.0, 1.08], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const scale       = interpolate(frame, [0, segFrames], [1.0, 1.06], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const fadeIn      = interpolate(frame, [0, 10], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const titleOp     = fade(frame, 0, 8, titleFrames - 8, titleFrames);
-  const subStart = titleFrames;
+  const contentOp   = fade(frame, titleFrames, titleFrames + 10, segFrames - 6, segFrames);
+  const subStart    = titleFrames;
 
   return (
     <AbsoluteFill style={{ opacity: fadeIn }}>
-      <AbsoluteFill style={{ overflow: "hidden" }}>
-        <Img src={segment.imageUrl} style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${scale})`, transformOrigin: index % 2 === 0 ? "left center" : "right center" }} />
+
+      {/* LEFT: solid navy editorial panel */}
+      <div style={{
+        position: "absolute", left: 0, top: 0,
+        width: "44%", height: "100%",
+        backgroundColor: NAVY,
+        borderRight: `3px solid ${GOLD}`,
+        overflow: "hidden",
+        boxSizing: "border-box",
+      }}>
+        <div style={{
+          position: "absolute", inset: 0,
+          display: "flex", flexDirection: "column", justifyContent: "center",
+          padding: "0 52px",
+          opacity: contentOp,
+          boxSizing: "border-box",
+        }}>
+          <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.42em", margin: "0 0 10px" }}>
+            {String(index + 1).padStart(2, "0")}
+          </p>
+          <div style={{ width: 44, height: 3, backgroundColor: GOLD, marginBottom: 18 }} />
+          <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 36, lineHeight: 1.25, margin: "0 0 16px" }}>
+            {segment.sectionTitle}
+          </p>
+          <p style={{ fontFamily: "Georgia, serif", color: "rgba(255,255,255,0.65)", fontSize: 17, lineHeight: 1.65, margin: "0 0 22px" }}>
+            {segment.displayText}
+          </p>
+          <div style={{ width: 36, height: 1, backgroundColor: "rgba(201,168,76,0.45)", marginBottom: 20 }} />
+          {(segment.bullets ?? []).map((bullet, i) => {
+            const bulletOp = interpolate(frame, [subStart + 18 + i * 28, subStart + 28 + i * 28], [0, 1], {
+              extrapolateLeft: "clamp", extrapolateRight: "clamp",
+            });
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "flex-start", marginBottom: i < (segment.bullets ?? []).length - 1 ? 15 : 0, opacity: bulletOp }}>
+                <span style={{ color: GOLD, fontSize: 15, marginRight: 12, marginTop: 3, flexShrink: 0, lineHeight: 1 }}>✓</span>
+                <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 19, lineHeight: 1.4, margin: 0 }}>{bullet}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* RIGHT: image with lighter overlay */}
+      <div style={{
+        position: "absolute", right: 0, top: 0,
+        width: "56%", height: "100%",
+        overflow: "hidden",
+      }}>
+        <Img
+          src={segment.imageUrl}
+          style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${scale})`, transformOrigin: index % 2 === 0 ? "left center" : "right center" }}
+        />
+        <div style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.28)" }} />
+      </div>
+
+      {/* Full-screen title card overlay for first 2.5 s */}
+      <AbsoluteFill style={{ opacity: titleOp }}>
+        <TitleCard title={segment.sectionTitle} index={index} />
       </AbsoluteFill>
-      <AbsoluteFill style={{ backgroundColor: "rgba(0,0,0,0.60)" }} />
-      <AbsoluteFill style={{ opacity: titleOp }}><TitleCard title={segment.sectionTitle} index={index} /></AbsoluteFill>
-      <ContentPanel sectionTitle={segment.sectionTitle} bullets={segment.bullets ?? []} frame={frame} subStart={subStart} segFrames={segFrames} />
     </AbsoluteFill>
   );
 };
