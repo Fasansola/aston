@@ -19,12 +19,13 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { GoogleGenAI }                                                             from "@google/genai";
 import { segmentVideoScript, calibrateSegmentDurations }                          from "@/lib/videoScript";
 import { submitRemotionRender }                                                    from "@/lib/remotionRenderer";
 import type { VideoSegment }                                                       from "@/src/remotion/VideoComposition";
 import { uploadSceneImageToS3, uploadAssetToS3 }                                  from "@/lib/sceneImageS3";
 import { uploadMediaToWordPress }                                                  from "@/lib/wordpress";
-import { generateKokoroSpeech, generateFluxImage, articleToAudioScript, estimateMp3DurationSeconds } from "@/lib/replicate";
+import { generateKokoroSpeech, articleToAudioScript, estimateMp3DurationSeconds } from "@/lib/replicate";
 
 export const maxDuration = 300;
 
@@ -32,7 +33,21 @@ export const maxDuration = 300;
 const FALLBACK_IMG = "https://placehold.co/1280x720/0f1a2e/0f1a2e.png";
 
 async function generateSceneImage(prompt: string): Promise<Buffer> {
-  return generateFluxImage(prompt);
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+
+  const response = await ai.models.generateImages({
+    model:  "imagen-4.0-generate-001",
+    prompt,
+    config: {
+      numberOfImages: 1,
+      aspectRatio:    "16:9",
+      outputMimeType: "image/jpeg",
+    },
+  });
+
+  const imgBytes = response.generatedImages?.[0]?.image?.imageBytes;
+  if (!imgBytes) throw new Error("Imagen 4 returned no image bytes");
+  return Buffer.from(imgBytes, "base64");
 }
 
 // Fetches an asset from its source URL and re-uploads to S3 so Lambda can
@@ -79,6 +94,7 @@ export async function POST(req: NextRequest) {
   if (!process.env.REMOTION_FUNCTION_NAME) return NextResponse.json({ error: "REMOTION_FUNCTION_NAME not configured." }, { status: 503 });
   if (!process.env.REMOTION_SERVE_URL)     return NextResponse.json({ error: "REMOTION_SERVE_URL not configured." }, { status: 503 });
   if (!process.env.OPENAI_API_KEY)         return NextResponse.json({ error: "OPENAI_API_KEY not configured." }, { status: 503 });
+  if (!process.env.GEMINI_API_KEY)         return NextResponse.json({ error: "GEMINI_API_KEY not configured." }, { status: 503 });
   if (!process.env.ASTON_LOGO_URL)         return NextResponse.json({ error: "ASTON_LOGO_URL not configured." }, { status: 503 });
 
   const logoUrl = process.env.ASTON_LOGO_URL;
