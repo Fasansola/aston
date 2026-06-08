@@ -98,14 +98,17 @@ SCENE RULES:
 - displayText: the single most important sentence from the narration (max 40 words) — used internally
 - bullets: exactly 3 short checklist items (6–10 words each) — distil the key actions, steps, or facts from this scene. Written as punchy imperatives or facts (e.g. "Choose a free zone matching your activity", "Minimum share capital from AED 1,000")
 - sectionTitle: 2–4 words naming this scene's topic (e.g. "Introduction", "Key Requirements", "Banking Setup")
-- imagePrompt: 2–3 sentences describing a cinematic background scene
+- imagePrompt: 2–3 sentences describing a cinematic scene that DIRECTLY illustrates this scene's narration
 
-IMAGE PROMPT RULES — strict:
-- ZERO people, faces, hands, or silhouettes
-- ZERO text, signs, logos, or readable words
-- Subject: architecture, city skylines, modern interiors, documents on a desk, technology hardware, abstract light
-- Include lighting mood and camera movement (e.g. "slow aerial drift", "gentle dolly forward")
-- Professional corporate aesthetic, 16:9`,
+IMAGE PROMPT RULES:
+- The image must visually tell the story of THIS scene's narration — not a generic backdrop
+- Include relevant people in context: advisors, entrepreneurs, executives, clients — shown in action (reviewing documents, shaking hands, in a boardroom, signing papers, discussing strategy)
+- Ground the image in a specific location that fits the topic: Dubai skyline / free zone office for UAE scenes, European banking hub for offshore scenes, modern co-working space for startup scenes, etc.
+- Describe the action: what are people doing? (e.g. "a financial adviser presenting a corporate structure chart", "an entrepreneur signing company registration documents")
+- Include lighting and atmosphere: "warm golden hour light", "sleek blue-tinted boardroom", "bright modern office"
+- Photorealistic, cinematic 16:9, premium corporate aesthetic — this is a high-end advisory firm
+- Example of a GOOD prompt: "A UAE business adviser and international client reviewing company formation documents at a glass-walled boardroom overlooking Dubai Marina, warm afternoon light, shallow depth of field"
+- Example of a BAD prompt: "Modern glass skyscrapers in a city skyline at dusk" (generic, not related to narration)`,
       },
       {
         role: "user",
