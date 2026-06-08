@@ -98,17 +98,15 @@ SCENE RULES:
 - displayText: the single most important sentence from the narration (max 40 words) — used internally
 - bullets: exactly 3 short checklist items (6–10 words each) — distil the key actions, steps, or facts from this scene. Written as punchy imperatives or facts (e.g. "Choose a free zone matching your activity", "Minimum share capital from AED 1,000")
 - sectionTitle: 2–4 words naming this scene's topic (e.g. "Introduction", "Key Requirements", "Banking Setup")
-- imagePrompt: 2–3 sentences describing a cinematic scene that DIRECTLY illustrates this scene's narration
+- imagePrompt: 2–3 sentences describing a cinematic image that precisely illustrates THIS scene's narration
 
 IMAGE PROMPT RULES:
-- The image must visually tell the story of THIS scene's narration — not a generic backdrop
-- Include relevant people in context: advisors, entrepreneurs, executives, clients — shown in action (reviewing documents, shaking hands, in a boardroom, signing papers, discussing strategy)
-- Ground the image in a specific location that fits the topic: Dubai skyline / free zone office for UAE scenes, European banking hub for offshore scenes, modern co-working space for startup scenes, etc.
-- Describe the action: what are people doing? (e.g. "a financial adviser presenting a corporate structure chart", "an entrepreneur signing company registration documents")
-- Include lighting and atmosphere: "warm golden hour light", "sleek blue-tinted boardroom", "bright modern office"
-- Photorealistic, cinematic 16:9, premium corporate aesthetic — this is a high-end advisory firm
-- Example of a GOOD prompt: "A UAE business adviser and international client reviewing company formation documents at a glass-walled boardroom overlooking Dubai Marina, warm afternoon light, shallow depth of field"
-- Example of a BAD prompt: "Modern glass skyscrapers in a city skyline at dusk" (generic, not related to narration)`,
+- The image must be specific to the narration of this scene — a viewer should be able to guess the topic just from looking at the image
+- Describe the exact subject, setting, and atmosphere that fits the scene: if the narration is about UAE free zones write a UAE free zone scene; if it's about banking write a banking scene; if it's about tax write an accounting/legal scene
+- Be concrete and specific — name locations, objects, environments, actions, moods (e.g. "stacks of legal incorporation documents on a mahogany desk in a Dubai law office, warm lamp light")
+- Do NOT default to generic imagery (empty cityscapes, abstract light, random skylines) unless the narration itself is abstract
+- No artificial restrictions on what can appear — let the subject matter drive every element of the image
+- Photorealistic, cinematic 16:9, premium corporate aesthetic`,
       },
       {
         role: "user",

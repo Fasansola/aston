@@ -38,7 +38,7 @@ async function generateSceneImage(prompt: string): Promise<Buffer> {
   const response = await openai.images.generate(
     {
       model:         "gpt-image-1",
-      prompt:        `Photorealistic, cinematic 16:9 image for a premium corporate advisory video. ${prompt} Shot on a high-end camera, professional colour grading.`,
+      prompt:        `${prompt} Photorealistic, cinematic 16:9, professional colour grading.`,
       n:             1,
       size:          "1536x1024",
       quality:       "medium",
