@@ -139,10 +139,11 @@ const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number 
   );
 };
 
-const CtaEndScreen: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
-  const frame     = useCurrentFrame();
-  const ctaFrames = Math.round(CTA_SECS * FPS);
-  const opacity   = fade(frame, 0, 18, ctaFrames - 18, ctaFrames);
+const CtaEndScreen: React.FC<{ logoUrl: string; totalDuration: number }> = ({ logoUrl, totalDuration }) => {
+  const frame   = useCurrentFrame();
+  const opacity = interpolate(frame, [0, 18, totalDuration - OUTRO_FRAMES, totalDuration], [0, 1, 1, 0], {
+    extrapolateLeft: "clamp", extrapolateRight: "clamp",
+  });
   return (
     <AbsoluteFill style={{ backgroundColor: NAVY, opacity, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
       {logoUrl && <Img src={logoUrl} style={{ height: 64, objectFit: "contain", marginBottom: 36 }} />}
@@ -196,8 +197,8 @@ export const VideoComposition: React.FC<VideoProps> = ({ segments, audioUrl, log
           <Scene segment={seg} index={i} segFrames={segFrameCounts[i]} />
         </Sequence>
       ))}
-      <Sequence from={ctaStart} durationInFrames={ctaFrames}>
-        <CtaEndScreen logoUrl={logoUrl} />
+      <Sequence from={ctaStart} durationInFrames={ctaFrames + OUTRO_FRAMES}>
+        <CtaEndScreen logoUrl={logoUrl} totalDuration={ctaFrames + OUTRO_FRAMES} />
       </Sequence>
       {logoUrl && <LogoWatermark logoUrl={logoUrl} />}
     </AbsoluteFill>
