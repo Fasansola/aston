@@ -46,30 +46,37 @@ function getS3Client(): S3Client {
 }
 
 /**
- * Uploads a scene image buffer to the Remotion S3 bucket and returns a
- * presigned URL valid for 4 hours — long enough for any render to complete.
+ * Uploads a buffer to the Remotion S3 bucket and returns a presigned URL
+ * valid for 4 hours — long enough for any render to complete.
  */
-export async function uploadSceneImageToS3(
+export async function uploadAssetToS3(
   buffer: Buffer,
-  filename: string
+  filename: string,
+  contentType: string,
+  folder = "assets"
 ): Promise<string> {
   const bucket = getBucketName();
-  const key    = `scene-images/${filename}`;
+  const key    = `${folder}/${filename}`;
   const client = getS3Client();
 
   await client.send(new PutObjectCommand({
-    Bucket:      bucket,
-    Key:         key,
-    Body:        buffer,
-    ContentType: "image/png",
+    Bucket: bucket,
+    Key:    key,
+    Body:   buffer,
+    ContentType: contentType,
   }));
 
-  // Presigned URL — 4 hours expiry
-  const url = await getSignedUrl(
+  return getSignedUrl(
     client,
     new GetObjectCommand({ Bucket: bucket, Key: key }),
     { expiresIn: 14_400 }
   );
+}
 
-  return url;
+/** Convenience wrapper for PNG scene images. */
+export async function uploadSceneImageToS3(
+  buffer: Buffer,
+  filename: string
+): Promise<string> {
+  return uploadAssetToS3(buffer, filename, "image/png", "scene-images");
 }

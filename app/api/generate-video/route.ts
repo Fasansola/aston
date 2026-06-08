@@ -23,7 +23,7 @@ import OpenAI                                             from "openai";
 import { segmentVideoScript, calibrateSegmentDurations } from "@/lib/videoScript";
 import { submitRemotionRender }                          from "@/lib/remotionRenderer";
 import type { VideoSegment }                             from "@/src/remotion/VideoComposition";
-import { uploadSceneImageToS3 }                          from "@/lib/sceneImageS3";
+import { uploadSceneImageToS3, uploadAssetToS3 }         from "@/lib/sceneImageS3";
 import { uploadMediaToWordPress }                        from "@/lib/wordpress";
 import { generateKokoroSpeech, articleToAudioScript, estimateMp3DurationSeconds } from "@/lib/replicate";
 
@@ -53,6 +53,22 @@ async function generateSceneImage(prompt: string): Promise<Buffer> {
   const imgRes = await fetch(url, { signal });
   if (!imgRes.ok) throw new Error(`DALL-E 3 image fetch failed: ${imgRes.status}`);
   return Buffer.from(await imgRes.arrayBuffer());
+}
+
+// Fetches the logo from its source URL and re-uploads to S3 so Lambda can
+// load it reliably (SiteGround blocks many AWS IP ranges).
+async function fetchLogoToS3(logoUrl: string): Promise<string> {
+  try {
+    const res = await fetch(logoUrl, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) throw new Error(`Logo fetch failed: ${res.status}`);
+    const buf         = Buffer.from(await res.arrayBuffer());
+    const contentType = res.headers.get("content-type") ?? "image/svg+xml";
+    const ext         = contentType.includes("svg") ? "svg" : "png";
+    return await uploadAssetToS3(buf, `aston-logo.${ext}`, contentType);
+  } catch (err) {
+    console.warn(`[generate-video] Logo S3 upload failed, using original URL: ${err instanceof Error ? err.message : err}`);
+    return logoUrl;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -93,6 +109,9 @@ export async function POST(req: NextRequest) {
         main_content, more_content_1, more_content_2, more_content_3,
         more_content_4, more_content_5, more_content_6, final_points,
       } : undefined;
+
+      // ── 0. Upload logo to S3 so Lambda can load it reliably ──
+      const logoS3Url = await fetchLogoToS3(logoUrl);
 
       // ── 1. Segment script ─────────────────────────────────────
       const segMsg = hasContent
@@ -203,7 +222,7 @@ export async function POST(req: NextRequest) {
       const { renderId, bucketName } = await submitRemotionRender({
         segments: videoSegments,
         audioUrl,
-        logoUrl,
+        logoUrl:  logoS3Url,
         musicUrl: process.env.BACKGROUND_MUSIC_URL ?? "",
         outName: `${slug}-video.mp4`,
       });
