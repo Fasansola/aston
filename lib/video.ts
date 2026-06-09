@@ -241,3 +241,47 @@ export async function updatePostAudioUrl(
     { headers: BASE_HEADERS, timeout: 15_000 }
   );
 }
+
+// ── 5. YouTube deletion ───────────────────────────────────────────────────────
+
+/**
+ * Extracts the YouTube video ID from a watch URL or short URL.
+ * Supports:
+ *   https://www.youtube.com/watch?v=VIDEO_ID
+ *   https://youtu.be/VIDEO_ID
+ */
+function extractYouTubeVideoId(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.includes("youtu.be")) {
+      return parsed.pathname.slice(1) || null;
+    }
+    return parsed.searchParams.get("v");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Permanently deletes a YouTube video by its watch URL.
+ * Silently succeeds if the video is already gone (404).
+ * Throws if YouTube credentials are missing or the API call fails.
+ */
+export async function deleteYouTubeVideo(youtubeUrl: string): Promise<void> {
+  const videoId = extractYouTubeVideoId(youtubeUrl);
+  if (!videoId) throw new Error(`Cannot extract video ID from URL: ${youtubeUrl}`);
+
+  const yt = youtubeClient();
+  try {
+    await yt.videos.delete({ id: videoId });
+    console.log(`[video] YouTube video ${videoId} deleted`);
+  } catch (err: unknown) {
+    // 404 means already deleted — treat as success
+    const status = (err as { code?: number })?.code ?? (err as { response?: { status?: number } })?.response?.status;
+    if (status === 404) {
+      console.log(`[video] YouTube video ${videoId} already gone (404) — skipping`);
+      return;
+    }
+    throw err;
+  }
+}

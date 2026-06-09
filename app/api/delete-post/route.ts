@@ -19,6 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { deleteYouTubeVideo } from "@/lib/video";
 
 const WP_URL      = process.env.WP_URL!;
 const WP_USERNAME = process.env.WP_USERNAME!;
@@ -47,20 +48,20 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { postId?: number; audioMediaId?: number; imageIds?: Record<string, number> };
+  let body: { postId?: number; audioMediaId?: number; imageIds?: Record<string, number>; youtubeUrl?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { postId, audioMediaId, imageIds } = body;
+  const { postId, audioMediaId, imageIds, youtubeUrl } = body;
 
   if (!postId) {
     return NextResponse.json({ error: "postId is required" }, { status: 400 });
   }
 
-  console.log(`[delete-post] Starting deletion — postId=${postId}, audioMediaId=${audioMediaId ?? "none"}, images=${JSON.stringify(imageIds ?? {})}`);
+  console.log(`[delete-post] Starting deletion — postId=${postId}, audioMediaId=${audioMediaId ?? "none"}, images=${JSON.stringify(imageIds ?? {})}, youtubeUrl=${youtubeUrl ?? "none"}`);
 
   const errors: string[] = [];
 
@@ -131,14 +132,31 @@ export async function DELETE(req: NextRequest) {
     }
   }
 
-  const success = errors.length === 0;
+  // Delete YouTube video if one was uploaded
+  let deletedYoutube = false;
+  if (youtubeUrl?.trim()) {
+    console.log(`[delete-post] Deleting YouTube video: ${youtubeUrl}`);
+    try {
+      await deleteYouTubeVideo(youtubeUrl.trim());
+      deletedYoutube = true;
+      console.log(`[delete-post] YouTube video deleted`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Non-fatal — post is already gone from WordPress, YouTube deletion is best-effort
+      errors.push(`YouTube deletion failed (non-fatal): ${msg}`);
+      console.warn(`[delete-post] YouTube deletion failed: ${msg}`);
+    }
+  }
+
+  const success = errors.filter(e => !e.includes("non-fatal")).length === 0;
   console.log(`[delete-post] Complete — success=${success}${errors.length ? `, errors: ${errors.join("; ")}` : ""}`);
 
   return NextResponse.json({
     success,
-    deletedPost:   postId,
-    deletedImages: imageIds ? Object.values(imageIds).filter(Boolean).length : 0,
-    deletedAudio:  audioMediaId ? 1 : 0,
+    deletedPost:    postId,
+    deletedImages:  imageIds ? Object.values(imageIds).filter(Boolean).length : 0,
+    deletedAudio:   audioMediaId ? 1 : 0,
+    deletedYoutube,
     errors,
   });
 }

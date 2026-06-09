@@ -1211,7 +1211,7 @@ export default function HomePage() {
       const res = await fetch("/api/delete-post", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: result.postId, imageIds: result.imageIds, audioMediaId }),
+        body: JSON.stringify({ postId: result.postId, imageIds: result.imageIds, audioMediaId, youtubeUrl: youtubeUrl ?? undefined }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
