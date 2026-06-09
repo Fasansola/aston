@@ -8,33 +8,54 @@
  *   1. Go to https://console.cloud.google.com/apis/library/youtube.googleapis.com
  *      and enable the YouTube Data API v3 for your project.
  *   2. Go to https://console.cloud.google.com/apis/credentials
- *      and create an OAuth 2.0 Client ID (type: Desktop app).
- *   3. Copy the Client ID and Client Secret into this script below,
- *      or set them as env vars YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET.
+ *      and create an OAuth 2.0 Client ID (type: Web application).
+ *   3. Under "Authorised redirect URIs" add: http://localhost:4242/callback
+ *   4. Copy the Client ID and Client Secret into .env.local as
+ *      YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET.
  *
  * Usage:
  *   node scripts/youtube-auth.mjs
  *
- * Then open the printed URL in a browser, sign in with the YouTube channel
- * account, grant access, paste the code back here, and the script will
- * print your refresh token.
+ * A browser tab will open automatically. Sign in with the YouTube channel
+ * account and grant access — the token is captured automatically.
  *
- * Add these three env vars to Vercel (and your .env.local):
+ * Add to Vercel and .env.local:
  *   YOUTUBE_CLIENT_ID=...
  *   YOUTUBE_CLIENT_SECRET=...
  *   YOUTUBE_REFRESH_TOKEN=...
  */
 
-import { createServer } from "http";
+import { readFileSync } from "fs";
+import { createServer }  from "http";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 import { google } from "googleapis";
-import readline from "readline";
 
-const CLIENT_ID     = process.env.YOUTUBE_CLIENT_ID     || "<paste your client ID here>";
-const CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET || "<paste your client secret here>";
-const REDIRECT_URI  = "urn:ietf:wg:oauth:2.0:oob"; // desktop / manual copy flow
+// ── Load .env.local ───────────────────────────────────────────────────────────
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const envPath   = resolve(__dirname, "../.env.local");
+try {
+  const lines = readFileSync(envPath, "utf8").split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq < 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+    if (!(key in process.env)) process.env[key] = val;
+  }
+} catch {
+  // .env.local not found — rely on env vars being set another way
+}
 
-if (CLIENT_ID.startsWith("<") || CLIENT_SECRET.startsWith("<")) {
-  console.error("Error: Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET env vars first.");
+const CLIENT_ID     = process.env.YOUTUBE_CLIENT_ID;
+const CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET;
+const PORT          = 4242;
+const REDIRECT_URI  = `http://localhost:${PORT}/callback`;
+
+if (!CLIENT_ID || !CLIENT_SECRET) {
+  console.error("Error: Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env.local first.");
   process.exit(1);
 }
 
@@ -42,29 +63,75 @@ const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_U
 
 const authUrl = oauth2Client.generateAuthUrl({
   access_type: "offline",
-  prompt: "consent", // forces refresh_token to be returned even if already authorised
-  scope: ["https://www.googleapis.com/auth/youtube.upload"],
+  prompt:      "consent", // forces refresh_token even if previously authorised
+  scope: [
+    "https://www.googleapis.com/auth/youtube.upload", // upload videos
+    "https://www.googleapis.com/auth/youtube",         // manage videos (required for deletion)
+  ],
 });
 
 console.log("\n─────────────────────────────────────────────────────────");
-console.log("STEP 1 — Open this URL in your browser and sign in:");
-console.log("\n" + authUrl + "\n");
-console.log("─────────────────────────────────────────────────────────");
+console.log("Starting local callback server on http://localhost:" + PORT);
+console.log("\nOpening browser for Google sign-in…");
+console.log("If the browser doesn't open, copy this URL manually:\n");
+console.log(authUrl);
+console.log("─────────────────────────────────────────────────────────\n");
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+// Open the URL in the default browser
+const { exec } = await import("child_process");
+exec(`open "${authUrl}"`); // macOS — use 'start' on Windows, 'xdg-open' on Linux
 
-rl.question("STEP 2 — Paste the authorisation code here: ", async (code) => {
-  rl.close();
-  try {
-    const { tokens } = await oauth2Client.getToken(code.trim());
-    console.log("\n─────────────────────────────────────────────────────────");
-    console.log("SUCCESS — add these to Vercel and .env.local:\n");
-    console.log(`YOUTUBE_CLIENT_ID=${CLIENT_ID}`);
-    console.log(`YOUTUBE_CLIENT_SECRET=${CLIENT_SECRET}`);
-    console.log(`YOUTUBE_REFRESH_TOKEN=${tokens.refresh_token}`);
-    console.log("─────────────────────────────────────────────────────────\n");
-  } catch (err) {
-    console.error("Failed to exchange code for tokens:", err.message);
+// ── Local HTTP server to capture the redirect ─────────────────────────────────
+const server = createServer(async (req, res) => {
+  const url = new URL(req.url, `http://localhost:${PORT}`);
+
+  if (url.pathname !== "/callback") {
+    res.writeHead(404);
+    res.end("Not found");
+    return;
+  }
+
+  const code  = url.searchParams.get("code");
+  const error = url.searchParams.get("error");
+
+  if (error) {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(`<h2>Error: ${error}</h2><p>You can close this tab.</p>`);
+    console.error("\nAuthorisation denied:", error);
+    server.close();
     process.exit(1);
   }
+
+  if (!code) {
+    res.writeHead(400, { "Content-Type": "text/html" });
+    res.end("<h2>No code received.</h2><p>You can close this tab.</p>");
+    server.close();
+    process.exit(1);
+  }
+
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(`
+      <h2>✅ Success!</h2>
+      <p>Your refresh token has been printed in the terminal. You can close this tab.</p>
+    `);
+
+    console.log("\n─────────────────────────────────────────────────────────");
+    console.log("SUCCESS — add these to Vercel and .env.local:\n");
+    console.log(`YOUTUBE_REFRESH_TOKEN=${tokens.refresh_token}`);
+    console.log("\n(YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET are already set)");
+    console.log("─────────────────────────────────────────────────────────\n");
+  } catch (err) {
+    res.writeHead(500, { "Content-Type": "text/html" });
+    res.end(`<h2>Token exchange failed</h2><pre>${err.message}</pre>`);
+    console.error("\nFailed to exchange code for tokens:", err.message);
+  }
+
+  server.close();
+});
+
+server.listen(PORT, () => {
+  // Server is running — waiting for redirect
 });
