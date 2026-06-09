@@ -32,9 +32,8 @@ export const maxDuration = 300;
 // Dark navy 1×1 PNG — used when image generation fails so Remotion always has a valid URL.
 const FALLBACK_IMG = "https://placehold.co/1280x720/0f1a2e/0f1a2e.png";
 
-async function generateSceneImage(prompt: string): Promise<Buffer> {
+async function callImagen(prompt: string): Promise<Buffer> {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-
   const response = await ai.models.generateImages({
     model:  "imagen-4.0-generate-001",
     prompt,
@@ -44,10 +43,53 @@ async function generateSceneImage(prompt: string): Promise<Buffer> {
       outputMimeType: "image/jpeg",
     },
   });
-
   const imgBytes = response.generatedImages?.[0]?.image?.imageBytes;
   if (!imgBytes) throw new Error("Imagen 4 returned no image bytes");
   return Buffer.from(imgBytes, "base64");
+}
+
+/**
+ * Generates a scene image with up to 3 attempts, each using a simpler prompt
+ * if the previous one was blocked by Imagen 4's safety filter.
+ *
+ * Attempt 1 — full photography brief (the GPT-generated prompt)
+ * Attempt 2 — strip camera/lens specs; keep subject + location + lighting
+ * Attempt 3 — generic business scene based on the section title
+ */
+async function generateSceneImage(prompt: string, sectionTitle?: string): Promise<Buffer> {
+  // Strip camera/lens specs for a simpler fallback — keeps subject and location
+  const simplePrompt = prompt
+    .replace(/shot on [^,.]*/gi, "")
+    .replace(/\b(f\/[\d.]+|[\d]+mm|shallow depth of field|wide angle|telephoto)\b/gi, "")
+    .replace(/,\s*,/g, ",")
+    .trim();
+
+  // Generic prompt as last resort — avoids any potentially filtered content
+  const genericPrompt = sectionTitle
+    ? `A photograph of a modern professional business environment related to ${sectionTitle}, clean office setting in Dubai, natural daylight, warm neutral tones`
+    : "A photograph of a sleek modern glass office building in Dubai financial district, blue sky, warm afternoon light, professional corporate setting";
+
+  const attempts = [
+    { label: "full prompt",    prompt: prompt },
+    { label: "simple prompt",  prompt: simplePrompt },
+    { label: "generic prompt", prompt: genericPrompt },
+  ];
+
+  let lastError: Error | null = null;
+  for (const attempt of attempts) {
+    try {
+      console.log(`[generate-video] Image attempt (${attempt.label})`);
+      const buf = await callImagen(attempt.prompt);
+      return buf;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.warn(`[generate-video] Image ${attempt.label} failed: ${lastError.message}`);
+      // Brief pause before retrying so we don't hammer the API
+      await new Promise(r => setTimeout(r, 2_000));
+    }
+  }
+
+  throw lastError ?? new Error("All image generation attempts failed");
 }
 
 // Fetches an asset from its source URL and re-uploads to S3 so Lambda can
@@ -142,7 +184,7 @@ export async function POST(req: NextRequest) {
           elapsedSecs: elapsed(),
         });
         try {
-          const buf = await generateSceneImage(timedSegments[i].imagePrompt);
+          const buf = await generateSceneImage(timedSegments[i].imagePrompt, timedSegments[i].sectionTitle);
           imageBuffers.push(buf);
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
