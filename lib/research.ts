@@ -87,7 +87,7 @@ export async function findExternalAuthorityLinks(
   topic: string,
   primaryKeyword: string,
   jurisdictions: string[],
-  count = 10
+  count = 5
 ): Promise<DiscoveredLink[]> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -149,7 +149,7 @@ export async function researchTopic(
 
   const response = await (openai.chat.completions.create as Function)({
     model: "gpt-4o-search-preview",
-    web_search_options: { search_context_size: "medium" },
+    web_search_options: { search_context_size: "low" },
     messages: [
       {
         role: "user",
@@ -167,7 +167,7 @@ You are an SEO researcher for a high-end corporate advisory blog. Research the c
 }`,
       },
     ],
-  }, { signal: AbortSignal.timeout(60_000) });
+  }, { signal: AbortSignal.timeout(35_000) });
 
   const raw = response.choices[0].message.content?.trim() ?? "";
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
