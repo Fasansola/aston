@@ -214,29 +214,56 @@ Rules:
 - If SECONDARY_COUNTRIES are provided, use them only for comparison — they must not replace the primary country as the main focus.
 - If LANGUAGE is provided, ensure keywords and questions reflect native search behaviour in that language, not literal translations.`;
 
-  const response = await chatWithFallback(openai, {
-    messages: [
-      { role: "system", content: STRATEGY_SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    temperature: 0.4,
-    max_completion_tokens: 16000,
-  }, AbortSignal.timeout(90_000));
+  // Retry up to 2 times — gpt-5.1 can return finish_reason "stop" with truncated
+  // JSON on complex topics, causing silent parse failures. A second attempt almost
+  // always succeeds because the model picks a more concise generation path.
+  const MAX_STRATEGY_ATTEMPTS = 2;
+  let lastRaw = "";
 
-  const choice = response.choices[0];
-  if (choice.finish_reason === "length") {
-    throw new Error("Strategy response was cut off by the token limit. Increase max_completion_tokens.");
+  for (let attempt = 1; attempt <= MAX_STRATEGY_ATTEMPTS; attempt++) {
+    const response = await chatWithFallback(openai, {
+      messages: [
+        { role: "system", content: STRATEGY_SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.4,
+      // 24 000 tokens gives headroom for verbose topics; response_format forces
+      // the model to emit syntactically valid JSON so parse errors are extremely rare.
+      max_completion_tokens: 24000,
+      response_format: { type: "json_object" },
+    }, AbortSignal.timeout(120_000));
+
+    const choice = response.choices[0];
+    if (choice.finish_reason === "length") {
+      // Even 24 000 wasn't enough — no point retrying with same budget
+      throw new Error("Strategy response was cut off by the token limit. Increase max_completion_tokens.");
+    }
+
+    lastRaw = choice.message.content?.trim() ?? "";
+    const jsonMatch = lastRaw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      if (attempt < MAX_STRATEGY_ATTEMPTS) {
+        console.warn(`[strategy] No JSON found on attempt ${attempt} — retrying...`);
+        continue;
+      }
+      throw new Error(`No JSON found in strategy response. Raw: ${lastRaw.slice(0, 400)}`);
+    }
+
+    try {
+      return JSON.parse(jsonMatch[0]) as StrategyBrief;
+    } catch {
+      if (attempt < MAX_STRATEGY_ATTEMPTS) {
+        console.warn(`[strategy] Invalid JSON on attempt ${attempt} (${lastRaw.length} chars) — retrying...`);
+        continue;
+      }
+      // Show beginning AND end of response so we can see where it broke
+      const debugInfo = lastRaw.length > 800
+        ? `[first 500 chars]: ${lastRaw.slice(0, 500)} … [last 300 chars]: ${lastRaw.slice(-300)}`
+        : lastRaw;
+      throw new Error(`Strategy returned invalid JSON after ${MAX_STRATEGY_ATTEMPTS} attempts. Raw (${lastRaw.length} chars): ${debugInfo}`);
+    }
   }
 
-  const raw = choice.message.content?.trim() ?? "";
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error(`No JSON found in strategy response. Raw: ${raw.slice(0, 200)}`);
-  }
-
-  try {
-    return JSON.parse(jsonMatch[0]) as StrategyBrief;
-  } catch {
-    throw new Error(`Strategy returned invalid JSON. Raw: ${raw.slice(0, 200)}`);
-  }
+  // TypeScript: the loop always returns or throws before here
+  throw new Error("Strategy generation failed unexpectedly");
 }
