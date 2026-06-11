@@ -20,6 +20,43 @@ import { SourceBrief, formatBriefForPrompt } from "./source";
 import { StrategyBrief } from "./strategy";
 import { AuthorityLink, formatAuthorityLinksForPrompt } from "./authorityLinks";
 
+// ── Model configuration ───────────────────────────────────────
+// PRIMARY_MODEL is used for all major generation steps.
+// FALLBACK_MODEL is used automatically if the primary model
+// fails (timeout, rate limit, model unavailable, etc.).
+const PRIMARY_MODEL  = "gpt-5.1";
+const FALLBACK_MODEL = "gpt-4o";
+
+/**
+ * Wraps an OpenAI chat completion call with automatic model fallback.
+ * If the primary model (gpt-5.1) times out or errors, retries immediately
+ * with the fallback model (gpt-4o) so generation always completes.
+ */
+async function chatWithFallback(
+  openai: OpenAI,
+  params: Omit<Parameters<OpenAI["chat"]["completions"]["create"]>[0], "model" | "stream">,
+  signal?: AbortSignal
+): Promise<OpenAI.Chat.ChatCompletion> {
+  try {
+    // Use a fresh AbortSignal for the primary attempt so a timeout on the
+    // primary model doesn't also cancel the fallback attempt.
+    const primarySignal = signal ?? AbortSignal.timeout(90_000);
+    const result = await openai.chat.completions.create(
+      { ...params, model: PRIMARY_MODEL, stream: false },
+      { signal: primarySignal }
+    );
+    return result;
+  } catch (primaryErr) {
+    const errMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+    console.warn(`[openai] ${PRIMARY_MODEL} failed (${errMsg}) — retrying with ${FALLBACK_MODEL}`);
+    // Fallback gets its own generous timeout — no cancellation from primary signal
+    return openai.chat.completions.create(
+      { ...params, model: FALLBACK_MODEL, stream: false },
+      { signal: AbortSignal.timeout(120_000) }
+    );
+  }
+}
+
 // ── Fixed system prompt — never changes between requests ──────
 const SYSTEM_PROMPT = `You are a senior business consultant, SEO strategist, and authoritative blog writer for Aston VIP (Aston.ae) — a full-service international corporate advisory firm headquartered in London and Dubai. Aston VIP advises entrepreneurs, investors, corporate groups, family offices, and fintech businesses on international company formation, regulatory licensing, corporate banking, cross-border tax structuring, and nominee services across 20+ jurisdictions including the UAE (mainland, DIFC, ADGM, free zones), UK, Cyprus, Germany, Switzerland, Spain, Netherlands, Sweden, Denmark, Hong Kong, Panama, Seychelles, and others.
 
@@ -719,15 +756,14 @@ BLUEPRINT RULES:
 - more_content_6 must be a distinct fifth body section covering a practical angle not addressed in sections 1–4 (e.g. common mistakes, jurisdiction comparison, a specific use case, or a compliance checklist). Do not duplicate more_content_4 themes.
 - faq_questions: 4 specific questions a real reader would ask about this topic. Questions only, no answers yet`;
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-5.1",
+  const response = await chatWithFallback(openai, {
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
     temperature: 0.4,
     max_completion_tokens: 5000,
-  }, { signal: AbortSignal.timeout(40_000) });
+  }, AbortSignal.timeout(40_000));
 
   const choice = response.choices[0];
   if (choice.finish_reason === "length") {
@@ -989,15 +1025,14 @@ Array of objects recording every external link placed. Empty array if none used.
 
 ${linksBlock}`;
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-5.1",
+  const response = await chatWithFallback(openai, {
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
     temperature: 0.6,
     max_completion_tokens: 48000,
-  }, { signal: AbortSignal.timeout(150_000) });
+  }, AbortSignal.timeout(150_000));
 
   const choice = response.choices[0];
   if (choice.finish_reason === "length") {
@@ -1328,15 +1363,14 @@ Return this exact JSON shape with ONLY the fields that need fixing plus updated 
 
 The "internal_links_used" and "external_links_used" arrays must include ALL links in the full article — both the ones already placed in untouched sections and any new ones you add.`;
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-5.1",
+  const response = await chatWithFallback(openai, {
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: prompt },
     ],
     temperature: 0.5,
     max_completion_tokens: 28000,
-  }, { signal: AbortSignal.timeout(120_000) });
+  }, AbortSignal.timeout(120_000));
 
   if (response.choices[0]?.finish_reason === "length") {
     throw new Error("fixBlogContent response was cut off — increase max_completion_tokens");

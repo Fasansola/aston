@@ -9,6 +9,30 @@
 import OpenAI from "openai";
 import { ResearchBrief } from "./research";
 
+const PRIMARY_MODEL  = "gpt-5.1";
+const FALLBACK_MODEL = "gpt-4o";
+
+async function chatWithFallback(
+  openai: OpenAI,
+  params: Omit<Parameters<OpenAI["chat"]["completions"]["create"]>[0], "model" | "stream">,
+  signal?: AbortSignal
+): Promise<OpenAI.Chat.ChatCompletion> {
+  try {
+    const result = await openai.chat.completions.create(
+      { ...params, model: PRIMARY_MODEL, stream: false },
+      { signal: signal ?? AbortSignal.timeout(90_000) }
+    );
+    return result;
+  } catch (primaryErr) {
+    const errMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+    console.warn(`[strategy] ${PRIMARY_MODEL} failed (${errMsg}) — retrying with ${FALLBACK_MODEL}`);
+    return openai.chat.completions.create(
+      { ...params, model: FALLBACK_MODEL, stream: false },
+      { signal: AbortSignal.timeout(120_000) }
+    );
+  }
+}
+
 export interface StrategyInputs {
   topic: string;        // required
   audience?: string;    // required at API boundary — defines tone, complexity, commercial angle
@@ -190,15 +214,14 @@ Rules:
 - If SECONDARY_COUNTRIES are provided, use them only for comparison — they must not replace the primary country as the main focus.
 - If LANGUAGE is provided, ensure keywords and questions reflect native search behaviour in that language, not literal translations.`;
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-5.1",
+  const response = await chatWithFallback(openai, {
     messages: [
       { role: "system", content: STRATEGY_SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
     temperature: 0.4,
     max_completion_tokens: 16000,
-  }, { signal: AbortSignal.timeout(90_000) });
+  }, AbortSignal.timeout(90_000));
 
   const choice = response.choices[0];
   if (choice.finish_reason === "length") {
