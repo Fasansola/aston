@@ -475,9 +475,15 @@ const ASTON_MERMAID_THEME = `%%{init: {
  * Prepends Aston brand theme (navy nodes, gold borders, cream background).
  */
 export async function renderMermaidToPng(mermaidSyntax: string): Promise<Buffer> {
-  // Strip any existing %%{init...}%% block the model may have written, then
-  // prepend our brand theme so it always takes precedence.
-  const stripped = mermaidSyntax.replace(/^%%\{[\s\S]*?%%\s*/m, "").trim();
+  // Defensive clean-up: the model is told to return raw syntax, but sometimes
+  // wraps it in markdown code fences (```mermaid … ```), which breaks the render.
+  // Strip fences and any existing %%{init...}%% block, then prepend our brand
+  // theme so it always takes precedence.
+  const deFenced = mermaidSyntax
+    .replace(/^```(?:mermaid)?\s*/im, "")
+    .replace(/```\s*$/m, "")
+    .trim();
+  const stripped = deFenced.replace(/^%%\{[\s\S]*?%%\s*/m, "").trim();
   const branded  = `${ASTON_MERMAID_THEME}\n${stripped}`;
   const encoded  = Buffer.from(branded, "utf8").toString("base64url");
   const url      = `https://mermaid.ink/img/${encoded}?width=960`;

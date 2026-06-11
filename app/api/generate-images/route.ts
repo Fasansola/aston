@@ -236,6 +236,22 @@ export async function POST(req: NextRequest) {
         } catch (embedErr) {
           console.warn(`[generate-images] Flowchart embed failed (non-fatal): ${embedErr instanceof Error ? embedErr.message : String(embedErr)}`);
         }
+      } else {
+        // Render failed or no Mermaid provided — strip any leftover [FLOWCHART_IMG]
+        // placeholder so the literal text never appears in the published article.
+        try {
+          const acf = await fetchPostAcf(postId);
+          for (const { acf: fieldName } of FLOWCHART_FIELDS) {
+            const fieldValue = acf[fieldName] ?? "";
+            if (fieldValue.includes("[FLOWCHART_IMG]")) {
+              const cleaned = fieldValue.replace(/\s*\[FLOWCHART_IMG\]\s*/g, "\n").trim();
+              await patchWordPressContentField(postId, fieldName, cleaned);
+              console.log(`[generate-images] Stripped leftover [FLOWCHART_IMG] placeholder from ${fieldName} (no flowchart image)`);
+            }
+          }
+        } catch (stripErr) {
+          console.warn(`[generate-images] Placeholder strip failed (non-fatal): ${stripErr instanceof Error ? stripErr.message : String(stripErr)}`);
+        }
       }
 
       await send({ type: "done", imageIds, flowchartUrl: flowchartUrl || null });

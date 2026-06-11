@@ -119,7 +119,7 @@ KEY TAKEAWAYS RULES:
 - It must contain meaningful, specific, advisory-level points about structure, banking, tax, licensing, regulation, or jurisdiction logic
 
 BANNED PHRASES — never use any of these under any circumstances:
-seamless, hassle-free, empower, unlock the power of, cutting-edge, innovative solution, game-changing, leverage, next-gen, disrupt, frictionless, one-stop-shop, solution-oriented, obtain, delve, navigate the complexities, it's worth noting, in today's landscape, in conclusion, unlock, streamline, robust, comprehensive suite, tailored solutions, ever-evolving, look no further`;
+seamless, hassle-free, empower, unlock the power of, cutting-edge, innovative solution, game-changing, leverage, next-gen, disrupt, frictionless, one-stop-shop, solution-oriented, obtain, delve, dive into, navigate the complexities, it's worth noting, in today's landscape, in conclusion, unlock, streamline, robust, comprehensive suite, tailored solutions, ever-evolving, look no further, best practices, state-of-the-art, world-class, at the end of the day, it goes without saying, play a key role, when it comes to, in terms of`;
 
 // ── Domain context library ────────────────────────────────────
 /**
@@ -582,6 +582,58 @@ function isNonEnglish(language?: string): boolean {
   return !!language && !ENGLISH_LANG_CODES.has(language.toLowerCase());
 }
 
+// Expected section fields in render order. Index maps to the content fields:
+// more_content_1, _2, _3, _4 (Aston role), _6.
+const EXPECTED_SECTIONS: Array<{ field: string; defaultHeading: string }> = [
+  { field: "more_content_1", defaultHeading: "Key considerations" },
+  { field: "more_content_2", defaultHeading: "What the process involves" },
+  { field: "more_content_3", defaultHeading: "Practical scenarios to plan for" },
+  { field: "more_content_4", defaultHeading: "Aston VIP's role in your process" },
+  { field: "more_content_6", defaultHeading: "Common mistakes to avoid" },
+];
+
+/**
+ * Defensively repair a parsed blueprint before it drives content generation.
+ * generateBlueprint runs in the pre-retry setup phase, so a throw here would
+ * lose the article — instead we sanitise in place:
+ *  - strip colons from headings (house style)
+ *  - remove leaked bracket placeholders like "[adapt to topic]"
+ *  - guarantee exactly 5 sections in the expected field order, so no content
+ *    field is ever told to use an empty H3
+ */
+function sanitizeBlueprint(bp: Blueprint): Blueprint {
+  const cleanHeading = (h: string, fallback: string): string => {
+    let s = (h ?? "").trim();
+    s = s.replace(/\s*\[[^\]]*\]\s*/g, " ");   // drop "[adapt to topic]" etc.
+    s = s.replace(/\s*:\s*/g, " ");              // drop colons
+    s = s.replace(/\s+/g, " ").trim();
+    return s || fallback;
+  };
+
+  const incoming = Array.isArray(bp.sections) ? bp.sections : [];
+
+  const sections = EXPECTED_SECTIONS.map((expected, i) => {
+    // Prefer a section that already targets this field, else fall back by index.
+    const match =
+      incoming.find((s) => s?.field === expected.field) ?? incoming[i];
+    const subs = Array.isArray(match?.subsections) ? match!.subsections : [];
+    return {
+      field: expected.field,
+      h3_heading: cleanHeading(match?.h3_heading ?? "", expected.defaultHeading),
+      angle: (match?.angle ?? "").trim(),
+      target_words: typeof match?.target_words === "number" && match.target_words > 0
+        ? match.target_words
+        : 600,
+      subsections: subs.map((sub) => ({
+        h4_heading: cleanHeading(sub?.h4_heading ?? "", "Key detail"),
+        angle: (sub?.angle ?? "").trim(),
+      })),
+    };
+  });
+
+  return { ...bp, sections };
+}
+
 export async function generateBlueprint(
   title: string,
   selectedLinks: SelectedLinks,
@@ -603,7 +655,7 @@ export async function generateBlueprint(
 STRATEGY BRIEF (use as source of truth for this blueprint):
 - Primary keyword: ${strategy.keyword_model.primary_keyword}
 - Primary keyword rationale: ${strategy.keyword_model.primary_keyword_why}
-- Secondary keywords: ${strategy.keyword_model.secondary_keywords.slice(0, 10).join(", ")}
+- Secondary keywords: ${strategy.keyword_model.secondary_keywords.slice(0, 16).join(", ")}
 - Article angle: ${strategy.article_angle}
 - Search intent: ${strategy.search_intent_type} — ${strategy.search_intent.slice(0, 200)}
 - Commercial service layers: ${strategy.commercial_intent_layers.slice(0, 4).join("; ")}
@@ -656,7 +708,7 @@ Plan the structure of this blog post and return it as a single valid JSON object
 
 {
   "focus_keyword": "string",
-  "secondary_keywords": ["string", "string", "string", "string"],
+  "secondary_keywords": ["string", "string", "string", "string", "string", "string", "string", "string", "string", "string"],
   "seo_title": "string",
   "meta_description": "string",
   "slug": "string",
@@ -719,11 +771,12 @@ Plan the structure of this blog post and return it as a single valid JSON object
       ]
     }
   ],
-  "faq_questions": ["string", "string", "string", "string"]
+  "faq_questions": ["string", "string", "string", "string", "string", "string"]
 }
 
 BLUEPRINT RULES:
 - focus_keyword: ${strategy ? `use exactly "${strategy.keyword_model.primary_keyword}" — this has been determined by the strategy engine` : "the single phrase this article should rank for in Google — 2 to 4 words, as a reader would actually type it into Google"}
+- secondary_keywords: provide 8 to 10 distinct secondary keywords. ${strategy ? "Select the strongest from the strategy brief's secondary keyword list above, prioritising service variants, jurisdiction variants, and commercial-intent phrases. Do not invent weak variants." : "Cover service variants, jurisdiction variants, and commercial-intent phrasing a real reader would search."} They will be distributed across the six body sections, so favour variety over repetition of the focus keyword.
 
 - seo_title: Write a title that makes a senior institutional adviser stop scrolling. STRICT RULES — all must be met simultaneously:
   1. Contains the exact focus keyword — it does NOT need to be the first words; place it wherever it reads most naturally
@@ -767,7 +820,7 @@ BLUEPRINT RULES:
 - sections[].subsections[].angle: one sentence describing the subsection focus
 - more_content_4 must always open with an Aston VIP CTA heading adapted to the topic
 - more_content_6 must be a distinct fifth body section covering a practical angle not addressed in sections 1–4 (e.g. common mistakes, jurisdiction comparison, a specific use case, or a compliance checklist). Do not duplicate more_content_4 themes.
-- faq_questions: 4 specific questions a real reader would ask about this topic. Questions only, no answers yet`;
+- faq_questions: 5 to 6 specific questions a real reader would ask about this topic. Favour questions that match how people phrase queries to Google and AI answer engines, since the FAQ section is a primary source for featured snippets and AI citations. Questions only, no answers yet`;
 
   const response = await chatWithFallback(openai, {
     messages: [
@@ -799,7 +852,7 @@ BLUEPRINT RULES:
       const lastStop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "), cut.lastIndexOf("."), cut.lastIndexOf("!"), cut.lastIndexOf("?"));
       parsed.meta_description = lastStop > 80 ? parsed.meta_description.slice(0, lastStop + 1) : cut.replace(/\s+\S*$/, "");
     }
-    return parsed;
+    return sanitizeBlueprint(parsed);
   } catch {
     throw new Error(
       `Blueprint returned invalid JSON. Raw: ${raw.slice(0, 200)}`
@@ -842,6 +895,10 @@ High-value strategy: ${strategy.high_value_strategy.slice(0, 300)}
 Internal link plan: ${strategy.internal_link_plan.slice(0, 300)}
 External link plan: ${strategy.external_link_plan.slice(0, 300)}
 Content risks to avoid: ${strategy.content_risks.join("; ")}
+${strategy.jurisdiction_map.length > 0 ? `Key jurisdictions to anchor in (with relevance): ${strategy.jurisdiction_map.slice(0, 6).map((j) => `${j.jurisdiction} — ${j.relevance.slice(0, 90)}`).join("; ")}` : ""}
+${strategy.regulatory_frameworks.length > 0 ? `Regulators and frameworks to cite by name where claims need authority: ${strategy.regulatory_frameworks.slice(0, 8).map((r) => r.framework).join(", ")}` : ""}
+${strategy.keyword_model.entity_terms.length > 0 ? `ENTITY TERMS TO WEAVE IN NATURALLY (semantic signals for AI search — use as many as genuinely fit the prose, never force or list them): ${strategy.keyword_model.entity_terms.slice(0, 30).join(", ")}` : ""}
+${strategy.keyword_model.long_tail_keywords.length > 0 ? `Long-tail phrases to address across body sections and FAQ where natural: ${strategy.keyword_model.long_tail_keywords.slice(0, 12).join("; ")}` : ""}
 
 PRE-PLANNED KEY TAKEAWAYS (use these as the basis for the key_takeaways field — refine and format as HTML list):
 ${strategy.key_takeaways.map((t, i) => `${i + 1}. ${t}`).join("\n")}
@@ -926,7 +983,7 @@ FIELD INSTRUCTIONS:
 excerpt:
 2-3 sentence plain-text excerpt for WordPress archive pages. No HTML. 40-60 words.
 
-main_content (300-340 words — MINIMUM 300, count before submitting):
+main_content (350-450 words — MINIMUM 350, count before submitting):
 - Open with the business problem or opportunity described in the intro angle: "${blueprint.intro_angle}"
 - The focus keyword must appear in the first sentence of the first paragraph — not the second, not the third
 - Use the focus keyword 2–3 times naturally across the full intro (spread across different paragraphs)
@@ -964,7 +1021,7 @@ more_content_2:
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
 quote_1:
-Short, punchy, practical advice from more_content_1 or more_content_2. Max 2 sentences. No em dashes. Actionable. Must sound like it came from a senior compliance adviser, not a marketing page.
+Short, punchy, practical advice from more_content_1 or more_content_2. Max 2 sentences and max 30 words total. No em dashes. Actionable. Must sound like it came from a senior compliance adviser, not a marketing page.
 
 more_content_3:
 - Use EXACTLY this H3: "${blueprint.sections[2]?.h3_heading ?? ""}"
@@ -986,12 +1043,12 @@ more_content_4:
 - Target ~${blueprint.sections[3]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
 - Describe Aston's end-to-end involvement specific to this topic — name the actual steps: pre-banking review, KYC file preparation, UBO documentation, compliance policy drafting, bank matching, introduction to relationship managers
 - DO NOT describe Aston generically. Every H4 must describe a specific, distinct phase of Aston's involvement
-- Include the mandatory disclaimer: "We do not guarantee bank account approvals. Our role is to ensure clients are properly prepared and introduced to institutions that align with their business profile."
+- Include a mandatory advisory disclaimer that fits this article's topic. State plainly that Aston VIP does not guarantee specific outcomes and that its role is to prepare clients properly and introduce them to the right institutions. Adapt the outcome to the topic: for banking use "We do not guarantee bank account approvals", for licensing use "We do not guarantee regulatory approvals or license grants", for tax use "We do not provide a guarantee of any particular tax outcome". Always include the exact phrase "do not guarantee" so the disclaimer is unambiguous.
 - Close with: <p>To discuss your situation, <a href="https://aston.ae/contact-us/">speak with our team</a>.</p>
-- Allowed HTML: <h3>, <h4>, <h5>, <p>, <strong>, <a>
+- Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <a>
 
 quote_2:
-Short, punchy advice from more_content_4. Max 2 sentences. No em dashes. Different from quote_1.
+Short, punchy advice from more_content_4. Max 2 sentences and max 30 words total. No em dashes. Different from quote_1.
 
 key_takeaways:
 HTML <ul><li> list of 4 to 6 items. This section appears directly after the title — before the introduction. ${strategy ? "Use and refine the PRE-PLANNED KEY TAKEAWAYS provided above — adapt them to match the final article content. Each must be a standalone advisory point with real decision-useful insight about structure, banking, tax, licensing, regulation, or jurisdiction logic. Not marketing. Not vague summaries." : "Each must contain at least one named figure, regulator, jurisdiction, timeline, or cost. Include the focus keyword in at least one item."}
@@ -1121,8 +1178,13 @@ TOPIC-TO-SCENE GUIDE — use this to pick the right setting for each image:
 - Cyprus / EU jurisdiction → Limassol or Nicosia modern skyline, Mediterranean light, EU-style corporate building
 - Germany / Frankfurt / EU → Frankfurt banking district skyline, Commerzbank Tower area, glass and steel architecture
 - Holding company / structuring → layered corporate org chart visualised as glass building floors, abstract structure
+- Family office / wealth management → private members club library, quiet panelled boardroom, leather and brass, discreet luxury
+- Trust / foundation / succession → solicitor's chambers, bound legal volumes, fountain pen on parchment, heritage architecture
+- Nominee / corporate governance → empty executive boardroom, single high-backed chair at a polished table, formal and discreet
+- Pension / retirement structuring → calm wealth advisory lounge, long horizon view through tall windows, considered and unhurried
 - Startups / founders → bright co-working space, whiteboard, young professionals collaborating
 - Golden Visa / residency → luxury Dubai apartment view, residence document, passport on a desk
+- Residency by investment / citizenship → refined airport private terminal, elegant luggage, departures hall with warm light
 - General / mixed → neutral modern international office, floor-to-ceiling windows, city view below
 
 RULES FOR EVERY PROMPT:
@@ -1149,8 +1211,8 @@ Return as a single valid JSON object. No markdown, no code fences:
 
 Alt text rules (SEO-optimised — all must be met):
 1. Alt text is NOT a description of the image — it is a short SEO phrase about the article topic and focus keyword. Write it as a search-engine-friendly label, not a visual caption.
-2. Every alt text MUST include the focus keyword "${content.focus_keyword}" or a close natural variation of it — this is the primary SEO signal
-3. Each alt text should also weave in a secondary or related keyword from the article topic (jurisdiction, service type, regulator name, etc.) to build topical relevance
+2. At least 2 of the 4 alt texts MUST include the exact focus keyword "${content.focus_keyword}"; the other 2 should use a close natural variation of it — this keeps the primary SEO signal strong without forcing identical phrasing across all four
+3. Each alt text should also weave in a different secondary or related keyword from the article topic (jurisdiction, service type, regulator name, etc.) to build topical relevance and keep the four distinct
 4. 8–12 words per alt text — concise, keyword-rich, reads like a natural phrase a user might search
 5. All 4 alt texts must be distinct — vary the keyword combinations and phrasing across the four images so they cover different aspects of the topic
 6. No full stops, no quotes, no HTML
@@ -1213,6 +1275,7 @@ const CHECK_TO_FIELDS: Record<string, string[]> = {
   more_content_5_exists:            ["more_content_5"],
   final_points_exists:              ["final_points"],
   cta_exists:                       ["more_content_4"],
+  disclaimer_exists:                ["more_content_4"],
   internal_links_sufficient:        ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_6"],
   focus_keyword_in_title:           ["seo_title"],
   // Non-blocking — keyword/SEO
@@ -1248,13 +1311,14 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   slug_exists:                      "slug is empty or invalid — write a lowercase hyphenated URL slug (only a-z, 0-9, hyphens; no spaces)",
   excerpt_exists:                   "excerpt is empty — write a 1–2 sentence plain-text summary of the article (no HTML)",
   // Content body
-  main_content_exists:              "main_content is under 270 words — rewrite it to at least 300 words",
+  main_content_exists:              "main_content is under 270 words — rewrite it to 350–450 words",
   main_content_has_internal_link:   "main_content has no internal link — embed exactly 1 internal link from the provided list",
   main_content_has_external_link:   "main_content has no external link — embed at least 1 external link from an official source (regulator, government, institution)",
   key_takeaways_exists:             "key_takeaways is empty — write 4–6 bullet points",
   more_content_5_exists:            "more_content_5 (FAQ) is empty — write answers to the FAQ questions from the blueprint",
   final_points_exists:              "final_points is empty — write exactly 4 practical next steps",
   cta_exists:                       `more_content_4 is missing the contact CTA — end it with: <p>To discuss your situation, <a href="https://aston.ae/contact-us/">speak with our team</a>.</p>`,
+  disclaimer_exists:                `more_content_4 is missing the advisory disclaimer — add a sentence stating Aston VIP does not guarantee specific outcomes (adapt to the topic: bank approvals, license grants, or tax outcomes). It must contain the exact phrase "do not guarantee".`,
   internal_links_sufficient:        "fewer than 7 internal links across the article — add more internal links from the provided list, spread across the listed sections",
   focus_keyword_in_title:           "focus keyword not present in seo_title — rewrite the title so the focus keyword appears naturally anywhere in the phrase; keep it creative and authority-signaling, not a generic keyword + boilerplate suffix",
   // SEO/keyword
@@ -1360,7 +1424,7 @@ ${authorityLinksBlock}
 RULES:
 - Fix every issue listed above — do not skip any
 - British English throughout (except: always write "license" never "licence"), no colons in headings, sentence case, no em dashes
-- For main_content: minimum 300 words, at least 2 H3 subheadings, exactly 1 internal link + at least 1 external link
+- For main_content: 350–450 words, at least 2 H3 subheadings, exactly 1 internal link + at least 1 external link
 - Sentence length across ALL fields you are fixing: hard maximum 20 words per sentence. Split any sentence at 18+ words. Target 12–16 words
 - Across all sections combined: target 7 to 9 external links (minimum 5) — use ONLY the APPROVED EXTERNAL AUTHORITY SOURCES listed above${brokenUrls && brokenUrls.length > 0 ? `\n- The following external URLs were found to be BROKEN — do NOT reuse any of them:\n${brokenUrls.map((u) => `  • ${u}`).join("\n")}` : ""}
 - Preserve all existing HTML structure within the fields you are fixing

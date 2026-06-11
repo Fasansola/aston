@@ -15,6 +15,7 @@ export interface ResearchBrief {
   common_questions: string[];
   content_gaps: string;
   competitor_angles: string[];
+  ranking_competitors: string[];
   seo_recommendations: string;
 }
 
@@ -128,7 +129,26 @@ Return a JSON array. No markdown, no code fences:
 
   try {
     const parsed = JSON.parse(jsonMatch[0]) as DiscoveredLink[];
-    return parsed.filter((l) => typeof l.url === "string" && l.url.startsWith("http"));
+    // Validate each URL parses as a real https URL, then dedupe by normalised
+    // href so the approved-link set never carries malformed or duplicate entries.
+    // Dead links that still parse are caught later by scrubBrokenExternalLinks.
+    const seen = new Set<string>();
+    const valid: DiscoveredLink[] = [];
+    for (const l of parsed) {
+      if (typeof l.url !== "string") continue;
+      let normalised: string;
+      try {
+        const u = new URL(l.url);
+        if (u.protocol !== "https:" && u.protocol !== "http:") continue;
+        normalised = u.href.replace(/\/$/, "").toLowerCase();
+      } catch {
+        continue; // not a parseable URL — drop it
+      }
+      if (seen.has(normalised)) continue;
+      seen.add(normalised);
+      valid.push(l);
+    }
+    return valid;
   } catch {
     return [];
   }
@@ -149,7 +169,9 @@ export async function researchTopic(
 
   const response = await (openai.chat.completions.create as Function)({
     model: "gpt-4o-search-preview",
-    web_search_options: { search_context_size: "low" },
+    // "medium" context indexes more pages — important for Aston's niche
+    // regulatory topics where the relevant sources are not top-of-SERP.
+    web_search_options: { search_context_size: "medium" },
     messages: [
       {
         role: "user",
@@ -163,6 +185,7 @@ You are an SEO researcher for a high-end corporate advisory blog. Research the c
   "common_questions": ["10 to 15 questions appearing in People Also Ask boxes, forums, and top-ranking FAQs for this topic"],
   "content_gaps": "paragraph describing what top-ranking results miss or oversimplify — specific angles they fail to cover that a genuinely authoritative article should address",
   "competitor_angles": ["5 to 8 specific content angles or hooks used by the current top-ranking pages"],
+  "ranking_competitors": ["3 to 8 specific firms, brands, or publications that currently rank on page one for this topic — name them (e.g. a Big Four firm, a named law firm, a government portal, a competitor advisory). This shows who Aston VIP must outrank"],
   "seo_recommendations": "paragraph with specific SEO recommendations for this topic — what keyword emphasis, structural depth, authority signals, and content scope would help outrank current results"
 }`,
       },

@@ -140,7 +140,7 @@ export async function generateStrategy(inputs: StrategyInputs): Promise<Strategy
     : "";
 
   const researchBlock = inputs.research
-    ? `\nSERP RESEARCH (live data — use this as ground truth for keyword choices and content gaps):\nSERP summary: ${inputs.research.serp_summary}\nDominant keywords found in top results: ${inputs.research.dominant_keywords.join(", ")}\nCommon questions in SERPs: ${inputs.research.common_questions.slice(0, 10).join(" | ")}\nContent gaps in current top results: ${inputs.research.content_gaps}\nCompetitor angles to be aware of: ${inputs.research.competitor_angles.join("; ")}\nSEO recommendations from research: ${inputs.research.seo_recommendations}\n`
+    ? `\nSERP RESEARCH (live data — use this as ground truth for keyword choices and content gaps):\nSERP summary: ${inputs.research.serp_summary}\nDominant keywords found in top results: ${inputs.research.dominant_keywords.join(", ")}\nCommon questions in SERPs: ${inputs.research.common_questions.slice(0, 10).join(" | ")}\nContent gaps in current top results: ${inputs.research.content_gaps}\nCompetitor angles to be aware of: ${inputs.research.competitor_angles.join("; ")}\n${inputs.research.ranking_competitors?.length ? `Firms and brands currently ranking (Aston VIP must outrank these): ${inputs.research.ranking_competitors.join(", ")}\n` : ""}SEO recommendations from research: ${inputs.research.seo_recommendations}\n`
     : "";
 
   const userPrompt = `${inputLines}${customPromptBlock}${researchBlock}

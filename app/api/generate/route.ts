@@ -21,7 +21,7 @@ import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePr
 import { getSettings } from "@/lib/storage";
 import { createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
-import { runQA } from "@/lib/qa";
+import { runQA, RETRYABLE_WARNING_CHECKS } from "@/lib/qa";
 import { enforceApprovedLinks, scrubBrokenExternalLinks, stripLinksFromVisualBlocks } from "@/lib/linkScrubber";
 import { selectAuthorityLinks, mergeWithDiscovered } from "@/lib/authorityLinks";
 import {
@@ -303,6 +303,17 @@ export async function POST(req: NextRequest) {
             if (qaAttempt < MAX_QA) continue;
             await send({ type: "error", message: `Post failed QA after ${MAX_QA} attempts: ${qa.blocking_issues.join("; ")}` });
             return;
+          }
+
+          // Retry-worthy warnings: not blocking (we never discard the article over
+          // them), but important enough to spend a fix pass on if attempts remain.
+          // These commonly never get fixed because a "warn" status publishes as-is.
+          if (qaAttempt < MAX_QA) {
+            const retryableFailures = RETRYABLE_WARNING_CHECKS.filter((k) => qa.checks[k] === false);
+            if (retryableFailures.length > 0) {
+              console.warn(`[generate] QA WARN (${qaAttempt}/${MAX_QA}) — attempting fix for: ${retryableFailures.join(", ")}`);
+              continue;
+            }
           }
 
           // IMGSLOT_* markers are replaced with "" here — the actual images are

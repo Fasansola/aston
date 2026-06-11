@@ -14,6 +14,23 @@
 
 import { BlogContent, ImagePrompts } from "./wordpress";
 
+/**
+ * Checks that are NOT hard-blocking (a failure won't discard the article)
+ * but ARE important enough to trigger a targeted fix pass when they fail.
+ * If they remain unfixed after the final QA attempt, the post still publishes
+ * with the failure recorded as a warning — we never lose a finished article
+ * over these, but we always attempt to fix them first.
+ *
+ * All listed checks must have a CHECK_TO_FIELDS mapping in lib/openai.ts so
+ * fixBlogContent knows which fields to rewrite.
+ */
+export const RETRYABLE_WARNING_CHECKS = [
+  "quick_answer_block_exists",
+  "definition_block_exists",
+  "sentence_length_ok",
+  "no_us_spellings",
+] as const;
+
 export interface QAReport {
   status: "pass" | "warn" | "fail";
   score: number;
@@ -88,6 +105,12 @@ const BANNED_PHRASES = [
   "in conclusion",
   "in today's landscape",
   "it's worth noting",
+  "dive into",
+  "best practices",
+  "state-of-the-art",
+  "world-class",
+  "at the end of the day",
+  "it goes without saying",
 ];
 
 const US_SPELLINGS = [
@@ -189,6 +212,14 @@ export function runQA(
   // CTA: more_content_4 must contain the contact link
   checks.cta_exists =
     (content.more_content_4 ?? "").includes("aston.ae/contact-us/");
+
+  // Advisory disclaimer: more_content_4 must state that outcomes are not guaranteed.
+  // Warning only — flags a legal/compliance gap without discarding the article.
+  checks.disclaimer_exists = /\b(do not|does not|cannot|can not)\s+guarantee\b/i.test(
+    content.more_content_4 ?? ""
+  );
+  if (!checks.disclaimer_exists)
+    warnings.push("Advisory disclaimer missing from more_content_4 — must state Aston VIP does not guarantee specific outcomes");
 
   // Internal links: minimum 7 (document target: 3-10 per 1,000 words)
   checks.internal_links_sufficient =
@@ -354,11 +385,20 @@ export function runQA(
   if (foundHouseStyle.length > 0)
     warnings.push(`House style violation: "${foundHouseStyle.join('", "')}" must be written as "license"`);
 
-  // Key takeaways quality (must have at least 4 list items)
-  const takeawayItems = (content.key_takeaways ?? "").match(/<li/gi) ?? [];
-  checks.key_takeaways_quality = takeawayItems.length >= 4;
-  if (takeawayItems.length < 4)
-    warnings.push(`Key takeaways has only ${takeawayItems.length} items — minimum 4 required`);
+  // Key takeaways quality: at least 4 list items, each scannable in a few seconds.
+  // The prompt targets 8–14 words per item; flag any item over 18 words (buffer
+  // over the target) as too long to scan.
+  const takeawayLiTexts = ((content.key_takeaways ?? "").match(/<li[^>]*>([\s\S]*?)<\/li>/gi) ?? [])
+    .map((li) => stripHtml(li));
+  const takeawayCount = takeawayLiTexts.length;
+  const overlongTakeaways = takeawayLiTexts.filter(
+    (t) => t.split(/\s+/).filter(Boolean).length > 18
+  );
+  checks.key_takeaways_quality = takeawayCount >= 4 && overlongTakeaways.length === 0;
+  if (takeawayCount < 4)
+    warnings.push(`Key takeaways has only ${takeawayCount} items — minimum 4 required`);
+  else if (overlongTakeaways.length > 0)
+    warnings.push(`${overlongTakeaways.length} key takeaway item(s) exceed 18 words — each must be 8–14 words to scan quickly`);
 
   // Yoast sentence length: max 25% of sentences may exceed 20 words
   const sentenceLengthPct = longSentencePercent(allFields);
