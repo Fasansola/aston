@@ -227,10 +227,8 @@ Rules:
         { role: "user", content: userPrompt },
       ],
       temperature: 0.4,
-      // 24 000 tokens gives headroom for verbose topics; response_format forces
-      // the model to emit syntactically valid JSON so parse errors are extremely rare.
+      // 24 000 tokens gives headroom for verbose topics.
       max_completion_tokens: 24000,
-      response_format: { type: "json_object" },
     }, AbortSignal.timeout(120_000));
 
     const choice = response.choices[0];

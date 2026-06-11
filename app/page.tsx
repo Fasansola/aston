@@ -970,7 +970,17 @@ export default function HomePage() {
       // Validation errors (400/401) come back as plain JSON before the stream starts
       if (!res.ok) {
         let errMsg = "Generation failed. Please try again.";
-        try { errMsg = (await res.json()).error || errMsg; } catch { errMsg = await res.text().catch(() => errMsg); }
+        try {
+          const parsed = await res.json();
+          // Guard: only use the error field if it is actually a non-empty string.
+          // If the server (or CDN / Vercel edge) returns a non-string value for
+          // `.error` (e.g. a nested object), calling new Error(obj) produces the
+          // unhelpful "[object Object]" message — avoid that here.
+          if (typeof parsed.error === "string" && parsed.error) errMsg = parsed.error;
+          else if (typeof parsed.message === "string" && parsed.message) errMsg = parsed.message;
+        } catch {
+          errMsg = await res.text().catch(() => errMsg) || errMsg;
+        }
         throw new Error(errMsg);
       }
 
@@ -1040,7 +1050,12 @@ export default function HomePage() {
             return;
           } else if (event.type === "error") {
             completed = true;
-            throw new Error(String(event.message) || "Generation failed. Please try again.");
+            // Guard: event.message should always be a string, but if the server
+            // sends a non-string value, String(obj) produces "[object Object]".
+            const errText = typeof event.message === "string" && event.message
+              ? event.message
+              : "Generation failed. Please try again.";
+            throw new Error(errText);
           }
         }
       }

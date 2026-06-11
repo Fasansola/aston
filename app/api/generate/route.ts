@@ -184,9 +184,21 @@ export async function POST(req: NextRequest) {
       authorityLinks = mergeWithDiscovered(curatedLinks, discoveredLinks);
       fileSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
     } catch (setupError: unknown) {
-      const msg = setupError instanceof Error ? setupError.message : String(setupError);
+      // Safely extract a printable message — plain objects produce "[object Object]"
+      // via String(), so we JSON-stringify them for the log but use a clean fallback
+      // for the user-facing message.
+      let msg: string;
+      if (setupError instanceof Error) {
+        msg = setupError.message || "Unknown error";
+      } else if (typeof setupError === "string") {
+        msg = setupError;
+      } else {
+        // Plain object or unknown type: log the full shape, show clean message to user
+        try { console.error("[generate] Setup error (non-Error):", JSON.stringify(setupError)); } catch { /* circular */ }
+        msg = "An unexpected error occurred during pipeline setup.";
+      }
       console.error(`[generate] Setup failed: ${msg}`);
-      await send({ type: "error", message: msg || "Failed during pipeline setup." });
+      await send({ type: "error", message: msg });
       return;
     }
 
@@ -375,7 +387,11 @@ export async function POST(req: NextRequest) {
         return; // QA loop exhausted (error already sent)
 
       } catch (error: unknown) {
-        const msg = error instanceof Error ? error.message : String(error);
+        const msg = error instanceof Error
+          ? error.message
+          : typeof error === "string"
+          ? error
+          : "An unexpected error occurred.";
         // WordPress / upload errors are not fixed by regenerating content — fail fast.
         const isFatalError = msg.includes("WP post creation failed") ||
                              msg.includes("Image upload") ||
@@ -385,7 +401,7 @@ export async function POST(req: NextRequest) {
           await send({ type: "tech_retry", attempt: techAttempt + 1, max: MAX_TECH, reason: msg });
         } else {
           console.error(`[generate] Fatal error (attempt ${techAttempt}/${MAX_TECH}): ${msg}`);
-          await send({ type: "error", message: msg || "An unexpected error occurred." });
+          await send({ type: "error", message: msg });
           return;
         }
       }
