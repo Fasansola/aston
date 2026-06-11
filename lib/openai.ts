@@ -505,11 +505,64 @@ Rules:
   return `\nVISUAL BLOCKS:\n${parts.join("\n")}\n`;
 }
 
-// ── FAQ answer rules ──────────────────────────────────────────
+// FAQ rules used standalone when the AI search block checks are not failing
+const FAQ_ANSWER_RULES = `
+FAQ ANSWER RULES (applies to more_content_5):
+Every FAQ answer must follow this format: the FIRST sentence is the complete, self-contained answer. Supporting detail follows in sentence 2–3. This structure lets AI systems extract the first sentence as a direct answer.
+- Max 60 words per answer
+- First sentence must stand alone as the answer — do not start with "It depends", "There are several", or "This varies"
+- Include at least one named entity (regulator, jurisdiction, fee, or timeline) in every answer
+`;
+
+// ── AI Search Optimisation block instructions ─────────────────
+/**
+ * Injects two structured blocks that target Google AI Overviews,
+ * featured snippets, and LLM crawlers (ChatGPT, Perplexity):
+ *   1. Quick Answer block — placed in main_content after the opening paragraph
+ *   2. Definition block  — placed in main_content or more_content_1 for the
+ *                          primary specialised term in the article
+ *   3. FAQ answer rules  — enforces first-sentence direct answers for AI extraction
+ *
+ * NOTE: The label/title element is intentionally omitted from both block
+ * templates — the client only wants the answer/definition text to render,
+ * not the "Quick answer" or "Definition" heading line above it.
+ */
 function buildAISearchInstructions(): string {
   return `
+AI SEARCH OPTIMISATION — MANDATORY BLOCKS:
+Google AI Overviews, featured snippets, and AI answer engines (ChatGPT, Perplexity) extract structured answer surfaces from articles. Every article MUST include the following two blocks. Omitting them is not acceptable.
+
+QUICK ANSWER BLOCK (mandatory — place inside main_content, after the opening paragraph, before the first H3):
+Write a 2–3 sentence direct answer to the main question implied by the article title. The first sentence must directly answer the question. No hedging, no preamble. Specific — include a named jurisdiction, regulator, timeframe, or cost where relevant.
+
+<div class="aston-quick-answer">
+  <p class="aston-quick-answer__text">[Direct answer sentence 1. Direct answer sentence 2. Direct answer sentence 3 (optional).]</p>
+</div>
+
+Rules:
+- First sentence answers the question directly — not "In this article we will explore..."
+- Must include at least one specific fact (number, regulator name, jurisdiction, or timeframe)
+- Max 60 words total
+- Do NOT include a label or heading line inside the div — content only
+- Do NOT place in key_takeaways, FAQ, or final_points — only in main_content
+
+DEFINITION BLOCK (mandatory — place in main_content or more_content_1 at the first mention of the article's primary specialised term):
+Identify the single most important specialised term in this article (e.g. VARA licence, ADGM SPV, EMI account, offshore trust). Write a plain-English definition a business owner would understand.
+
+<div class="aston-definition">
+  <strong class="aston-definition__term">[Term]</strong>
+  <p class="aston-definition__text">[Plain-English definition, 1–2 sentences, max 40 words. Include the full form of any acronym.]</p>
+</div>
+
+Rules:
+- One definition block per article only
+- Do NOT include a label or heading line inside the div — term and definition text only
+- Choose the term that most readers will need explained — not the most common word
+- Place it immediately after the first sentence that uses the term
+- Allowed HTML inside definition block: <strong>, <p> only
+
 FAQ ANSWER RULES (applies to more_content_5):
-Every FAQ answer must follow this format: the FIRST sentence is the complete, self-contained answer. Supporting detail follows in sentence 2–3.
+Every FAQ answer must follow this format: the FIRST sentence is the complete, self-contained answer. Supporting detail follows in sentence 2–3. This structure lets AI systems extract the first sentence as a direct answer.
 - Max 60 words per answer
 - First sentence must stand alone as the answer — do not start with "It depends", "There are several", or "This varies"
 - Include at least one named entity (regulator, jurisdiction, fee, or timeline) in every answer
@@ -878,7 +931,9 @@ main_content (300-340 words — MINIMUM 300, count before submitting):
 - The focus keyword must appear in the first sentence of the first paragraph — not the second, not the third
 - Use the focus keyword 2–3 times naturally across the full intro (spread across different paragraphs)
 - Do NOT open with an H3. Start with a <p> tag
-- After the opening paragraph, you MUST include at least 2 H3 subheadings to break the text into scannable sections — do not write 300 words of unbroken paragraphs
+- After the opening paragraph, insert the QUICK ANSWER BLOCK (see AI SEARCH OPTIMISATION section above)
+- After the quick answer block, insert the DEFINITION BLOCK for the primary specialised term in the article (see AI SEARCH OPTIMISATION section above)
+- After the definition block, you MUST include at least 2 H3 subheadings to break the text into scannable sections — do not write 300 words of unbroken paragraphs
 - Heading hierarchy: every H4 must sit under an H3. Never skip levels
 - End with a sentence that pulls the reader into what follows
 - LINKS (mandatory): embed exactly 1 internal link and at least 1 external link naturally within the text — both must sit inside a sentence and support the point being made
@@ -1176,7 +1231,9 @@ const CHECK_TO_FIELDS: Record<string, string[]> = {
   no_banned_phrases:                ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
   no_colons_in_headings:            ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
   sentence_length_ok:               ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
-  // Visual block checks — map to the fields that own them
+  // AI search + visual block checks — map to the fields that own them
+  quick_answer_block_exists:        ["main_content"],
+  definition_block_exists:          ["main_content", "more_content_1"],
   flowchart_block_exists:           ["more_content_1", "more_content_2", "more_content_3", "more_content_6"],
   // Quality checks
   key_takeaways_quality:            ["key_takeaways"],
@@ -1216,6 +1273,9 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   no_banned_phrases:                "banned phrase(s) found in the article — identify and remove or replace them",
   no_colons_in_headings:            "colon found in one or more headings — rewrite those headings without colons",
   sentence_length_ok:               "too many sentences exceed 20 words — Yoast requires fewer than 25% of sentences to be over 20 words. Rewrite any sentence over 20 words by splitting it at a natural junction (full stop). Target 12–16 words. Common fixes: split clauses joined by 'which', 'that', 'because', 'since'; convert inline lists to bullet points; move parenthetical qualifications to their own sentence",
+  // AI search blocks — note: label element intentionally omitted from templates
+  quick_answer_block_exists:        `main_content is missing the Quick Answer block — add it after the opening paragraph using EXACTLY this structure (no label element): <div class="aston-quick-answer"><p class="aston-quick-answer__text">[2–3 direct sentences answering the main question, max 60 words, at least one specific fact]</p></div>`,
+  definition_block_exists:          `main_content or more_content_1 is missing the Definition block — identify the primary specialised term in this article and add it using EXACTLY this structure (no label element): <div class="aston-definition"><strong class="aston-definition__term">[Term]</strong><p class="aston-definition__text">[Plain-English definition, 1–2 sentences, max 40 words]</p></div>`,
   flowchart_block_exists:           `[FLOWCHART_IMG] placeholder is missing — add it on its own line inside the section (more_content_1, 2, 3, or 6) that describes the main process or step-by-step sequence. Also ensure the flowchart_mermaid field contains valid Mermaid syntax for that process. Write it exactly as: [FLOWCHART_IMG]`,
   // Quality checks
   key_takeaways_quality:            "key_takeaways has fewer than 4 list items — rewrite to include exactly 4–6 <li> items, each 8–14 words, each containing a specific fact, number, regulator, jurisdiction, or timeline",
@@ -1257,11 +1317,12 @@ export async function fixBlogContent(
     ? `\n${formatAuthorityLinksForPrompt(authorityLinks, language)}\n`
     : "";
 
-  // Include visual block instructions only when that check is failing,
-  // so GPT has the exact HTML structure it needs to write the fix correctly.
+  // Include visual block and AI search templates only when those checks are failing,
+  // so GPT has the exact HTML structures it needs to write the fix correctly.
   const needsVisualBlocks = failedKeys.some((k) => k === "flowchart_block_exists");
+  const needsAISearchBlocks = failedKeys.some((k) => k === "quick_answer_block_exists" || k === "definition_block_exists");
   const visualBlocksSection = needsVisualBlocks ? buildVisualBlockInstructions() : "";
-  const aiSearchSection = buildAISearchInstructions(); // FAQ rules always included
+  const aiSearchSection = needsAISearchBlocks ? buildAISearchInstructions() : FAQ_ANSWER_RULES;
 
   const issueList = failedKeys
     .map((k, i) => `${i + 1}. ${CHECK_DESCRIPTIONS[k] ?? `"${k}" check failed`}`)

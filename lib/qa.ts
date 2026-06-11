@@ -260,6 +260,23 @@ export function runQA(
   if (!checks.focus_keyword_in_heading && kw)
     warnings.push("Focus keyword not found in any section heading");
 
+  // ── AI SEARCH OPTIMISATION CHECKS ────────────────────────
+  // Validate the two mandatory structured blocks for Google AI Overviews,
+  // featured snippets, and LLM crawlers.
+  // NOTE: the label element was removed from these blocks by client request —
+  // only the content (aston-quick-answer__text, aston-definition__text) renders.
+
+  // Quick answer block — must be in main_content
+  checks.quick_answer_block_exists = (content.main_content ?? "").includes('class="aston-quick-answer"');
+  if (!checks.quick_answer_block_exists)
+    warnings.push("Quick answer block missing from main_content — required for Google AI Overviews and featured snippets");
+
+  // Definition block — must be in main_content or more_content_1
+  const definitionSearchArea = (content.main_content ?? "") + (content.more_content_1 ?? "");
+  checks.definition_block_exists = definitionSearchArea.includes('class="aston-definition"');
+  if (!checks.definition_block_exists)
+    warnings.push("Definition block missing from main_content/more_content_1 — required for entity disambiguation and AI search");
+
   // Flowchart placeholder — [FLOWCHART_IMG] must appear in a body section
   // (rendered to a Mermaid PNG image in the image generation phase).
   // Also accept aston-timeline for backward compat with already-published posts.
