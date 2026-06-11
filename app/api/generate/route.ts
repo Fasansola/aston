@@ -306,12 +306,16 @@ export async function POST(req: NextRequest) {
           }
 
           // Retry-worthy warnings: not blocking (we never discard the article over
-          // them), but important enough to spend a fix pass on if attempts remain.
-          // These commonly never get fixed because a "warn" status publishes as-is.
-          if (qaAttempt < MAX_QA) {
+          // them), but important enough to spend a fix pass on. These commonly never
+          // get fixed because a "warn" status publishes as-is.
+          // Bounded to ONE extra fix pass (only after attempt 1) so common warnings
+          // can't push a near-budget run over the 300s function limit — blocking
+          // failures still get the full MAX_QA attempts above. The first fix pass
+          // captures the bulk of the quality benefit.
+          if (qaAttempt === 1) {
             const retryableFailures = RETRYABLE_WARNING_CHECKS.filter((k) => qa.checks[k] === false);
             if (retryableFailures.length > 0) {
-              console.warn(`[generate] QA WARN (${qaAttempt}/${MAX_QA}) — attempting fix for: ${retryableFailures.join(", ")}`);
+              console.warn(`[generate] QA WARN (${qaAttempt}/${MAX_QA}) — attempting one fix pass for: ${retryableFailures.join(", ")}`);
               continue;
             }
           }

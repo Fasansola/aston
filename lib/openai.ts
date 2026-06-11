@@ -655,12 +655,12 @@ export async function generateBlueprint(
 STRATEGY BRIEF (use as source of truth for this blueprint):
 - Primary keyword: ${strategy.keyword_model.primary_keyword}
 - Primary keyword rationale: ${strategy.keyword_model.primary_keyword_why}
-- Secondary keywords: ${strategy.keyword_model.secondary_keywords.slice(0, 16).join(", ")}
+- Secondary keywords: ${(strategy.keyword_model?.secondary_keywords ?? []).slice(0, 16).join(", ")}
 - Article angle: ${strategy.article_angle}
-- Search intent: ${strategy.search_intent_type} — ${strategy.search_intent.slice(0, 200)}
-- Commercial service layers: ${strategy.commercial_intent_layers.slice(0, 4).join("; ")}
-- High-value strategy: ${strategy.high_value_strategy.slice(0, 300)}
-- Content risks to avoid: ${strategy.content_risks.slice(0, 5).join("; ")}
+- Search intent: ${strategy.search_intent_type} — ${(strategy.search_intent ?? "").slice(0, 200)}
+- Commercial service layers: ${(strategy.commercial_intent_layers ?? []).slice(0, 4).join("; ")}
+- High-value strategy: ${(strategy.high_value_strategy ?? "").slice(0, 300)}
+- Content risks to avoid: ${(strategy.content_risks ?? []).slice(0, 5).join("; ")}
 ` : "";
 
   // Detect if the custom prompt is a detailed article brief with explicit sections
@@ -894,14 +894,14 @@ Structuring angle: ${strategy.banking_tax_structuring_compliance.structuring.sli
 High-value strategy: ${strategy.high_value_strategy.slice(0, 300)}
 Internal link plan: ${strategy.internal_link_plan.slice(0, 300)}
 External link plan: ${strategy.external_link_plan.slice(0, 300)}
-Content risks to avoid: ${strategy.content_risks.join("; ")}
-${strategy.jurisdiction_map.length > 0 ? `Key jurisdictions to anchor in (with relevance): ${strategy.jurisdiction_map.slice(0, 6).map((j) => `${j.jurisdiction} — ${j.relevance.slice(0, 90)}`).join("; ")}` : ""}
-${strategy.regulatory_frameworks.length > 0 ? `Regulators and frameworks to cite by name where claims need authority: ${strategy.regulatory_frameworks.slice(0, 8).map((r) => r.framework).join(", ")}` : ""}
-${strategy.keyword_model.entity_terms.length > 0 ? `ENTITY TERMS TO WEAVE IN NATURALLY (semantic signals for AI search — use as many as genuinely fit the prose, never force or list them): ${strategy.keyword_model.entity_terms.slice(0, 30).join(", ")}` : ""}
-${strategy.keyword_model.long_tail_keywords.length > 0 ? `Long-tail phrases to address across body sections and FAQ where natural: ${strategy.keyword_model.long_tail_keywords.slice(0, 12).join("; ")}` : ""}
+Content risks to avoid: ${(strategy.content_risks ?? []).join("; ")}
+${(strategy.jurisdiction_map?.length ?? 0) > 0 ? `Key jurisdictions to anchor in (with relevance): ${strategy.jurisdiction_map.slice(0, 6).map((j) => `${j.jurisdiction} — ${(j.relevance ?? "").slice(0, 90)}`).join("; ")}` : ""}
+${(strategy.regulatory_frameworks?.length ?? 0) > 0 ? `Regulators and frameworks to cite by name where claims need authority: ${strategy.regulatory_frameworks.slice(0, 8).map((r) => r.framework).join(", ")}` : ""}
+${(strategy.keyword_model?.entity_terms?.length ?? 0) > 0 ? `ENTITY TERMS TO WEAVE IN NATURALLY (semantic signals for AI search — use as many as genuinely fit the prose, never force or list them): ${strategy.keyword_model.entity_terms.slice(0, 30).join(", ")}` : ""}
+${(strategy.keyword_model?.long_tail_keywords?.length ?? 0) > 0 ? `Long-tail phrases to address across body sections and FAQ where natural: ${strategy.keyword_model.long_tail_keywords.slice(0, 12).join("; ")}` : ""}
 
 PRE-PLANNED KEY TAKEAWAYS (use these as the basis for the key_takeaways field — refine and format as HTML list):
-${strategy.key_takeaways.map((t, i) => `${i + 1}. ${t}`).join("\n")}
+${(strategy.key_takeaways ?? []).map((t, i) => `${i + 1}. ${t}`).join("\n")}
 ` : "";
 
   // Serialise blueprint sections into clear per-field instructions
