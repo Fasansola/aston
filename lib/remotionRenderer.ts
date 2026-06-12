@@ -42,6 +42,12 @@ export async function submitRemotionRender(
     },
     codec:       "h264",
     imageFormat: "jpeg",
+    // Render the 1280x720 composition at 1.5x → 1920x1080 output. This keeps the
+    // composition's px-based layout/font sizes intact while producing a sharp,
+    // full-HD video instead of soft 720p (which also compresses poorly on YouTube).
+    scale:       1.5,
+    jpegQuality: 95,   // crisper frame capture (default is 80)
+    crf:         18,   // high-quality h264 (lower = better; 18 is near-lossless)
     maxRetries:  5,
     privacy:     "public",
     outName:     input.outName,

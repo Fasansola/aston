@@ -58,7 +58,7 @@ const TitleCard: React.FC<{ title: string; index: number }> = ({ title, index })
     <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 15, textTransform: "uppercase", letterSpacing: "0.35em", margin: "0 0 18px" }}>
       {String(index + 1).padStart(2, "0")}
     </p>
-    <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 50, margin: 0, textAlign: "center", maxWidth: 820, lineHeight: 1.25, padding: "0 40px" }}>
+    <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 56, margin: 0, textAlign: "center", maxWidth: 900, lineHeight: 1.22, padding: "0 40px" }}>
       {title}
     </p>
     <div style={{ width: 48, height: 3, backgroundColor: GOLD, marginTop: 28 }} />
@@ -107,10 +107,10 @@ const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number 
             {String(index + 1).padStart(2, "0")}
           </p>
           <div style={{ width: 44, height: 3, backgroundColor: GOLD, marginBottom: 18 }} />
-          <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 42, lineHeight: 1.22, margin: "0 0 16px" }}>
+          <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 48, lineHeight: 1.2, margin: "0 0 16px" }}>
             {segment.sectionTitle}
           </p>
-          <p style={{ fontFamily: "Georgia, serif", color: "rgba(255,255,255,0.78)", fontSize: 23, lineHeight: 1.55, margin: "0 0 22px" }}>
+          <p style={{ fontFamily: "Georgia, serif", color: "rgba(255,255,255,0.78)", fontSize: 28, lineHeight: 1.5, margin: "0 0 22px" }}>
             {segment.displayText}
           </p>
           <div style={{ width: 36, height: 1, backgroundColor: "rgba(201,168,76,0.45)", marginBottom: 20 }} />
@@ -121,7 +121,7 @@ const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number 
             return (
               <div key={i} style={{ display: "flex", alignItems: "flex-start", marginBottom: i < (segment.bullets ?? []).length - 1 ? 15 : 0, opacity: bulletOp }}>
                 <span style={{ color: GOLD, fontSize: 18, marginRight: 12, marginTop: 3, flexShrink: 0, lineHeight: 1 }}>✓</span>
-                <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 23, lineHeight: 1.38, margin: 0 }}>{bullet}</p>
+                <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 28, lineHeight: 1.36, margin: 0 }}>{bullet}</p>
               </div>
             );
           })}
