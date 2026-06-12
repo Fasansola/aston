@@ -1568,11 +1568,18 @@ export default function HomePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          postId:      result.postId,
-          title:       result.title,
-          videoUrl:    videoUrl    || undefined,
-          videoBase64: videoBase64 || undefined,
-          chapters:    videoChapters.length > 0 ? videoChapters : undefined,
+          postId:            result.postId,
+          title:             result.title,
+          videoUrl:          videoUrl    || undefined,
+          videoBase64:       videoBase64 || undefined,
+          chapters:          videoChapters.length > 0 ? videoChapters : undefined,
+          // Blog SEO context → drives the keyword-first YouTube title, rich
+          // description, and tags (see lib/youtubeSeo.ts).
+          focusKeyword:      result.focusKeyword || undefined,
+          secondaryKeywords: result.tags && result.tags.length > 0 ? result.tags : undefined,
+          summary:           result.metaDescription || result.excerpt || undefined,
+          blogUrl:           result.previewUrl || undefined,
+          language:          result.language || undefined,
         }),
       });
       const data = await res.json();

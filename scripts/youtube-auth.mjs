@@ -65,8 +65,9 @@ const authUrl = oauth2Client.generateAuthUrl({
   access_type: "offline",
   prompt:      "consent", // forces refresh_token even if previously authorised
   scope: [
-    "https://www.googleapis.com/auth/youtube.upload", // upload videos
-    "https://www.googleapis.com/auth/youtube",         // manage videos (required for deletion)
+    "https://www.googleapis.com/auth/youtube.upload",    // upload videos
+    "https://www.googleapis.com/auth/youtube",            // manage videos (required for deletion)
+    "https://www.googleapis.com/auth/youtube.force-ssl",  // captions upload + post comments (Phase 2 SEO)
   ],
 });
 

@@ -279,6 +279,12 @@ What this means for the viewer. Punchy. Land it. Emotion: calm, clear.
 Segment 7 — CLOSING CTA (3:35–4:00, ~25s)
 Jim personally invites a free call at aston.ae. Warm. Genuine. "No pitch. No pressure. Just a proper conversation." Never salesy.
 
+═══ SPOKEN SEO (important) ═══
+YouTube transcribes the audio, and spoken keywords are one of the strongest ranking signals — often stronger than tags.
+- Jim must SAY the exact phrase "${keyword}" out loud at least twice: once in segment 2 or 3 when the topic is named (never in the opening hook line — let that land first), and once in the closing segment.
+- Weave in 1–2 close natural variants of the keyword across the middle segments where they genuinely fit.
+- Say them as part of a real sentence — never list keywords, never sound like an ad. If a keyword feels forced, rephrase the sentence so it fits naturally.
+
 ═══ LANGUAGE RULES ═══
 - Contractions always: "it's", "you're", "I've", "don't", "we've"
 - Fragments are encouraged: "That's the mistake." / "Day one. Not day thirty."

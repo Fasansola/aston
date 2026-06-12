@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { uploadToYouTube, updatePostVideoUrl } from "@/lib/video";
+import { generateYouTubeSeoPackage, CHAPTERS_PLACEHOLDER } from "@/lib/youtubeSeo";
 
 export const maxDuration = 180;
 
@@ -20,12 +21,20 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: "Invalid request body." }, { status: 400 }); }
 
-  const { postId, title, videoUrl, videoBase64, chapters } = body as {
+  const {
+    postId, title, videoUrl, videoBase64, chapters,
+    focusKeyword, secondaryKeywords, summary, blogUrl, language,
+  } = body as {
     postId?: number;
     title?: string;
     videoUrl?: string;
     videoBase64?: string;
     chapters?: Array<{ title: string; startSecs: number }>;
+    focusKeyword?: string;
+    secondaryKeywords?: string[];
+    summary?: string;
+    blogUrl?: string;
+    language?: string | null;
   };
 
   if (!postId || typeof postId !== "number")
@@ -55,26 +64,41 @@ export async function POST(req: NextRequest) {
 
     console.log(`[upload-video] Uploading ${videoBuffer.length} bytes to YouTube…`);
 
-    // Build YouTube chapter markers — YouTube shows these as clickable
-    // sections in the progress bar and improves watch time + SEO ranking.
-    const chapterLines = (chapters ?? []).map((c) => {
-      const m = Math.floor(c.startSecs / 60);
-      const s = Math.floor(c.startSecs % 60).toString().padStart(2, "0");
-      return `${m}:${s} ${c.title}`;
+    // ── YouTube SEO package: keyword-first title, rich description, real tags ──
+    const seo = await generateYouTubeSeoPackage({
+      blogTitle: title.trim(),
+      focusKeyword: focusKeyword?.trim() || title.trim(),
+      secondaryKeywords: secondaryKeywords?.filter((k) => typeof k === "string" && k.trim()),
+      summary: summary?.trim(),
+      blogUrl: blogUrl?.trim(),
+      language: language ?? undefined,
     });
 
-    const description = [
-      `${title.trim()}`,
-      "",
-      "Produced by Aston VIP — Corporate Advisory.",
-      "Speak with our advisers: https://aston.ae/contact-us/",
-      "",
-      ...(chapterLines.length > 0 ? ["Chapters:", ...chapterLines, ""] : []),
-      "Visit https://aston.ae for more insight on UAE company formation,",
-      "international banking, and corporate structuring.",
-    ].join("\n");
+    // Build YouTube chapter markers from the REAL rendered timings. YouTube
+    // shows these as clickable sections and they can rank separately in Google.
+    // First chapter MUST start at 0:00 or YouTube ignores the whole list.
+    const sortedChapters = [...(chapters ?? [])].sort((a, b) => a.startSecs - b.startSecs);
+    if (sortedChapters.length > 0) sortedChapters[0] = { ...sortedChapters[0], startSecs: 0 };
+    const chapterLines = sortedChapters.map((c) => {
+      const total = Math.max(0, Math.floor(c.startSecs));
+      const m = Math.floor(total / 60);
+      const s = (total % 60).toString().padStart(2, "0");
+      return `${m}:${s} ${c.title}`;
+    });
+    const chapterBlock = chapterLines.length > 0
+      ? `Chapters:\n${chapterLines.join("\n")}`
+      : "";
 
-    const youtubeUrl = await uploadToYouTube(videoBuffer, title.trim(), description);
+    // Inject chapters into the {{CHAPTERS}} slot. If the model omitted the
+    // placeholder, append the block; if there are no chapters, strip the slot.
+    let description = seo.description.includes(CHAPTERS_PLACEHOLDER)
+      ? seo.description.replace(CHAPTERS_PLACEHOLDER, chapterBlock)
+      : (chapterBlock ? `${seo.description}\n\n${chapterBlock}` : seo.description);
+    description = description.replace(/\n{3,}/g, "\n\n").trim(); // tidy blank runs
+
+    console.log(`[upload-video] SEO title: "${seo.title}" | ${seo.tags.length} tags | ${chapterLines.length} chapters`);
+
+    const youtubeUrl = await uploadToYouTube(videoBuffer, seo.title, description, seo.tags);
     console.log(`[upload-video] YouTube URL: ${youtubeUrl}`);
 
     await updatePostVideoUrl(postId, youtubeUrl);

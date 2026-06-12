@@ -178,25 +178,53 @@ function youtubeClient() {
 }
 
 /**
+ * YouTube limits the total length of all tags combined to ~500 characters
+ * (commas count). Dedupe, drop empties, and accumulate until the budget is hit
+ * so an oversized tag list can never reject the entire upload.
+ */
+function sanitizeYouTubeTags(tags: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  let budget = 480; // leave headroom under the 500 cap
+  for (const raw of tags) {
+    const tag = (raw ?? "").replace(/[<>]/g, "").trim();
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    const cost = tag.length + 1; // +1 approximates the comma separator
+    if (budget - cost < 0) break;
+    out.push(tag);
+    seen.add(key);
+    budget -= cost;
+  }
+  return out;
+}
+
+/**
  * Uploads a video Buffer to YouTube.
  * Returns the full YouTube watch URL.
  */
 export async function uploadToYouTube(
   videoBuffer: Buffer,
   title: string,
-  description: string
+  description: string,
+  tags: string[] = ["business", "UAE", "Aston"]
 ): Promise<string> {
   const yt = youtubeClient();
   const videoStream = Readable.from(videoBuffer);
+
+  // YouTube caps the combined tag length at ~500 chars; trim defensively so a
+  // long tag list never rejects the whole upload.
+  const safeTags = sanitizeYouTubeTags(tags);
 
   const res = await yt.videos.insert({
     part: ["snippet", "status"],
     requestBody: {
       snippet: {
         title: title.slice(0, 100),
-        description,
+        description: description.slice(0, 5000),
         categoryId: "22", // People & Blogs
-        tags: ["business", "UAE", "Aston"],
+        tags: safeTags,
       },
       status: {
         privacyStatus: "unlisted", // accessible via link but not searchable
