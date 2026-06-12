@@ -279,11 +279,21 @@ export async function POST(req: NextRequest) {
             "keypoint_one","keypoint_two","quote_1","quote_2",
             "key_takeaways","final_points","excerpt",
             "seo_title","meta_description",
+            // focus_keyword + slug MUST be normalised too, otherwise a "licence"
+            // keyword can never match the "license"-corrected title and the
+            // focus_keyword_in_title check fails on every attempt.
+            "focus_keyword","slug",
           ] as const;
           for (const key of contentKeys) {
             if (typeof content[key] === "string") {
               content[key] = applyLicenceFix(content[key] as string);
             }
+          }
+          // secondary_keywords is an array — normalise each entry for consistency
+          if (Array.isArray(content.secondary_keywords)) {
+            content.secondary_keywords = content.secondary_keywords.map((k) =>
+              typeof k === "string" ? applyLicenceFix(k) : k
+            );
           }
 
           const placeholderImageIds = { keypointOneImg: 0, keypointTwoImg: 0, postSplitImg: 0, featuredImg: 0 };

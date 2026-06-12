@@ -181,7 +181,12 @@ export function runQA(
     content.excerpt,
   ].join(" ");
 
-  const kw = (content.focus_keyword ?? "").toLowerCase();
+  // Normalise British "licence" → house-style "license" on BOTH sides of every
+  // keyword comparison. Otherwise a focus keyword like "UAE trade licence" can
+  // never match the "license"-corrected title, and focus_keyword_in_title (a
+  // blocking check) fails on every attempt — discarding the whole article.
+  const houseStyle = (s: string) => s.replace(/\blicenc(e|es|ed|ing)\b/gi, "licens$1");
+  const kw = houseStyle((content.focus_keyword ?? "").toLowerCase());
 
   // ── BLOCKING CHECKS ───────────────────────────────────────
   // Any failure here prevents the WordPress post from being created.
@@ -241,7 +246,7 @@ export function runQA(
 
   // Focus keyword in SEO title
   checks.focus_keyword_in_title = kw
-    ? (content.seo_title ?? "").toLowerCase().includes(kw)
+    ? houseStyle((content.seo_title ?? "").toLowerCase()).includes(kw)
     : false;
 
   // ── WARNING CHECKS ────────────────────────────────────────
@@ -270,7 +275,7 @@ export function runQA(
     warnings.push(`Only ${h4Count} H4 subsections found (minimum 6)`);
 
   // Focus keyword in intro (first 300 plain-text chars of main_content)
-  const introText = stripHtml(content.main_content ?? "").slice(0, 300).toLowerCase();
+  const introText = houseStyle(stripHtml(content.main_content ?? "").slice(0, 300).toLowerCase());
   checks.focus_keyword_in_intro = kw ? introText.includes(kw) : false;
   if (!checks.focus_keyword_in_intro && kw)
     warnings.push(`Focus keyword "${content.focus_keyword}" not found in intro`);
@@ -278,7 +283,7 @@ export function runQA(
   // Focus keyword in at least one section heading.
   // Uses word-overlap (≥50% of keyword words present) so partial matches like
   // "DFSA Tokenisation Sandbox" pass for keyword "dfsa tokenisation regulatory sandbox".
-  const headings = extractHeadingText(bodyFields);
+  const headings = extractHeadingText(bodyFields).map(houseStyle);
   const kwWords = kw ? kw.split(/\s+/).filter(Boolean) : [];
   const headingMatchesKw = (h: string) => {
     if (!kwWords.length) return false;
