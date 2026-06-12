@@ -964,121 +964,183 @@ export default function HomePage() {
     setRetryMessage(null);
     const interval = startStepCycle();
 
+    // Shared SSE event handler for both pipelines. Returns "done" on the terminal
+    // done event; throws on an error event. Keeps the two code paths in sync.
+    const dispatch = (event: Record<string, unknown>): "continue" | "done" => {
+      if (event.type === "qa_retry") {
+        setRetryMessage(`QA check didn't pass — rewriting content (attempt ${event.attempt}/${event.max})...`);
+        return "continue";
+      }
+      if (event.type === "tech_retry") {
+        const reason = event.reason ? ` (${String(event.reason).slice(0, 120)})` : "";
+        setRetryMessage(`Technical issue — retrying (attempt ${event.attempt}/${event.max})...${reason}`);
+        return "continue";
+      }
+      if (event.type === "progress") {
+        if (typeof event.message === "string" && event.message) setRetryMessage(event.message as string);
+        return "continue";
+      }
+      if (event.type === "done") {
+        clearInterval(interval);
+        setRetryMessage(null);
+        const data = event as unknown as GenerateResult;
+        setResult(data);
+        const raw = event as unknown as Record<string, string>;
+        setBlogContent({
+          main_content:   raw.main_content   ?? "",
+          more_content_1: raw.more_content_1 ?? "",
+          more_content_2: raw.more_content_2 ?? "",
+          more_content_3: raw.more_content_3 ?? "",
+          more_content_4: raw.more_content_4 ?? "",
+          more_content_5: raw.more_content_5 ?? "",
+          more_content_6: raw.more_content_6 ?? "",
+          final_points:   raw.final_points   ?? "",
+        });
+        setStatus("success");
+        if ((event.linksUsed as GenerateResult["linksUsed"])) {
+          runLinkValidation([
+            ...(event.linksUsed as GenerateResult["linksUsed"]).internal,
+            ...(event.linksUsed as GenerateResult["linksUsed"]).external,
+          ], data);
+        }
+        const evtRaw = event as unknown as Record<string, unknown>;
+        if (evtRaw.imagePrompts && evtRaw.postId) {
+          generateImages(
+            evtRaw.postId as number,
+            evtRaw.fileSlug as string,
+            evtRaw.imageModel as string,
+            evtRaw.imagePrompts as Record<string, string>,
+            (evtRaw.flowchartMermaid as string) ?? ""
+          );
+        }
+        return "done";
+      }
+      if (event.type === "error") {
+        // Guard: a non-string message would make new Error(obj) say "[object Object]".
+        const errText = typeof event.message === "string" && event.message
+          ? event.message
+          : "Generation failed. Please try again.";
+        throw new Error(errText);
+      }
+      return "continue";
+    };
+
+    const requestBody = JSON.stringify({
+      topic:               topic.trim(),
+      mode,
+      sourceText:          sourceText.trim(),
+      audience:            audience.trim() || undefined,
+      primary_country:     primaryCountry.trim() || undefined,
+      secondary_countries: secondaryCountries.trim() || undefined,
+      priority_service:    priorityService.trim() || undefined,
+      language:            language.trim() || undefined,
+      customPrompt:        customPrompt.trim() || undefined,
+      imageModel,
+    });
+
+    // Parse a validation error (non-2xx JSON returned before any stream starts).
+    const parseError = async (res: Response): Promise<string> => {
+      let msg = "Generation failed. Please try again.";
+      try {
+        const parsed = await res.json();
+        if (typeof parsed.error === "string" && parsed.error) msg = parsed.error;
+        else if (typeof parsed.message === "string" && parsed.message) msg = parsed.message;
+      } catch {
+        msg = await res.text().catch(() => msg) || msg;
+      }
+      return msg;
+    };
+
     try {
-      const endpoint = useDurablePipeline ? "/api/generate-workflow" : "/api/generate";
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          topic:               topic.trim(),
-          mode,
-          sourceText:          sourceText.trim(),
-          audience:            audience.trim() || undefined,
-          primary_country:     primaryCountry.trim() || undefined,
-          secondary_countries: secondaryCountries.trim() || undefined,
-          priority_service:    priorityService.trim() || undefined,
-          language:            language.trim() || undefined,
-          customPrompt:        customPrompt.trim() || undefined,
-          imageModel,
-        }),
-      });
+      if (useDurablePipeline) {
+        // ── Durable pipeline ──────────────────────────────────────
+        // Start the run, then FOLLOW its durable stream. The run keeps executing
+        // server-side across step suspensions even if a streaming connection
+        // drops, so we reconnect to the run's stream until the terminal event
+        // arrives. We replay from the start each connection and skip events we
+        // already handled — correct regardless of startIndex semantics, and cheap
+        // since progress events are tiny and the big done event is terminal.
+        const startRes = await fetch("/api/generate-workflow", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: requestBody,
+        });
+        if (!startRes.ok) throw new Error(await parseError(startRes));
+        const runId = startRes.headers.get("X-Workflow-Run-Id");
+        try { await startRes.body?.cancel(); } catch { /* release the kickoff stream */ }
+        if (!runId) throw new Error("Could not start generation — no run id returned.");
 
-      // Validation errors (400/401) come back as plain JSON before the stream starts
-      if (!res.ok) {
-        let errMsg = "Generation failed. Please try again.";
-        try {
-          const parsed = await res.json();
-          // Guard: only use the error field if it is actually a non-empty string.
-          // If the server (or CDN / Vercel edge) returns a non-string value for
-          // `.error` (e.g. a nested object), calling new Error(obj) produces the
-          // unhelpful "[object Object]" message — avoid that here.
-          if (typeof parsed.error === "string" && parsed.error) errMsg = parsed.error;
-          else if (typeof parsed.message === "string" && parsed.message) errMsg = parsed.message;
-        } catch {
-          errMsg = await res.text().catch(() => errMsg) || errMsg;
-        }
-        throw new Error(errMsg);
-      }
+        let dispatched = 0;          // events already handled across all connections
+        let terminal = false;
+        let emptyReconnects = 0;
+        const MAX_EMPTY_RECONNECTS = 6;
 
-      // Read SSE stream
-      const reader  = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let   buffer  = "";
-      let   completed = false;
-
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop() ?? "";
-
-        for (const part of parts) {
-          const dataLine = part.split("\n").find(l => l.startsWith("data: "));
-          if (!dataLine) continue;
-          let event: Record<string, unknown>;
-          try { event = JSON.parse(dataLine.slice(6)); } catch { continue; }
-
-          if (event.type === "qa_retry") {
-            setRetryMessage(`QA check didn't pass — rewriting content (attempt ${event.attempt}/${event.max})...`);
-          } else if (event.type === "tech_retry") {
-            const reason = event.reason ? ` (${String(event.reason).slice(0, 120)})` : "";
-            setRetryMessage(`Technical issue — retrying (attempt ${event.attempt}/${event.max})...${reason}`);
-          } else if (event.type === "done") {
-            clearInterval(interval);
-            setRetryMessage(null);
-            const data = event as unknown as GenerateResult;
-            console.log("[generate] done event postId:", (event as Record<string, unknown>).postId);
-            setResult(data);
-            // Capture raw article fields for audio generation
-            const raw = event as unknown as Record<string, string>;
-            setBlogContent({
-              main_content:   raw.main_content   ?? "",
-              more_content_1: raw.more_content_1 ?? "",
-              more_content_2: raw.more_content_2 ?? "",
-              more_content_3: raw.more_content_3 ?? "",
-              more_content_4: raw.more_content_4 ?? "",
-              more_content_5: raw.more_content_5 ?? "",
-              more_content_6: raw.more_content_6 ?? "",
-              final_points:   raw.final_points   ?? "",
-            });
-            setStatus("success");
-            completed = true;
-            if ((event.linksUsed as GenerateResult["linksUsed"])) {
-              runLinkValidation([
-                ...(event.linksUsed as GenerateResult["linksUsed"]).internal,
-                ...(event.linksUsed as GenerateResult["linksUsed"]).external,
-              ], data);
-            }
-            // Auto-trigger image generation in a separate request
-            const evtRaw = event as unknown as Record<string, unknown>;
-            if (evtRaw.imagePrompts && evtRaw.postId) {
-              generateImages(
-                evtRaw.postId as number,
-                evtRaw.fileSlug as string,
-                evtRaw.imageModel as string,
-                evtRaw.imagePrompts as Record<string, string>,
-                (evtRaw.flowchartMermaid as string) ?? ""
-              );
-            }
-            return;
-          } else if (event.type === "error") {
-            completed = true;
-            // Guard: event.message should always be a string, but if the server
-            // sends a non-string value, String(obj) produces "[object Object]".
-            const errText = typeof event.message === "string" && event.message
-              ? event.message
-              : "Generation failed. Please try again.";
-            throw new Error(errText);
+        while (!terminal) {
+          const streamRes = await fetch(`/api/generate-workflow/${encodeURIComponent(runId)}`);
+          if (!streamRes.ok || !streamRes.body) {
+            if (++emptyReconnects > MAX_EMPTY_RECONNECTS) throw new Error("Lost connection to the generation run. Check WordPress drafts before retrying.");
+            await new Promise((r) => setTimeout(r, 2000));
+            continue;
           }
+          const reader = streamRes.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          let idx = 0;               // position within this replayed stream
+          let newThisConnection = 0;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split("\n\n");
+            buffer = parts.pop() ?? "";
+            for (const part of parts) {
+              const dataLine = part.split("\n").find((l) => l.startsWith("data: "));
+              if (!dataLine) continue;
+              let event: Record<string, unknown>;
+              try { event = JSON.parse(dataLine.slice(6)); } catch { continue; }
+              if (idx++ < dispatched) continue;   // already handled in a prior connection
+              dispatched++; newThisConnection++;
+              if (dispatch(event) === "done") { terminal = true; break; }
+            }
+            if (terminal) break;
+          }
+          if (terminal) break;
+          // Connection closed without a terminal event (function hit its limit, or
+          // a network drop). Reconnect; guard against an endlessly empty stream.
+          if (newThisConnection > 0) emptyReconnects = 0;
+          else if (++emptyReconnects > MAX_EMPTY_RECONNECTS) throw new Error("The generation run stalled without finishing. Check WordPress drafts, or try again.");
+          await new Promise((r) => setTimeout(r, 1500));
         }
-      }
+      } else {
+        // ── Legacy single-stream pipeline ─────────────────────────
+        const res = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: requestBody,
+        });
+        if (!res.ok) throw new Error(await parseError(res));
 
-      // Stream closed without a done/error event — server likely timed out
-      if (!completed) {
-        throw new Error("The server took too long to respond. Please try again.");
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let completed = false;
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() ?? "";
+          for (const part of parts) {
+            const dataLine = part.split("\n").find((l) => l.startsWith("data: "));
+            if (!dataLine) continue;
+            let event: Record<string, unknown>;
+            try { event = JSON.parse(dataLine.slice(6)); } catch { continue; }
+            if (dispatch(event) === "done") { completed = true; break; }
+          }
+          if (completed) break;
+        }
+        if (!completed) throw new Error("The server took too long to respond. Please try again.");
       }
     } catch (err: unknown) {
       clearInterval(interval);
