@@ -218,14 +218,25 @@ export async function uploadToYouTube(
 /**
  * Patches the WP post's ACF `video_url` field with the YouTube URL.
  * Requires a `video_url` ACF field to be registered on the post type in WordPress.
+ *
+ * IMPORTANT: the field is stored as the EMBED URL (youtube.com/embed/ID), not the
+ * watch URL. WordPress themes drop this value straight into an <iframe src>, and a
+ * plain watch URL cannot be framed — YouTube refuses it and serves its cookie /
+ * sign-in wall instead, which looks like "log in to Google to view the video".
+ * The /embed/ form is the only URL YouTube allows inside an iframe.
  */
 export async function updatePostVideoUrl(
   postId: number,
   youtubeUrl: string
 ): Promise<void> {
+  const videoId = extractYouTubeVideoId(youtubeUrl);
+  const embedUrl = videoId
+    ? `https://www.youtube.com/embed/${videoId}`
+    : youtubeUrl; // fall back to whatever we were given if parsing fails
+
   await axios.post(
     `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
-    { acf: { video_url: youtubeUrl } },
+    { acf: { video_url: embedUrl } },
     { headers: BASE_HEADERS, timeout: 15_000 }
   );
 }
@@ -245,17 +256,23 @@ export async function updatePostAudioUrl(
 // ── 5. YouTube deletion ───────────────────────────────────────────────────────
 
 /**
- * Extracts the YouTube video ID from a watch URL or short URL.
+ * Extracts the YouTube video ID from any common YouTube URL form.
  * Supports:
  *   https://www.youtube.com/watch?v=VIDEO_ID
  *   https://youtu.be/VIDEO_ID
+ *   https://www.youtube.com/embed/VIDEO_ID
+ *   https://www.youtube.com/shorts/VIDEO_ID
  */
 function extractYouTubeVideoId(url: string): string | null {
   try {
     const parsed = new URL(url);
     if (parsed.hostname.includes("youtu.be")) {
-      return parsed.pathname.slice(1) || null;
+      return parsed.pathname.slice(1).split("/")[0] || null;
     }
+    // /embed/ID and /shorts/ID forms carry the ID in the path
+    const pathMatch = parsed.pathname.match(/\/(?:embed|shorts)\/([^/?#]+)/);
+    if (pathMatch) return pathMatch[1];
+    // watch?v=ID form
     return parsed.searchParams.get("v");
   } catch {
     return null;
