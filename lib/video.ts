@@ -227,7 +227,7 @@ export async function uploadToYouTube(
         tags: safeTags,
       },
       status: {
-        privacyStatus: "unlisted", // accessible via link but not searchable
+        privacyStatus: "public", // publicly listed and searchable on YouTube
       },
     },
     media: {

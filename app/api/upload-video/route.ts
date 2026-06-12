@@ -7,7 +7,7 @@
  *   videoUrl   — Shotstack MP4 URL (fetched server-side, then uploaded)
  *   videoBase64 — legacy base64 encoded video (backward compat)
  *
- * Uploads to YouTube (unlisted) and patches the WP post's ACF video_url.
+ * Uploads to YouTube (public) and patches the WP post's ACF video_url.
  */
 
 import { NextRequest, NextResponse } from "next/server";
