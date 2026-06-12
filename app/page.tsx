@@ -70,6 +70,10 @@ interface GenerateResult {
   language?: string | null;
   editUrl: string;
   previewUrl: string;
+  // Durable workflow pipeline only: set when QA could not fully pass and the
+  // article was saved as a draft for human review instead of being discarded.
+  needsReview?: boolean;
+  failingChecks?: string[];
 }
 
 interface TargetConfig {
@@ -823,6 +827,17 @@ export default function HomePage() {
   const [result, setResult]         = useState<GenerateResult | null>(null);
   const [blogContent, setBlogContent] = useState<Record<string, string> | null>(null);
   const [error, setError]           = useState("");
+  // Durable pipeline toggle — when on, generation runs through the resumable
+  // Workflow route (/api/generate-workflow) that can't fail midway. Persisted so
+  // the choice sticks across reloads. Defaults off until validated in production.
+  const [useDurablePipeline, setUseDurablePipeline] = useState(false);
+  useEffect(() => {
+    setUseDurablePipeline(localStorage.getItem("aston_durable_pipeline") === "1");
+  }, []);
+  const toggleDurablePipeline = (on: boolean) => {
+    setUseDurablePipeline(on);
+    localStorage.setItem("aston_durable_pipeline", on ? "1" : "0");
+  };
 
   const [customPrompt, setCustomPrompt] = useState("");
 
@@ -950,7 +965,8 @@ export default function HomePage() {
     const interval = startStepCycle();
 
     try {
-      const res = await fetch("/api/generate", {
+      const endpoint = useDurablePipeline ? "/api/generate-workflow" : "/api/generate";
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2273,12 +2289,28 @@ export default function HomePage() {
                 </div>
               )}
 
+              <label className="flex items-center justify-between gap-3 mb-3 px-3 py-2.5 rounded-lg border border-white/[0.08] bg-white/[0.02] cursor-pointer">
+                <span className="flex flex-col">
+                  <span className="text-xs text-white/70 font-medium">Durable pipeline (beta)</span>
+                  <span className="text-[10px] text-white/35">Resumable — won&apos;t fail midway. Saves a draft even if QA needs review.</span>
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={useDurablePipeline}
+                  onClick={() => toggleDurablePipeline(!useDurablePipeline)}
+                  className={`relative shrink-0 w-10 h-5 rounded-full transition-colors duration-200 ${useDurablePipeline ? "bg-[#C9A84C]" : "bg-white/15"}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform duration-200 ${useDurablePipeline ? "translate-x-5" : ""}`} />
+                </button>
+              </label>
+
               <button
                 onClick={handleGenerate}
                 disabled={!canGenerate}
                 className="w-full bg-[#C9A84C] hover:bg-[#D4B86A] disabled:opacity-30 disabled:cursor-not-allowed text-black font-medium text-sm tracking-wide py-3.5 rounded-lg transition-all duration-200"
               >
-                Generate Post
+                Generate Post{useDurablePipeline ? " (durable)" : ""}
               </button>
 
               <div>
@@ -2335,6 +2367,22 @@ export default function HomePage() {
                 </div>
                 <span className="text-sm text-white/60">Draft published to WordPress</span>
               </div>
+
+              {result.needsReview && (
+                <div className="rounded-lg px-4 py-3 border bg-amber-500/10 border-amber-500/30">
+                  <p className="text-xs font-medium tracking-wide uppercase text-amber-400 mb-1">Saved as draft · needs review</p>
+                  <p className="text-xs text-white/55 leading-relaxed">
+                    The article was generated and saved, but these checks could not be auto-fixed. Review them in WordPress before publishing:
+                  </p>
+                  {result.failingChecks && result.failingChecks.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {result.failingChecks.map((c, i) => (
+                        <li key={i} className="text-xs text-amber-300/80">• {c.replace(/_/g, " ")}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
 
               <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-5 space-y-4">
                 <div>

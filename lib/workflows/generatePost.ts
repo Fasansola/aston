@@ -228,7 +228,10 @@ async function qaStep(
 
 async function publishStep(
   title: string, content: BlogContent, imagePrompts: ImagePrompts, language: string
-): Promise<{ postId: number; link: string | null; articleHtml: string }> {
+): Promise<{
+  postId: number; link: string | null; articleHtml: string;
+  assembled: { main_content: string; more_content_1: string; more_content_3: string; more_content_4: string };
+}> {
   "use step";
   // IMGSLOT_* markers are placeholders the image step replaces later.
   const assembled = {
@@ -243,7 +246,62 @@ async function publishStep(
     content.more_content_2, content.quote_1, assembled.more_content_3, content.keypoint_two,
     assembled.more_content_4, content.quote_2, content.more_content_5, content.more_content_6, content.final_points,
   ].filter(Boolean).join("\n");
-  return { postId: post.id, link: post.link ?? null, articleHtml };
+  return { postId: post.id, link: post.link ?? null, articleHtml, assembled };
+}
+
+// Build the full `done` event payload — matches the old /api/generate contract
+// so the client's downstream (image generation, audio, link validation) works
+// identically. Pure object construction is safe in workflow context.
+function buildDoneEvent(args: {
+  published: Awaited<ReturnType<typeof publishStep>>;
+  content: BlogContent;
+  imagePrompts: ImagePrompts;
+  fileSlug: string;
+  imageModel: ImageModel;
+  readMins: string;
+  wordCount: number;
+  language: string;
+  needsReview: boolean;
+  failingChecks?: string[];
+  qa?: { status: string; score: number; warnings: string[] };
+}): Record<string, unknown> {
+  const { published, content, imagePrompts, fileSlug, imageModel, readMins, wordCount, language } = args;
+  return {
+    type: "done", success: true,
+    needsReview: args.needsReview,
+    ...(args.failingChecks ? { failingChecks: args.failingChecks } : {}),
+    ...(args.qa ? { qa: args.qa } : {}),
+    postId: published.postId,
+    slug: content.slug,
+    title: content.seo_title,
+    focusKeyword: content.focus_keyword,
+    seoTitle: content.seo_title,
+    readMins, wordCount,
+    previewUrl: published.link,
+    editUrl: published.postId ? `${process.env.WP_URL}/wp-admin/post.php?post=${published.postId}&action=edit` : "",
+    articleHtml: published.articleHtml,
+    excerpt: content.excerpt,
+    metaDescription: content.meta_description,
+    tags: content.secondary_keywords ?? [],
+    language: language || null,
+    // Downstream triggers (image generation in a separate request)
+    imagePrompts, fileSlug, imageModel,
+    flowchartMermaid: content.flowchart_mermaid ?? "",
+    // Link validation
+    linksUsed: { internal: content.internal_links_used ?? [], external: content.external_links_used ?? [] },
+    // Raw fields for audio narration (assembled where IMGSLOTs were stripped)
+    main_content:   published.assembled.main_content,
+    more_content_1: published.assembled.more_content_1,
+    more_content_2: content.more_content_2 ?? "",
+    more_content_3: published.assembled.more_content_3,
+    more_content_4: published.assembled.more_content_4,
+    more_content_5: content.more_content_5 ?? "",
+    more_content_6: content.more_content_6 ?? "",
+    final_points:   content.final_points ?? "",
+    message: args.needsReview
+      ? `Saved as draft — these checks need review: ${(args.failingChecks ?? []).join(", ")}`
+      : undefined,
+  };
 }
 
 // ── Orchestrator ──────────────────────────────────────────────
@@ -262,6 +320,8 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
     title = derived.title;
     strategyTopic = derived.topic;
   }
+
+  const fileSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
 
   // Setup (steps auto-retry transient errors; research/authority degrade gracefully)
   const research = await researchStep(title, input.primary_country, input.customInstruction);
@@ -307,16 +367,11 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
       }
       // EXHAUSTED — never discard: save as draft + notify which checks failed.
       const published = await publishStep(title, content, imagePrompts, input.language);
-      await emit({
-        type: "done", success: true, needsReview: true,
-        postId: published.postId, slug: content.slug, focusKeyword: content.focus_keyword,
-        seoTitle: content.seo_title, readMins, wordCount: qa.wordCount,
-        previewUrl: published.link, articleHtml: published.articleHtml,
-        metaDescription: content.meta_description, tags: content.secondary_keywords ?? [],
-        language: input.language || null,
-        failingChecks: qa.blocking_issues,
-        message: `Saved as draft — these checks need review: ${qa.blocking_issues.join(", ")}`,
-      });
+      await emit(buildDoneEvent({
+        published, content, imagePrompts, fileSlug, imageModel: input.imageModel,
+        readMins, wordCount: qa.wordCount, language: input.language,
+        needsReview: true, failingChecks: qa.blocking_issues,
+      }));
       await closeStream();
       return { postId: published.postId, needsReview: true };
     }
@@ -332,15 +387,11 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
 
     // PASS → publish draft
     const published = await publishStep(title, content, imagePrompts, input.language);
-    await emit({
-      type: "done", success: true, needsReview: false,
-      postId: published.postId, slug: content.slug, focusKeyword: content.focus_keyword,
-      seoTitle: content.seo_title, readMins, wordCount: qa.wordCount,
-      previewUrl: published.link, articleHtml: published.articleHtml,
-      metaDescription: content.meta_description, tags: content.secondary_keywords ?? [],
-      language: input.language || null,
-      qa: { status: qa.status, score: qa.score, warnings: qa.warnings },
-    });
+    await emit(buildDoneEvent({
+      published, content, imagePrompts, fileSlug, imageModel: input.imageModel,
+      readMins, wordCount: qa.wordCount, language: input.language,
+      needsReview: false, qa: { status: qa.status, score: qa.score, warnings: qa.warnings },
+    }));
     await closeStream();
     return { postId: published.postId, needsReview: false };
   }
