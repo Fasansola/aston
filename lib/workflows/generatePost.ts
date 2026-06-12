@@ -251,6 +251,7 @@ async function publishStep(
 export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ postId: number; needsReview: boolean }> {
   "use workflow";
 
+  try {
   await emit({ type: "progress", message: "Researching and planning…" });
 
   // Title / topic
@@ -346,4 +347,15 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
 
   // Unreachable — the loop always returns. Fatal so it surfaces if logic changes.
   throw new FatalError("QA loop exited without publishing");
+  } catch (err) {
+    // A step failed after exhausting WDK's retries (or a fatal error like a bad
+    // API key). Tell the client and close the stream so it never hangs, then
+    // re-throw so the run is marked failed in observability.
+    const message = err instanceof Error && err.message
+      ? err.message
+      : "Generation failed unexpectedly. Please try again.";
+    await emit({ type: "error", message });
+    await closeStream();
+    throw err;
+  }
 }
