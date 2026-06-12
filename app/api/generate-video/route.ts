@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI }                                                             from "@google/genai";
 import { segmentVideoScript, calibrateSegmentDurations }                          from "@/lib/videoScript";
+import { buildSrtFromSegments }                                                   from "@/lib/video";
 import { submitRemotionRender }                                                    from "@/lib/remotionRenderer";
 import type { VideoSegment }                                                       from "@/src/remotion/VideoComposition";
 import { uploadSceneImageToS3, uploadAssetToS3 }                                  from "@/lib/sceneImageS3";
@@ -304,6 +305,13 @@ export async function POST(req: NextRequest) {
         return chapter;
       });
 
+      // Build an SRT caption track from the same calibrated segments so the text
+      // is correctly spelled and timed to the narration (uploaded after the video
+      // lands on YouTube — see /api/upload-video). Phase 2 SEO.
+      const captionsSrt = buildSrtFromSegments(
+        calibrated.map((seg) => ({ displayText: seg.displayText, durationSeconds: seg.durationSeconds }))
+      );
+
       await send({
         type:         "submitted",
         renderId,
@@ -311,6 +319,7 @@ export async function POST(req: NextRequest) {
         totalDurationSecs,
         sceneCount:   calibrated.length,
         chapters,
+        captionsSrt,
         elapsedSecs:  elapsed(),
         message:      `Rendering ${calibrated.length} scenes (~${Math.round(totalDurationSecs / 60)} min video)…`,
       });

@@ -904,6 +904,7 @@ export default function HomePage() {
   const [videoRenderId, setVideoRenderId]       = useState<string | null>(null);
   const [videoBucketName, setVideoBucketName]   = useState<string | null>(null);
   const [videoChapters, setVideoChapters]       = useState<Array<{ title: string; startSecs: number }>>([]);
+  const [videoCaptionsSrt, setVideoCaptionsSrt] = useState<string>("");
   const [youtubeUrl, setYoutubeUrl]       = useState<string | null>(null);
 
   const [imageGenStatus, setImageGenStatus]     = useState<"idle" | "generating" | "done" | "error">("idle");
@@ -1505,6 +1506,7 @@ export default function HomePage() {
     setVideoRenderId(null);
     setVideoBucketName(null);
     setVideoChapters([]);
+    setVideoCaptionsSrt("");
     setYoutubeUrl(null);
     setAudioStatus("idle");
     setAudioProgress("");
@@ -1523,6 +1525,7 @@ export default function HomePage() {
     setVideoUrl(null);
     setVideoRenderId(null);
     setVideoChapters([]);
+    setVideoCaptionsSrt("");
     setYoutubeUrl(null);
 
     const timerStart = Date.now();
@@ -1580,6 +1583,9 @@ export default function HomePage() {
               setVideoProgress(String(event.message ?? "Video rendering on Remotion Lambda…"));
               if (Array.isArray(event.chapters)) {
                 setVideoChapters(event.chapters as Array<{ title: string; startSecs: number }>);
+              }
+              if (typeof event.captionsSrt === "string") {
+                setVideoCaptionsSrt(event.captionsSrt as string);
               }
               clearInterval(timer);
               pollRemotionRender(rId, bucket);
@@ -1651,6 +1657,7 @@ export default function HomePage() {
           videoUrl:          videoUrl    || undefined,
           videoBase64:       videoBase64 || undefined,
           chapters:          videoChapters.length > 0 ? videoChapters : undefined,
+          captionsSrt:       videoCaptionsSrt || undefined,
           // Blog SEO context → drives the keyword-first YouTube title, rich
           // description, and tags (see lib/youtubeSeo.ts).
           focusKeyword:      result.focusKeyword || undefined,

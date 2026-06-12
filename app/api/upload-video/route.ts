@@ -11,8 +11,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { uploadToYouTube, updatePostVideoUrl } from "@/lib/video";
-import { generateYouTubeSeoPackage, CHAPTERS_PLACEHOLDER } from "@/lib/youtubeSeo";
+import { uploadToYouTube, updatePostVideoUrl, uploadCaptions, postVideoComment } from "@/lib/video";
+import { generateYouTubeSeoPackage, CHAPTERS_PLACEHOLDER, CONTACT_URL } from "@/lib/youtubeSeo";
 
 export const maxDuration = 180;
 
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
 
   const {
     postId, title, videoUrl, videoBase64, chapters,
-    focusKeyword, secondaryKeywords, summary, blogUrl, language,
+    focusKeyword, secondaryKeywords, summary, blogUrl, language, captionsSrt,
   } = body as {
     postId?: number;
     title?: string;
@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
     summary?: string;
     blogUrl?: string;
     language?: string | null;
+    captionsSrt?: string;
   };
 
   if (!postId || typeof postId !== "number")
@@ -104,7 +105,40 @@ export async function POST(req: NextRequest) {
     await updatePostVideoUrl(postId, youtubeUrl);
     console.log(`[upload-video] WP post ${postId} patched.`);
 
-    return NextResponse.json({ youtubeUrl });
+    // ── Phase 2 SEO: caption track + top-level comment ──────────────
+    // Both need the youtube.force-ssl scope and are NON-FATAL: if the scope is
+    // missing (token not yet regenerated) or YouTube restricts them, the video
+    // upload still succeeds. They self-heal once the broader-scope token is live.
+    const videoId = new URL(youtubeUrl).searchParams.get("v") ?? "";
+    let captionsUploaded = false;
+    let commentPosted = false;
+
+    if (videoId && captionsSrt?.trim()) {
+      try {
+        await uploadCaptions(videoId, captionsSrt, language ?? undefined);
+        captionsUploaded = true;
+        console.log(`[upload-video] Captions uploaded for ${videoId}`);
+      } catch (capErr) {
+        console.warn(`[upload-video] Caption upload skipped (non-fatal): ${capErr instanceof Error ? capErr.message : String(capErr)}`);
+      }
+    }
+
+    if (videoId) {
+      const kw = focusKeyword?.trim() || title.trim();
+      const commentLines = [
+        `Need help with ${kw}? Book a consultation: ${CONTACT_URL}`,
+        ...(blogUrl?.trim() ? [`Read the full guide: ${blogUrl.trim()}`] : []),
+      ];
+      try {
+        await postVideoComment(videoId, commentLines.join("\n"));
+        commentPosted = true;
+        console.log(`[upload-video] Comment posted on ${videoId}`);
+      } catch (comErr) {
+        console.warn(`[upload-video] Comment skipped (non-fatal): ${comErr instanceof Error ? comErr.message : String(comErr)}`);
+      }
+    }
+
+    return NextResponse.json({ youtubeUrl, captionsUploaded, commentPosted });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[upload-video] Failed: ${msg}`);

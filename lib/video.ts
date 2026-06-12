@@ -241,6 +241,86 @@ export async function uploadToYouTube(
   return `https://www.youtube.com/watch?v=${videoId}`;
 }
 
+// ── 3b. Captions (SRT) + auto-comment — Phase 2 SEO ───────────────────────────
+// Both require the youtube.force-ssl OAuth scope. Callers should treat failures
+// as non-fatal so a missing scope (or audit restriction) never breaks the upload.
+
+/** Formats a seconds value as an SRT timestamp: HH:MM:SS,mmm */
+function srtTimestamp(totalSeconds: number): string {
+  const ms = Math.max(0, Math.round(totalSeconds * 1000));
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  const s = Math.floor((ms % 60_000) / 1000);
+  const millis = ms % 1000;
+  const p = (n: number, w = 2) => n.toString().padStart(w, "0");
+  return `${p(h)}:${p(m)}:${p(s)},${p(millis, 3)}`;
+}
+
+/**
+ * Builds an SRT caption file from the rendered video's segments. Each segment's
+ * on-screen text is split into sentences spread evenly across that segment's time
+ * window (segments play back-to-back), so cue timing tracks the narration closely
+ * and the text is spelled correctly (unlike YouTube auto-captions).
+ */
+export function buildSrtFromSegments(
+  segments: Array<{ displayText: string; durationSeconds: number }>
+): string {
+  const cues: Array<{ start: number; end: number; text: string }> = [];
+  let offset = 0;
+  for (const seg of segments) {
+    const start = offset;
+    const end = offset + (seg.durationSeconds || 0);
+    offset = end;
+    const text = (seg.displayText || "").replace(/\s+/g, " ").trim();
+    if (!text || end <= start) continue;
+    const sentences = (text.match(/[^.!?]+[.!?]*/g) ?? [text])
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const per = (end - start) / sentences.length;
+    sentences.forEach((sentence, i) => {
+      cues.push({ start: start + i * per, end: start + (i + 1) * per, text: sentence });
+    });
+  }
+  return cues
+    .map((c, i) => `${i + 1}\n${srtTimestamp(c.start)} --> ${srtTimestamp(c.end)}\n${c.text}`)
+    .join("\n\n") + "\n";
+}
+
+/**
+ * Uploads an SRT caption track to a YouTube video. Non-fatal by contract — the
+ * caller catches errors. Requires the youtube.force-ssl scope.
+ */
+export async function uploadCaptions(
+  videoId: string,
+  srt: string,
+  language = "en"
+): Promise<void> {
+  const yt = youtubeClient();
+  const lang = (language || "en").split("-")[0] || "en";
+  await yt.captions.insert({
+    part: ["snippet"],
+    requestBody: {
+      snippet: { videoId, language: lang, name: "", isDraft: false },
+    },
+    media: { mimeType: "application/octet-stream", body: Readable.from(Buffer.from(srt, "utf8")) },
+  }, { signal: AbortSignal.timeout(30_000) });
+}
+
+/**
+ * Posts a top-level comment on a YouTube video (e.g. consultation + guide links).
+ * Note: the Data API can post a comment but cannot PIN it — pinning stays manual.
+ * Non-fatal by contract. Requires the youtube.force-ssl scope.
+ */
+export async function postVideoComment(videoId: string, text: string): Promise<void> {
+  const yt = youtubeClient();
+  await yt.commentThreads.insert({
+    part: ["snippet"],
+    requestBody: {
+      snippet: { videoId, topLevelComment: { snippet: { textOriginal: text } } },
+    },
+  }, { signal: AbortSignal.timeout(30_000) });
+}
+
 // ── 4. WordPress patch ────────────────────────────────────────────────────────
 
 /**
