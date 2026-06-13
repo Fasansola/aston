@@ -158,12 +158,14 @@ const CtaEndScreen: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
   });
   return (
     <AbsoluteFill style={{ backgroundColor: NAVY, opacity, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-      {logoUrl && <Img src={logoUrl} style={{ height: 64, objectFit: "contain", marginBottom: 36 }} />}
-      <div style={{ width: 80, height: 3, backgroundColor: GOLD, marginBottom: 30 }} />
-      <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 20, textTransform: "uppercase", letterSpacing: "0.4em", margin: "0 0 22px" }}>Corporate Advisory</p>
-      <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 54, margin: "0 0 14px" }}>aston.ae</p>
-      <p style={{ fontFamily: "Georgia, serif", color: "rgba(255,255,255,0.58)", fontSize: 30, margin: 0 }}>Speak with our advisers today</p>
-      <div style={{ width: 80, height: 3, backgroundColor: GOLD, marginTop: 30 }} />
+      {logoUrl && <Img src={logoUrl} style={{ height: 77, objectFit: "contain", marginBottom: 26 }} />}
+      <div style={{ width: 80, height: 3, backgroundColor: GOLD, marginBottom: 24 }} />
+      <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 20, textTransform: "uppercase", letterSpacing: "0.4em", margin: "0 0 16px" }}>Corporate Advisory</p>
+      <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 38, margin: "0 0 22px" }}>Speak with our advisers today</p>
+      <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 16, textTransform: "uppercase", letterSpacing: "0.2em", margin: "0 0 6px" }}>WhatsApp Business</p>
+      <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 28, margin: "0 0 20px" }}>+1 (555) 710-9807</p>
+      <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 40, margin: 0 }}>aston.ae</p>
+      <div style={{ width: 80, height: 3, backgroundColor: GOLD, marginTop: 26 }} />
     </AbsoluteFill>
   );
 };
@@ -175,8 +177,13 @@ const IntroCard: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
   });
   return (
     <AbsoluteFill style={{ backgroundColor: NAVY, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", opacity }}>
-      {logoUrl && <Img src={logoUrl} style={{ height: 130, objectFit: "contain", marginBottom: 30 }} />}
-      <div style={{ width: 60, height: 2, backgroundColor: GOLD }} />
+      {logoUrl && <Img src={logoUrl} style={{ height: 156, objectFit: "contain", marginBottom: 24 }} />}
+      <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 38, letterSpacing: "0.12em", margin: "0 0 10px" }}>ASTON VIP</p>
+      <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 18, textTransform: "uppercase", letterSpacing: "0.4em", margin: "0 0 16px" }}>Corporate Advisory</p>
+      <div style={{ width: 60, height: 2, backgroundColor: GOLD, marginBottom: 16 }} />
+      <p style={{ fontFamily: "Georgia, serif", color: "rgba(255,255,255,0.7)", fontSize: 20, letterSpacing: "0.18em", margin: "0 0 24px" }}>DUBAI • LONDON • GLOBAL</p>
+      <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 16, textTransform: "uppercase", letterSpacing: "0.2em", margin: "0 0 6px" }}>WhatsApp Business</p>
+      <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 24, margin: 0 }}>+1 (555) 710-9807</p>
     </AbsoluteFill>
   );
 };
