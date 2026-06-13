@@ -10,6 +10,7 @@ export interface VideoSegment {
   bullets:         string[];
   durationSeconds: number;
   imageUrl:        string;
+  narration?:      string;   // full spoken text — burned in as open captions
 }
 
 export interface VideoProps {
@@ -64,6 +65,34 @@ const TitleCard: React.FC<{ title: string; index: number }> = ({ title, index })
     <div style={{ width: 48, height: 3, backgroundColor: GOLD, marginTop: 28 }} />
   </AbsoluteFill>
 );
+
+// Burned-in (open) captions — always visible everywhere, no viewer action and no
+// dependence on YouTube's per-viewer CC setting. The segment's narration is split
+// into sentences spread evenly across the segment's full frame window (including
+// the title-card phase, since the audio plays under it), so cues track the voice.
+function splitSentences(text: string): string[] {
+  return (text.match(/[^.!?]+[.!?]*/g) ?? [text]).map((s) => s.trim()).filter(Boolean);
+}
+
+const Subtitles: React.FC<{ narration: string; frame: number; segFrames: number; opacity: number }> = ({
+  narration, frame, segFrames, opacity,
+}) => {
+  const sentences = splitSentences(narration);
+  if (sentences.length === 0 || segFrames <= 0) return null;
+  const per = segFrames / sentences.length;
+  const idx = Math.min(sentences.length - 1, Math.max(0, Math.floor(frame / per)));
+  const current = sentences[idx];
+  if (!current) return null;
+  return (
+    <div style={{ position: "absolute", left: "9%", right: "9%", bottom: 32, display: "flex", justifyContent: "center", opacity }}>
+      <div style={{ backgroundColor: "rgba(8,14,26,0.82)", padding: "10px 24px", borderRadius: 8, maxWidth: "100%" }}>
+        <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 26, lineHeight: 1.34, textAlign: "center", margin: 0 }}>
+          {current}
+        </p>
+      </div>
+    </div>
+  );
+};
 
 const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number }> = ({ segment, index, segFrames }) => {
   const frame       = useCurrentFrame();
@@ -146,6 +175,12 @@ const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number 
       <AbsoluteFill style={{ opacity: titleOp }}>
         <TitleCard title={segment.sectionTitle} index={index} />
       </AbsoluteFill>
+
+      {/* Burned-in subtitles — rendered last so they sit on top of the title card
+          and the image, visible for the whole scene and synced to the narration. */}
+      {segment.narration && (
+        <Subtitles narration={segment.narration} frame={frame} segFrames={segFrames} opacity={sceneOp} />
+      )}
     </AbsoluteFill>
   );
 };

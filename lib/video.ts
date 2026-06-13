@@ -335,10 +335,10 @@ export async function postVideoComment(videoId: string, text: string): Promise<v
  * sign-in wall instead, which looks like "log in to Google to view the video".
  * The /embed/ form is the only URL YouTube allows inside an iframe.
  *
- * cc_load_policy=1 turns captions ON by default in the embedded player (when a
- * caption track exists), so the site embed shows subtitles without the viewer
- * clicking CC. Note: this only affects the on-site embed — it cannot force
- * captions on for viewers on youtube.com (that is their own account setting).
+ * Captions are now BURNED INTO the video (open captions in the Remotion render),
+ * so we do NOT force the YouTube CC track on via cc_load_policy — doing so would
+ * show two sets of subtitles at once. The uploaded CC track still exists (off by
+ * default) for SEO indexing and auto-translation.
  */
 export async function updatePostVideoUrl(
   postId: number,
@@ -346,7 +346,7 @@ export async function updatePostVideoUrl(
 ): Promise<void> {
   const videoId = extractYouTubeVideoId(youtubeUrl);
   const embedUrl = videoId
-    ? `https://www.youtube.com/embed/${videoId}?cc_load_policy=1`
+    ? `https://www.youtube.com/embed/${videoId}`
     : youtubeUrl; // fall back to whatever we were given if parsing fails
 
   await axios.post(

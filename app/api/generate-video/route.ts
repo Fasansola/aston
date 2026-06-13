@@ -286,6 +286,7 @@ export async function POST(req: NextRequest) {
         bullets:         seg.bullets ?? [],
         durationSeconds: seg.durationSeconds,
         imageUrl:        imageUrls[i],
+        narration:       seg.narration,   // burned-in open captions
       }));
 
       const { renderId, bucketName } = await submitRemotionRender({
