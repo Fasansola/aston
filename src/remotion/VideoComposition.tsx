@@ -55,7 +55,7 @@ const MusicTrack: React.FC<{ src: string; totalFrames: number }> = ({ src, total
 const TitleCard: React.FC<{ title: string; index: number }> = ({ title, index }) => (
   <AbsoluteFill style={{ backgroundColor: NAVY, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
     <div style={{ width: 48, height: 3, backgroundColor: GOLD, marginBottom: 28 }} />
-    <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 15, textTransform: "uppercase", letterSpacing: "0.35em", margin: "0 0 18px" }}>
+    <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 22, textTransform: "uppercase", letterSpacing: "0.35em", margin: "0 0 18px" }}>
       {String(index + 1).padStart(2, "0")}
     </p>
     <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 56, margin: 0, textAlign: "center", maxWidth: 900, lineHeight: 1.22, padding: "0 40px" }}>
@@ -103,7 +103,7 @@ const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number 
           opacity: contentOp,
           boxSizing: "border-box",
         }}>
-          <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 13, textTransform: "uppercase", letterSpacing: "0.42em", margin: "0 0 10px" }}>
+          <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 20, textTransform: "uppercase", letterSpacing: "0.42em", margin: "0 0 12px" }}>
             {String(index + 1).padStart(2, "0")}
           </p>
           <div style={{ width: 44, height: 3, backgroundColor: GOLD, marginBottom: 18 }} />
@@ -160,9 +160,9 @@ const CtaEndScreen: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
     <AbsoluteFill style={{ backgroundColor: NAVY, opacity, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
       {logoUrl && <Img src={logoUrl} style={{ height: 64, objectFit: "contain", marginBottom: 36 }} />}
       <div style={{ width: 80, height: 3, backgroundColor: GOLD, marginBottom: 30 }} />
-      <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 13, textTransform: "uppercase", letterSpacing: "0.4em", margin: "0 0 22px" }}>Corporate Advisory</p>
+      <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 20, textTransform: "uppercase", letterSpacing: "0.4em", margin: "0 0 22px" }}>Corporate Advisory</p>
       <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 54, margin: "0 0 14px" }}>aston.ae</p>
-      <p style={{ fontFamily: "Georgia, serif", color: "rgba(255,255,255,0.58)", fontSize: 21, margin: 0 }}>Speak with our advisers today</p>
+      <p style={{ fontFamily: "Georgia, serif", color: "rgba(255,255,255,0.58)", fontSize: 30, margin: 0 }}>Speak with our advisers today</p>
       <div style={{ width: 80, height: 3, backgroundColor: GOLD, marginTop: 30 }} />
     </AbsoluteFill>
   );
@@ -175,7 +175,7 @@ const IntroCard: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
   });
   return (
     <AbsoluteFill style={{ backgroundColor: NAVY, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", opacity }}>
-      {logoUrl && <Img src={logoUrl} style={{ height: 72, objectFit: "contain", marginBottom: 24 }} />}
+      {logoUrl && <Img src={logoUrl} style={{ height: 130, objectFit: "contain", marginBottom: 30 }} />}
       <div style={{ width: 60, height: 2, backgroundColor: GOLD }} />
     </AbsoluteFill>
   );
@@ -183,8 +183,8 @@ const IntroCard: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
 
 const LogoWatermark: React.FC<{ logoUrl: string }> = ({ logoUrl }) => (
   <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "flex-end" }}>
-    <div style={{ padding: "0 18px 14px 0" }}>
-      <Img src={logoUrl} style={{ height: 34, objectFit: "contain", opacity: 0.82 }} />
+    <div style={{ padding: "0 22px 18px 0" }}>
+      <Img src={logoUrl} style={{ height: 52, objectFit: "contain", opacity: 0.9 }} />
     </div>
   </AbsoluteFill>
 );
