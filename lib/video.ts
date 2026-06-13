@@ -257,13 +257,15 @@ function srtTimestamp(totalSeconds: number): string {
 }
 
 /**
- * Builds an SRT caption file from the rendered video's segments. Each segment's
- * on-screen text is split into sentences spread evenly across that segment's time
- * window (segments play back-to-back), so cue timing tracks the narration closely
- * and the text is spelled correctly (unlike YouTube auto-captions).
+ * Builds an SRT caption file from the rendered video's segments. Pass each
+ * segment's FULL spoken narration (not the short on-screen displayText) so the
+ * captions cover everything that is said. Each segment's text is split into
+ * sentences spread evenly across that segment's time window (segments play
+ * back-to-back), so cue timing tracks the narration closely and the text is
+ * spelled correctly (unlike YouTube auto-captions).
  */
 export function buildSrtFromSegments(
-  segments: Array<{ displayText: string; durationSeconds: number }>
+  segments: Array<{ text: string; durationSeconds: number }>
 ): string {
   const cues: Array<{ start: number; end: number; text: string }> = [];
   let offset = 0;
@@ -271,7 +273,7 @@ export function buildSrtFromSegments(
     const start = offset;
     const end = offset + (seg.durationSeconds || 0);
     offset = end;
-    const text = (seg.displayText || "").replace(/\s+/g, " ").trim();
+    const text = (seg.text || "").replace(/\s+/g, " ").trim();
     if (!text || end <= start) continue;
     const sentences = (text.match(/[^.!?]+[.!?]*/g) ?? [text])
       .map((s) => s.trim())

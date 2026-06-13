@@ -309,7 +309,7 @@ export async function POST(req: NextRequest) {
       // is correctly spelled and timed to the narration (uploaded after the video
       // lands on YouTube — see /api/upload-video). Phase 2 SEO.
       const captionsSrt = buildSrtFromSegments(
-        calibrated.map((seg) => ({ displayText: seg.displayText, durationSeconds: seg.durationSeconds }))
+        calibrated.map((seg) => ({ text: seg.narration, durationSeconds: seg.durationSeconds }))
       );
 
       await send({
