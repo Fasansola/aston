@@ -6,6 +6,7 @@
  * Exempt routes:
  *  - /api/auth          — login / logout (no session yet)
  *  - /api/cron*         — Vercel Cron (authenticated via CRON_SECRET Bearer token)
+ *  - /api/podcast       — public podcast RSS feed (Spotify's crawler has no cookie)
  */
 
 import { NextResponse } from "next/server";
@@ -13,7 +14,7 @@ import type { NextRequest } from "next/server";
 
 export const SESSION_COOKIE = "__aston_session";
 
-const EXEMPT_PREFIXES = ["/api/auth", "/api/cron"];
+const EXEMPT_PREFIXES = ["/api/auth", "/api/cron", "/api/podcast"];
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
