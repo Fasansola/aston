@@ -116,8 +116,11 @@ export async function getPodcastEpisodes(config: PodcastConfig): Promise<Podcast
       return [];
     }
 
+    // Use the default (public/view) context — ACF fields are exposed there, and
+    // unlike context=edit it doesn't require the WP user to have edit rights
+    // (which would 401 and silently empty the feed).
     const res = await fetch(
-      `${WP_URL}/wp-json/wp/v2/posts?categories=${catId}&per_page=100&_embed=wp:featuredmedia&context=edit&orderby=date&order=desc`,
+      `${WP_URL}/wp-json/wp/v2/posts?categories=${catId}&per_page=100&_embed=wp:featuredmedia&orderby=date&order=desc`,
       { headers: { Authorization: `Basic ${WP_AUTH}` }, signal: AbortSignal.timeout(20_000) }
     );
     if (!res.ok) {
