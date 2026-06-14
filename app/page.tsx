@@ -827,12 +827,14 @@ export default function HomePage() {
   const [result, setResult]         = useState<GenerateResult | null>(null);
   const [blogContent, setBlogContent] = useState<Record<string, string> | null>(null);
   const [error, setError]           = useState("");
-  // Durable pipeline toggle — when on, generation runs through the resumable
-  // Workflow route (/api/generate-workflow) that can't fail midway. Persisted so
-  // the choice sticks across reloads. Defaults off until validated in production.
-  const [useDurablePipeline, setUseDurablePipeline] = useState(false);
+  // Durable pipeline — now the DEFAULT. Generation runs through the resumable
+  // Workflow route (/api/generate-workflow) that can't fail midway. The legacy
+  // route stays available as a one-click fallback via the toggle. Defaults on;
+  // only an explicit opt-out ("0") keeps the legacy pipeline.
+  const [useDurablePipeline, setUseDurablePipeline] = useState(true);
   useEffect(() => {
-    setUseDurablePipeline(localStorage.getItem("aston_durable_pipeline") === "1");
+    const stored = localStorage.getItem("aston_durable_pipeline");
+    if (stored !== null) setUseDurablePipeline(stored === "1");
   }, []);
   const toggleDurablePipeline = (on: boolean) => {
     setUseDurablePipeline(on);
@@ -2360,8 +2362,8 @@ export default function HomePage() {
 
               <label className="flex items-center justify-between gap-3 mb-3 px-3 py-2.5 rounded-lg border border-white/[0.08] bg-white/[0.02] cursor-pointer">
                 <span className="flex flex-col">
-                  <span className="text-xs text-white/70 font-medium">Durable pipeline (beta)</span>
-                  <span className="text-[10px] text-white/35">Resumable — won&apos;t fail midway. Saves a draft even if QA needs review.</span>
+                  <span className="text-xs text-white/70 font-medium">Durable pipeline (default)</span>
+                  <span className="text-[10px] text-white/35">Resumable — won&apos;t fail midway; saves a draft even if QA needs review. Turn off only to use the legacy pipeline.</span>
                 </span>
                 <button
                   type="button"
@@ -2379,7 +2381,7 @@ export default function HomePage() {
                 disabled={!canGenerate}
                 className="w-full bg-[#C9A84C] hover:bg-[#D4B86A] disabled:opacity-30 disabled:cursor-not-allowed text-black font-medium text-sm tracking-wide py-3.5 rounded-lg transition-all duration-200"
               >
-                Generate Post{useDurablePipeline ? " (durable)" : ""}
+                Generate Post{useDurablePipeline ? "" : " (legacy)"}
               </button>
 
               <div>
