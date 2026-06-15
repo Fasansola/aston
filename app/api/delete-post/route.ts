@@ -48,14 +48,15 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { postId?: number; audioMediaId?: number; imageIds?: Record<string, number>; youtubeUrl?: string };
+  let body: { postId?: number; audioMediaId?: number; imageIds?: Record<string, number>; youtubeUrl?: string; podcastEpisodeId?: number; podcastAudioMediaId?: number };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { postId, audioMediaId, imageIds, youtubeUrl } = body;
+  const { postId, audioMediaId, imageIds, youtubeUrl, podcastEpisodeId, podcastAudioMediaId } = body;
+  const podcastCptBase = process.env.PODCAST_CPT_REST_BASE || "podcast";
 
   if (!postId) {
     return NextResponse.json({ error: "postId is required" }, { status: 400 });
@@ -148,6 +149,33 @@ export async function DELETE(req: NextRequest) {
     }
   }
 
+  // Delete the podcast episode (CPT item) + its audio file, if one was generated
+  let deletedPodcast = false;
+  if (podcastEpisodeId && podcastEpisodeId > 0) {
+    console.log(`[delete-post] Deleting podcast episode ${podcastEpisodeId} (${podcastCptBase})`);
+    const epResult = await wpDelete(`${podcastCptBase}/${podcastEpisodeId}`).catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push(`Podcast episode ${podcastEpisodeId}: ${msg}`);
+      return { ok: false, status: 0 };
+    });
+    if (!epResult.ok && epResult.status !== 404) {
+      errors.push(`Podcast episode deletion failed (HTTP ${epResult.status})`);
+    } else {
+      deletedPodcast = true;
+    }
+  }
+  if (podcastAudioMediaId && podcastAudioMediaId > 0) {
+    console.log(`[delete-post] Deleting podcast audio media ${podcastAudioMediaId}`);
+    const paResult = await wpDelete(`media/${podcastAudioMediaId}`).catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push(`Podcast audio ${podcastAudioMediaId}: ${msg}`);
+      return { ok: false, status: 0 };
+    });
+    if (!paResult.ok && paResult.status !== 404) {
+      errors.push(`Podcast audio deletion failed (HTTP ${paResult.status})`);
+    }
+  }
+
   const success = errors.filter(e => !e.includes("non-fatal")).length === 0;
   console.log(`[delete-post] Complete — success=${success}${errors.length ? `, errors: ${errors.join("; ")}` : ""}`);
 
@@ -157,6 +185,7 @@ export async function DELETE(req: NextRequest) {
     deletedImages:  imageIds ? Object.values(imageIds).filter(Boolean).length : 0,
     deletedAudio:   audioMediaId ? 1 : 0,
     deletedYoutube,
+    deletedPodcast,
     errors,
   });
 }

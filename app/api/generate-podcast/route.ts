@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
 
         send({ type: "progress", message: "Uploading episode audio…" });
         const slug = (title || `post-${postId}`).toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
-        const { url } = await uploadMediaToWordPress(mp3, `${slug}-podcast.mp3`, "audio/mpeg");
+        const { id: audioMediaId, url } = await uploadMediaToWordPress(mp3, `${slug}-podcast.mp3`, "audio/mpeg");
 
         send({ type: "progress", message: "Publishing episode to the podcast…" });
         const cfg = getPodcastConfig();
@@ -129,7 +129,14 @@ export async function POST(req: NextRequest) {
           audioUrl: url,
         });
 
-        send({ type: "done", success: true, podcastUrl: url, episodeUrl: episode.link, episodeTitle: dialogue.episodeTitle, turns: dialogue.turns.length });
+        // Return the CPT episode id + audio media id so deleting the source post
+        // can also remove the podcast episode (parity with YouTube cleanup).
+        send({
+          type: "done", success: true,
+          podcastUrl: url, episodeUrl: episode.link,
+          podcastEpisodeId: episode.id, podcastAudioMediaId: audioMediaId,
+          episodeTitle: dialogue.episodeTitle, turns: dialogue.turns.length,
+        });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Podcast generation failed.";
         console.error(`[generate-podcast] ${msg}`);

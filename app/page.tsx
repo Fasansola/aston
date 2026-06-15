@@ -923,6 +923,8 @@ export default function HomePage() {
   const [podcastProgress, setPodcastProgress] = useState("");
   const [podcastUrl, setPodcastUrl]         = useState<string | null>(null);
   const [podcastProvider, setPodcastProvider] = useState<"elevenlabs" | "kokoro">("kokoro");
+  const [podcastEpisodeId, setPodcastEpisodeId]       = useState<number | null>(null);
+  const [podcastAudioMediaId, setPodcastAudioMediaId] = useState<number | null>(null);
 
   const startStepCycle = () => {
     setStepIndex(0);
@@ -1312,7 +1314,7 @@ export default function HomePage() {
       const res = await fetch("/api/delete-post", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: result.postId, imageIds: result.imageIds, audioMediaId, youtubeUrl: youtubeUrl ?? undefined }),
+        body: JSON.stringify({ postId: result.postId, imageIds: result.imageIds, audioMediaId, youtubeUrl: youtubeUrl ?? undefined, podcastEpisodeId: podcastEpisodeId ?? undefined, podcastAudioMediaId: podcastAudioMediaId ?? undefined }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -1523,6 +1525,8 @@ export default function HomePage() {
     setPodcastStatus("idle");
     setPodcastProgress("");
     setPodcastUrl(null);
+    setPodcastEpisodeId(null);
+    setPodcastAudioMediaId(null);
     setBlogContent(null);
   };
 
@@ -1845,10 +1849,12 @@ export default function HomePage() {
           const line = part.replace(/^data: /, "").trim();
           if (!line) continue;
           try {
-            const event = JSON.parse(line) as { type: string; message?: string; podcastUrl?: string };
+            const event = JSON.parse(line) as { type: string; message?: string; podcastUrl?: string; podcastEpisodeId?: number; podcastAudioMediaId?: number };
             if (event.type === "progress" && event.message) setPodcastProgress(event.message);
             if (event.type === "done" && event.podcastUrl) {
               setPodcastUrl(event.podcastUrl);
+              setPodcastEpisodeId(event.podcastEpisodeId ?? null);
+              setPodcastAudioMediaId(event.podcastAudioMediaId ?? null);
               setPodcastStatus("done");
             }
             if (event.type === "error") {
