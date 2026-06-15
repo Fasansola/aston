@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { uploadToYouTube, updatePostVideoUrl, uploadCaptions, postVideoComment } from "@/lib/video";
+import { uploadToYouTube, updatePostVideoUrl, postVideoComment } from "@/lib/video";
 import { generateYouTubeSeoPackage, CHAPTERS_PLACEHOLDER, CONTACT_URL } from "@/lib/youtubeSeo";
 
 export const maxDuration = 180;
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
 
   const {
     postId, title, videoUrl, videoBase64, chapters,
-    focusKeyword, secondaryKeywords, summary, blogUrl, language, captionsSrt,
+    focusKeyword, secondaryKeywords, summary, blogUrl, language,
   } = body as {
     postId?: number;
     title?: string;
@@ -35,7 +35,6 @@ export async function POST(req: NextRequest) {
     summary?: string;
     blogUrl?: string;
     language?: string | null;
-    captionsSrt?: string;
   };
 
   if (!postId || typeof postId !== "number")
@@ -105,23 +104,15 @@ export async function POST(req: NextRequest) {
     await updatePostVideoUrl(postId, youtubeUrl);
     console.log(`[upload-video] WP post ${postId} patched.`);
 
-    // ── Phase 2 SEO: caption track + top-level comment ──────────────
-    // Both need the youtube.force-ssl scope and are NON-FATAL: if the scope is
-    // missing (token not yet regenerated) or YouTube restricts them, the video
-    // upload still succeeds. They self-heal once the broader-scope token is live.
+    // ── Phase 2 SEO: top-level comment ──────────────────────────────
+    // Non-fatal: needs youtube.force-ssl; a failure never blocks the upload.
+    //
+    // NOTE: we deliberately DO NOT upload an external CC caption track. Captions
+    // are burned into the video (open captions), and YouTube auto-enables a CC
+    // track for viewers who've used captions before — which would stack a second
+    // set of subtitles on top of the burned-in ones.
     const videoId = new URL(youtubeUrl).searchParams.get("v") ?? "";
-    let captionsUploaded = false;
     let commentPosted = false;
-
-    if (videoId && captionsSrt?.trim()) {
-      try {
-        await uploadCaptions(videoId, captionsSrt, language ?? undefined);
-        captionsUploaded = true;
-        console.log(`[upload-video] Captions uploaded for ${videoId}`);
-      } catch (capErr) {
-        console.warn(`[upload-video] Caption upload skipped (non-fatal): ${capErr instanceof Error ? capErr.message : String(capErr)}`);
-      }
-    }
 
     if (videoId) {
       const kw = focusKeyword?.trim() || title.trim();
@@ -138,7 +129,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ youtubeUrl, captionsUploaded, commentPosted });
+    return NextResponse.json({ youtubeUrl, commentPosted });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[upload-video] Failed: ${msg}`);
