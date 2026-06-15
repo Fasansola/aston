@@ -45,7 +45,10 @@ const EXPERT_VOICE = process.env.ELEVENLABS_PODCAST_EXPERT_VOICE_ID || "pNInz6ob
 const KOKORO_HOST_VOICE   = process.env.KOKORO_PODCAST_HOST_VOICE   || "bf_emma";   // British female
 const KOKORO_EXPERT_VOICE = process.env.KOKORO_PODCAST_EXPERT_VOICE || "bm_george"; // British male
 
-const STING_SECS = 4;
+// Music sting: short and quiet so it's a subtle intro/outro, not a jarring blast.
+// Tunable via env without a code change.
+const STING_SECS   = Number(process.env.PODCAST_STING_SECS)   || 2.5;
+const STING_VOLUME = Number(process.env.PODCAST_STING_VOLUME) || 0.28; // 0–1 (was effectively 1.0)
 
 /** Synthesize one turn via ElevenLabs (two premade voices). */
 async function synthesizeTurnElevenLabs(turn: DialogueTurn, apiKey: string): Promise<Buffer> {
@@ -134,11 +137,12 @@ export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsPr
           await writeFile(musicFile, Buffer.from(await musicRes.arrayBuffer()));
           const introSting = join(dir, "sting-in.mp3");
           const outroSting = join(dir, "sting-out.mp3");
+          const fadeOutStart = Math.max(0.1, STING_SECS - 1.2);
           await ffmpeg(["-y", "-i", musicFile, "-t", String(STING_SECS),
-            "-af", `afade=t=in:st=0:d=0.5,afade=t=out:st=${STING_SECS - 1.2}:d=1.2`,
+            "-af", `volume=${STING_VOLUME},afade=t=in:st=0:d=0.3,afade=t=out:st=${fadeOutStart}:d=1.2`,
             "-ar", "44100", "-ac", "2", introSting]);
           await ffmpeg(["-y", "-i", musicFile, "-ss", "8", "-t", String(STING_SECS),
-            "-af", `afade=t=in:st=0:d=1,afade=t=out:st=${STING_SECS - 1.2}:d=1.2`,
+            "-af", `volume=${STING_VOLUME},afade=t=in:st=0:d=0.6,afade=t=out:st=${fadeOutStart}:d=1.2`,
             "-ar", "44100", "-ac", "2", outroSting]);
           stingFiles.intro = introSting;
           stingFiles.outro = outroSting;
