@@ -37,18 +37,36 @@ export async function generatePodcastDialogue(
     ? "Length: 3–4 minutes when spoken — roughly 600–900 words total. 8–12 turns."
     : "Length: 8–12 minutes when spoken — roughly 1400–1900 words total. 14–24 turns.";
 
-  const system = `You write natural, engaging two-person podcast conversations for "${SHOW_NAME}", a show by Aston VIP — a high-end international corporate advisory firm (company formation, banking, tax structuring, licensing, residency across the UAE, UK, EU and offshore).
+  const system = `You write podcast conversations for "${SHOW_NAME}" by Aston VIP — a high-end international corporate advisory firm (company formation, banking, tax structuring, licensing, residency across the UAE, UK, EU and offshore). The output is read aloud by text-to-speech, so it must sound like a REAL unscripted conversation between two people — not an article split into turns.
 
-The two speakers:
-- HOST: a sharp, curious interviewer. Asks the questions a smart business owner would ask. Keeps things moving, occasionally summarises, reacts naturally ("Right", "That's the part people miss"). Does NOT lecture.
-- EXPERT: a senior Aston VIP adviser. Warm but authoritative. Answers with specifics — real jurisdictions, regulators, fee ranges, timelines, common mistakes. Explains jargon in plain English.
+THE TWO SPEAKERS
+- HOST: warm, curious, quick. Asks the questions a smart business owner would actually ask. Reacts to what the expert just said ("Oh interesting", "Wait, really?", "Right, so..."), pushes for specifics, and sometimes thinks out loud. Never lectures.
+- EXPERT: a senior Aston VIP adviser. Confident and friendly, not formal. Explains things the way you would to a client over coffee — plain English, quick asides, the odd "honestly" or "look". Backs claims with real specifics.
 
-STYLE:
-- Sounds like two people actually talking, not an article read aloud. Contractions, short reactions, natural back-and-forth.
+HOW TO MAKE IT SOUND HUMAN (this is the whole point)
+- Write how people TALK, not how they write. Contractions everywhere ("it's", "you've", "they'll", "I'd").
+- Vary turn length a lot: some turns are a 2-3 word reaction ("Right.", "That's the trap.", "Makes sense."), others run a few sentences. Never make every turn the same length.
+- Use natural connective speech sparingly: "so", "look", "honestly", "the thing is", "here's the part people miss", "yeah, exactly". Don't overdo it — once every few turns.
+- The host genuinely reacts and asks FOLLOW-UPS based on the previous answer, not a fixed list of questions. Real curiosity.
+- Use punctuation to shape delivery for the TTS: commas for natural pauses, ellipses (…) for a trailing or thinking beat, an em-style pause with a comma, and dashes for a quick self-correction. Short sentences. Fragments are fine.
+- Occasionally drop a tiny concrete moment: "I had a client last year who…", "we see this constantly".
+- Read-aloud friendly numbers: write figures the way they're spoken — "around fifteen thousand dirhams", "about three to four weeks", "nine percent" — NOT "AED 15,000" or "9%". Spell out acronyms the first time if they'd be unclear ("DIFC — the Dubai International Financial Centre").
+
+NEVER DO THIS (it kills the realism)
+- No formal/essay connectors: "Furthermore", "Moreover", "Additionally", "In conclusion", "It is important to note".
+- No reading lists aloud ("First… Second… Third…"). Weave points into the chat instead.
+- No long monologues. If the expert goes more than ~4 sentences, the host should cut in.
+- No stage directions, sound effects, speaker labels, or markdown. Spoken words only.
+
+RULES
 - British English. Always write "license" (never "licence").
-- No stage directions, no sound-effect notes, no markdown. Just spoken words.
-- Never invent fake figures; keep facts realistic and grounded in the source.
-- The host asks; the expert answers. Alternate naturally — the expert can give a couple of sentences, the host can follow up.`;
+- Never invent figures — keep facts realistic and grounded in the source material.
+
+EXAMPLE of the target feel (style only, not the topic):
+HOST: "Okay so everyone says 'just set up in a free zone' — is it really that simple?"
+EXPERT: "Honestly? No. I mean it can be, but the bit people skip is the banking."
+HOST: "The banking?"
+EXPERT: "Yeah. You get the license in a week, feel great… and then the account takes two months because nobody prepped the compliance file."`;
 
   const user = `Create a podcast conversation based on this article.
 
@@ -72,13 +90,13 @@ RULES:
 - ${lengthRule}
 - The FIRST turn must be the HOST giving a spoken intro: welcome to ${SHOW_NAME}, name today's topic, and a one-line hook. Keep it ~2 sentences.
 - The LAST turn must be the HOST giving a spoken outro: a quick wrap-up plus "to speak with the Aston VIP team, visit aston dot a-e". Keep it ~2 sentences.
-- Between intro and outro: a genuine conversation that covers the article's key points — requirements, costs, jurisdictions, risks, and what businesses get wrong.
-- Start with HOST, then alternate host/expert. The expert carries the substance; the host drives with questions and reactions.
-- No single turn longer than ~120 words.`;
+- Between intro and outro: a genuine, flowing conversation covering the key points — requirements, costs, jurisdictions, risks, what businesses get wrong. Cover them through back-and-forth, not a checklist.
+- Start with the HOST. Mostly alternate, but the host can interject a short reaction before the expert continues. The expert carries the substance; the host stays curious and reactive.
+- Vary turn length: mix 2-5 word reactions with longer explanations. No single turn longer than ~80 words.`;
 
   const { choices } = await openai.chat.completions.create({
     model: "gpt-4o",
-    temperature: 0.8,
+    temperature: 0.9,
     max_tokens: 4000,
     response_format: { type: "json_object" },
     messages: [

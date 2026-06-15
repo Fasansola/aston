@@ -56,7 +56,9 @@ async function synthesizeTurnElevenLabs(turn: DialogueTurn, apiKey: string): Pro
     body: JSON.stringify({
       text: turn.text,
       model_id: "eleven_multilingual_v2",
-      voice_settings: { stability: 0.4, similarity_boost: 0.75, style: 0.4, use_speaker_boost: true },
+      // Lower stability = more natural variation/emotion (less monotone); a touch
+      // more style for conversational inflection. Tuned for podcast dialogue.
+      voice_settings: { stability: 0.3, similarity_boost: 0.75, style: 0.55, use_speaker_boost: true },
     }),
     signal: AbortSignal.timeout(90_000),
   });
