@@ -31,7 +31,9 @@ const nextConfig: NextConfig = {
   // missing from the deployed function (spawn … ENOENT). Force it into the
   // podcast route's trace so the binary ships with the function.
   outputFileTracingIncludes: {
-    "/api/generate-podcast": ["./node_modules/ffmpeg-static/**/*"],
+    // Glob covers both /api/generate-podcast and /api/generate-podcast-test,
+    // which both stitch audio with ffmpeg.
+    "/api/generate-podcast*": ["./node_modules/ffmpeg-static/**/*"],
   },
 };
 
