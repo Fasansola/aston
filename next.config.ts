@@ -22,6 +22,13 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // Next's output file tracing doesn't auto-detect the ffmpeg-static binary
+  // (it's referenced via a runtime path string, not a static import), so it was
+  // missing from the deployed function (spawn … ENOENT). Force it into the
+  // podcast route's trace so the binary ships with the function.
+  outputFileTracingIncludes: {
+    "/api/generate-podcast": ["./node_modules/ffmpeg-static/**/*"],
+  },
 };
 
 export default withWorkflow(nextConfig);
