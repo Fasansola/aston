@@ -45,11 +45,14 @@ const EXPERT_VOICE = process.env.ELEVENLABS_PODCAST_EXPERT_VOICE_ID || "pNInz6ob
 const KOKORO_HOST_VOICE   = process.env.KOKORO_PODCAST_HOST_VOICE   || "bf_emma";   // British female
 const KOKORO_EXPERT_VOICE = process.env.KOKORO_PODCAST_EXPERT_VOICE || "bm_george"; // British male
 
-// Music plays ONLY at the open and close — never under the conversation.
+// Music plays ONLY at the open and close, and is blended into/out of the speech
+// with ffmpeg's acrossfade filter (smooth, automatic — no manual fade timing).
 // Good fixed defaults so no tuning is needed (still env-overridable).
-const INTRO_SECS   = Number(process.env.PODCAST_INTRO_SECS)   || 4;    // subtle intro length
-const INTRO_VOLUME = Number(process.env.PODCAST_INTRO_VOLUME) || 0.25; // intro plays alone, so a touch more present
-const OUTRO_VOLUME = Number(process.env.PODCAST_OUTRO_VOLUME) || 0.10; // fades in quietly UNDER Liz's outro
+const INTRO_SECS    = Number(process.env.PODCAST_INTRO_SECS)    || 5;    // music before Liz starts
+const OUTRO_SECS    = Number(process.env.PODCAST_OUTRO_SECS)    || 6;    // music after Liz signs off
+const CROSSFADE_SEC = Number(process.env.PODCAST_CROSSFADE_SEC) || 1.5;  // blend between music and speech
+const INTRO_VOLUME  = Number(process.env.PODCAST_INTRO_VOLUME)  || 0.35;
+const OUTRO_VOLUME  = Number(process.env.PODCAST_OUTRO_VOLUME)  || 0.32;
 
 /** Synthesize one turn via ElevenLabs (two premade voices). */
 async function synthesizeTurnElevenLabs(turn: DialogueTurn, apiKey: string): Promise<Buffer> {
@@ -110,22 +113,12 @@ async function ffmpeg(args: string[]): Promise<void> {
   await execFileAsync(ffmpegPath, args, { maxBuffer: 1024 * 1024 * 64 });
 }
 
-/** Parse a media file's duration (seconds) from ffmpeg's stderr. Returns 0 if unknown. */
-async function probeDurationSecs(file: string): Promise<number> {
-  try {
-    await ffmpeg(["-i", file]); // no output specified → ffmpeg errors but prints "Duration:"
-    return 0;
-  } catch (e) {
-    const stderr = (e as { stderr?: string })?.stderr ?? String(e);
-    const m = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
-    return m ? (+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3]) : 0;
-  }
-}
-
 /**
  * Build the full episode MP3:
- *   [subtle music intro ~4s] → clean conversation (no music) → music fades in
- *   quietly under Liz's outro and plays out.
+ *   [music intro] ⤬ clean conversation ⤬ [music outro]
+ * The intro music blends into the speech and the speech blends into the outro
+ * music using ffmpeg's acrossfade filter — smooth, automatic crossfades with no
+ * manual fade timing. No music plays under the body of the conversation.
  * If BACKGROUND_MUSIC_URL is unset/unreachable, the speech is returned on its own.
  */
 export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsProvider = "elevenlabs"): Promise<Buffer> {
@@ -147,7 +140,7 @@ export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsPr
     await ffmpeg(["-y", ...speechInputs, "-filter_complex", speechFilter, "-map", "[out]",
       "-ar", "44100", "-ac", "2", "-b:a", "128k", speechFile]);
 
-    // 3. Add the music intro + outro only (best-effort)
+    // 3. Crossfade a music intro in and a music outro out (best-effort)
     const musicUrl = process.env.BACKGROUND_MUSIC_URL;
     if (musicUrl) {
       try {
@@ -156,34 +149,21 @@ export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsPr
           const musicFile = join(dir, "music.mp3");
           await writeFile(musicFile, Buffer.from(await musicRes.arrayBuffer()));
 
-          // 3a. Subtle intro sting (plays alone, fades out as Liz starts)
-          const introFile = join(dir, "intro.mp3");
-          await ffmpeg(["-y", "-i", musicFile, "-t", String(INTRO_SECS),
-            "-af", `volume=${INTRO_VOLUME},afade=t=in:st=0:d=0.4,afade=t=out:st=${Math.max(0.1, INTRO_SECS - 1.4)}:d=1.4`,
-            "-ar", "44100", "-ac", "2", introFile]);
-
-          // 3b. intro + clean speech
-          const combinedFile = join(dir, "combined.mp3");
-          await ffmpeg(["-y", "-i", introFile, "-i", speechFile,
-            "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[out]", "-map", "[out]",
-            "-ar", "44100", "-ac", "2", "-b:a", "128k", combinedFile]);
-
-          // 3c. Music fades in quietly under Liz's final turn and plays out
-          const Dc = await probeDurationSecs(combinedFile);
-          const L  = await probeDurationSecs(turnFiles[turnFiles.length - 1]);
-          const outroStart = (Dc > 0 && L > 0) ? Math.max(0, Dc - L) : (Dc > 6 ? Dc - 6 : 0);
-          const bedFades =
-            `afade=t=in:st=${outroStart.toFixed(2)}:d=2` +
-            (Dc > 0 ? `,afade=t=out:st=${(Dc + 0.5).toFixed(2)}:d=2.5` : "");
           const episodeFile = join(dir, "episode.mp3");
+          // One pass: take two slices of the music (intro + a different outro
+          // section), level + edge-fade them, then acrossfade intro→speech and
+          // speech→outro. acrossfade overlaps each pair by CROSSFADE_SEC and
+          // blends automatically, so no duration math is needed.
           await ffmpeg([
             "-y",
-            "-i", combinedFile,
-            "-stream_loop", "-1", "-i", musicFile,
+            "-i", speechFile,   // 0
+            "-i", musicFile,    // 1 → intro slice
+            "-i", musicFile,    // 2 → outro slice
             "-filter_complex",
-            `[0:a]apad=pad_dur=3[sp];` +                                  // room for the music tail
-            `[1:a]volume=${OUTRO_VOLUME},${bedFades}[bed];` +             // silent until the outro, then fades in/out
-            `[sp][bed]amix=inputs=2:duration=first:normalize=0[out]`,
+            `[1:a]atrim=0:${INTRO_SECS},asetpts=PTS-STARTPTS,volume=${INTRO_VOLUME},afade=t=in:st=0:d=0.8[intro];` +
+            `[2:a]atrim=8:${8 + OUTRO_SECS},asetpts=PTS-STARTPTS,volume=${OUTRO_VOLUME},afade=t=out:st=${Math.max(0.1, OUTRO_SECS - 2.5)}:d=2.5[outro];` +
+            `[intro][0:a]acrossfade=d=${CROSSFADE_SEC}:c1=tri:c2=tri[a];` +
+            `[a][outro]acrossfade=d=${CROSSFADE_SEC}:c1=tri:c2=tri[out]`,
             "-map", "[out]", "-ar", "44100", "-ac", "2", "-b:a", "128k", episodeFile,
           ]);
           return await readFile(episodeFile);
