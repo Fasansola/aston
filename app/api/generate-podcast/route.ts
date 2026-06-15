@@ -58,11 +58,12 @@ async function createPodcastEpisode(
   return { id: created.id, link: created.link };
 }
 
-/** Pull the article text from WordPress (public context) to feed the dialogue. */
+/** Pull the article text from WordPress to feed the dialogue. Authenticated so
+ * it can read draft posts (the pipeline saves posts as drafts for review). */
 async function fetchSourceText(postId: number): Promise<{ title: string; text: string }> {
   const res = await fetch(
     `${process.env.WP_URL}/wp-json/wp/v2/posts/${postId}?_fields=title,content,acf`,
-    { signal: AbortSignal.timeout(20_000) }
+    { headers: { Authorization: `Basic ${WP_AUTH}` }, signal: AbortSignal.timeout(20_000) }
   );
   if (!res.ok) throw new Error(`Could not load post ${postId} from WordPress (${res.status})`);
   const post = await res.json() as { title?: { rendered?: string }; content?: { rendered?: string }; acf?: Record<string, unknown> };
