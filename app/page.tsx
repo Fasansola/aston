@@ -3112,7 +3112,7 @@ export default function HomePage() {
                       >
                         Generate conversational episode
                       </button>
-                      <p className="text-[10px] text-white/20">Two AI voices (host + expert) with a music intro/outro. Saved to <code className="text-white/30">podcast_audio_url</code> and served on the Spotify feed.</p>
+                      <p className="text-[10px] text-white/20">Two AI voices (host + expert) with a music intro/outro. Creates a published episode in the Podcasts post type, served on the Spotify feed.</p>
                     </>
                   )}
 
@@ -3135,7 +3135,7 @@ export default function HomePage() {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                           </svg>
                         </div>
-                        <p className="text-xs text-white/50">Saved to ACF <code className="text-white/30">podcast_audio_url</code> — add the post to the Podcast category to publish it.</p>
+                        <p className="text-xs text-white/50">Published as an episode in the Podcasts post type — it&apos;s now in the Spotify feed.</p>
                       </div>
                     </div>
                   )}

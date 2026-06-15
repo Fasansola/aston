@@ -27,7 +27,8 @@ export interface PodcastConfig {
   language: string;       // e.g. "en"
   explicit: boolean;
   siteLink: string;       // public website link
-  wpCategorySlug: string; // which WP category marks an episode
+  cptRestBase: string;    // REST base of the podcast custom post type (e.g. "podcast")
+  audioField: string;     // ACF field on the CPT holding the episode MP3 URL
 }
 
 export function getPodcastConfig(): PodcastConfig {
@@ -42,7 +43,8 @@ export function getPodcastConfig(): PodcastConfig {
     language:       process.env.PODCAST_LANGUAGE       || "en",
     explicit:      (process.env.PODCAST_EXPLICIT       || "false").toLowerCase() === "true",
     siteLink:       process.env.PODCAST_SITE_LINK      || "https://aston.ae",
-    wpCategorySlug: process.env.PODCAST_WP_CATEGORY    || "podcast",
+    cptRestBase:    process.env.PODCAST_CPT_REST_BASE  || "podcast",
+    audioField:     process.env.PODCAST_CPT_AUDIO_FIELD || "podcast_audio_url",
   };
 }
 
@@ -79,17 +81,6 @@ function rfc822(dateIso: string): string {
 
 // ── WordPress fetch ───────────────────────────────────────────
 
-/** Resolve a category slug to its numeric WP id (null if it doesn't exist). */
-async function resolveCategoryId(slug: string): Promise<number | null> {
-  const res = await fetch(`${WP_URL}/wp-json/wp/v2/categories?slug=${encodeURIComponent(slug)}`, {
-    headers: { Authorization: `Basic ${WP_AUTH}` },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) return null;
-  const cats = (await res.json()) as Array<{ id: number }>;
-  return cats[0]?.id ?? null;
-}
-
 /** HEAD the audio URL to get the byte length + MIME for the <enclosure>. */
 async function probeAudio(url: string): Promise<{ bytes: number; type: string }> {
   const fallbackType = url.toLowerCase().endsWith(".wav") ? "audio/wav" : "audio/mpeg";
@@ -110,21 +101,15 @@ async function probeAudio(url: string): Promise<{ bytes: number; type: string }>
  */
 export async function getPodcastEpisodes(config: PodcastConfig): Promise<PodcastEpisode[]> {
   try {
-    const catId = await resolveCategoryId(config.wpCategorySlug);
-    if (!catId) {
-      console.warn(`[podcast] Category "${config.wpCategorySlug}" not found in WordPress — feed will be empty`);
-      return [];
-    }
-
-    // Use the default (public/view) context — ACF fields are exposed there, and
-    // unlike context=edit it doesn't require the WP user to have edit rights
-    // (which would 401 and silently empty the feed).
+    // Episodes live in the dedicated podcast custom post type (the CPT itself is
+    // the curation — no category filter needed). Public/view context exposes the
+    // ACF fields without requiring edit rights.
     const res = await fetch(
-      `${WP_URL}/wp-json/wp/v2/posts?categories=${catId}&per_page=100&_embed=wp:featuredmedia&orderby=date&order=desc`,
+      `${WP_URL}/wp-json/wp/v2/${config.cptRestBase}?per_page=100&_embed=wp:featuredmedia&orderby=date&order=desc`,
       { headers: { Authorization: `Basic ${WP_AUTH}` }, signal: AbortSignal.timeout(20_000) }
     );
     if (!res.ok) {
-      console.warn(`[podcast] WP posts fetch failed: ${res.status}`);
+      console.warn(`[podcast] CPT "${config.cptRestBase}" fetch failed: ${res.status}`);
       return [];
     }
     const posts = (await res.json()) as Array<Record<string, unknown>>;
@@ -132,13 +117,13 @@ export async function getPodcastEpisodes(config: PodcastConfig): Promise<Podcast
     const episodes = await Promise.all(
       posts.map(async (p): Promise<PodcastEpisode | null> => {
         const acf = (p.acf as Record<string, unknown>) ?? {};
-        // The podcast uses the conversational two-voice episode, NOT the blog
-        // read-aloud. Only posts with podcast_audio_url become episodes.
-        const audioUrl = typeof acf.podcast_audio_url === "string" ? acf.podcast_audio_url.trim() : "";
-        if (!audioUrl) return null; // no conversational episode → not published
+        const audioUrl = typeof acf[config.audioField] === "string" ? (acf[config.audioField] as string).trim() : "";
+        if (!audioUrl) return null; // no episode audio → not published
 
         const title = stripHtml(((p.title as { rendered?: string })?.rendered) ?? "");
-        const excerpt = stripHtml(((p.excerpt as { rendered?: string })?.rendered) ?? "");
+        // CPT may not support excerpt — fall back to the content body.
+        const excerpt = stripHtml(((p.excerpt as { rendered?: string })?.rendered) ?? "")
+          || stripHtml(((p.content as { rendered?: string })?.rendered) ?? "").slice(0, 500);
         const link = (p.link as string) ?? config.siteLink;
         const guid = ((p.guid as { rendered?: string })?.rendered) || link;
         const dateGmt = (p.date_gmt as string) || (p.date as string) || "";

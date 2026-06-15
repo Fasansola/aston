@@ -16,12 +16,46 @@
 import { NextRequest } from "next/server";
 import { generatePodcastDialogue } from "@/lib/podcastDialogue";
 import { buildPodcastEpisode } from "@/lib/podcastAudio";
-import { uploadMediaToWordPress, patchWordPressContentField } from "@/lib/wordpress";
+import { uploadMediaToWordPress } from "@/lib/wordpress";
+import { getPodcastConfig } from "@/lib/podcast";
 
 export const maxDuration = 300;
 
+const WP_AUTH = Buffer.from(
+  `${process.env.WP_USERNAME}:${process.env.WP_APP_PASSWORD}`
+).toString("base64");
+
 function stripHtml(html: string): string {
   return (html ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Create a published episode in the podcast custom post type, with the MP3 in
+ * its ACF audio field. Requires the WP API user to have create rights on the
+ * CPT (register it with capability_type 'post' + map_meta_cap, or grant caps).
+ */
+async function createPodcastEpisode(
+  cptRestBase: string,
+  audioField: string,
+  episode: { title: string; description: string; audioUrl: string }
+): Promise<{ id: number; link: string }> {
+  const res = await fetch(`${process.env.WP_URL}/wp-json/wp/v2/${cptRestBase}`, {
+    method: "POST",
+    headers: { Authorization: `Basic ${WP_AUTH}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: episode.title,
+      content: episode.description,
+      status: "publish",
+      acf: { [audioField]: episode.audioUrl },
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => res.statusText);
+    throw new Error(`Could not create podcast episode (${res.status}): ${err.slice(0, 200)}`);
+  }
+  const created = await res.json();
+  return { id: created.id, link: created.link };
 }
 
 /** Pull the article text from WordPress (public context) to feed the dialogue. */
@@ -74,12 +108,20 @@ export async function POST(req: NextRequest) {
         send({ type: "progress", message: `Voicing ${dialogue.turns.length} lines with two voices…` });
         const mp3 = await buildPodcastEpisode(dialogue.turns);
 
-        send({ type: "progress", message: "Uploading episode to WordPress…" });
+        send({ type: "progress", message: "Uploading episode audio…" });
         const slug = (title || `post-${postId}`).toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
         const { url } = await uploadMediaToWordPress(mp3, `${slug}-podcast.mp3`, "audio/mpeg");
-        await patchWordPressContentField(postId, "podcast_audio_url", url);
 
-        send({ type: "done", success: true, podcastUrl: url, episodeTitle: dialogue.episodeTitle, turns: dialogue.turns.length });
+        send({ type: "progress", message: "Publishing episode to the podcast…" });
+        const cfg = getPodcastConfig();
+        const description = (text.slice(0, 480).trim()) + (text.length > 480 ? "…" : "");
+        const episode = await createPodcastEpisode(cfg.cptRestBase, cfg.audioField, {
+          title: dialogue.episodeTitle,
+          description,
+          audioUrl: url,
+        });
+
+        send({ type: "done", success: true, podcastUrl: url, episodeUrl: episode.link, episodeTitle: dialogue.episodeTitle, turns: dialogue.turns.length });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Podcast generation failed.";
         console.error(`[generate-podcast] ${msg}`);
