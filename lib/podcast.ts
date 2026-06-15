@@ -132,8 +132,10 @@ export async function getPodcastEpisodes(config: PodcastConfig): Promise<Podcast
     const episodes = await Promise.all(
       posts.map(async (p): Promise<PodcastEpisode | null> => {
         const acf = (p.acf as Record<string, unknown>) ?? {};
-        const audioUrl = typeof acf.audio_url === "string" ? acf.audio_url.trim() : "";
-        if (!audioUrl) return null; // no narration → not an episode
+        // The podcast uses the conversational two-voice episode, NOT the blog
+        // read-aloud. Only posts with podcast_audio_url become episodes.
+        const audioUrl = typeof acf.podcast_audio_url === "string" ? acf.podcast_audio_url.trim() : "";
+        if (!audioUrl) return null; // no conversational episode → not published
 
         const title = stripHtml(((p.title as { rendered?: string })?.rendered) ?? "");
         const excerpt = stripHtml(((p.excerpt as { rendered?: string })?.rendered) ?? "");

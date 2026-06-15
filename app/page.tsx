@@ -918,6 +918,10 @@ export default function HomePage() {
   const [audioElapsed, setAudioElapsed]     = useState(0);
   const [audioUrl, setAudioUrl]             = useState<string | null>(null);
   const [audioMediaId, setAudioMediaId]     = useState<number | null>(null);
+  // Conversational two-voice podcast episode (separate from the blog read-aloud)
+  const [podcastStatus, setPodcastStatus]   = useState<"idle" | "generating" | "done" | "error">("idle");
+  const [podcastProgress, setPodcastProgress] = useState("");
+  const [podcastUrl, setPodcastUrl]         = useState<string | null>(null);
 
   const startStepCycle = () => {
     setStepIndex(0);
@@ -1515,6 +1519,9 @@ export default function HomePage() {
     setAudioElapsed(0);
     setAudioUrl(null);
     setAudioMediaId(null);
+    setPodcastStatus("idle");
+    setPodcastProgress("");
+    setPodcastUrl(null);
     setBlogContent(null);
   };
 
@@ -1801,6 +1808,58 @@ export default function HomePage() {
       setAudioProgress(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       clearInterval(timer);
+    }
+  };
+
+  // Generate the conversational two-voice podcast episode (host + expert + music
+  // sting) and save it to ACF podcast_audio_url. This is what the Spotify feed
+  // serves — distinct from the blog read-aloud above.
+  const handleGeneratePodcast = async () => {
+    if (!result?.postId) return;
+    setPodcastStatus("generating");
+    setPodcastProgress("Starting…");
+    setPodcastUrl(null);
+    try {
+      const res = await fetch("/api/generate-podcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postId: result.postId, title: result.title, focusKeyword: result.focusKeyword }),
+      });
+      if (!res.ok || !res.body) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        setPodcastStatus("error");
+        setPodcastProgress(err.error || "Podcast generation failed.");
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          const line = part.replace(/^data: /, "").trim();
+          if (!line) continue;
+          try {
+            const event = JSON.parse(line) as { type: string; message?: string; podcastUrl?: string };
+            if (event.type === "progress" && event.message) setPodcastProgress(event.message);
+            if (event.type === "done" && event.podcastUrl) {
+              setPodcastUrl(event.podcastUrl);
+              setPodcastStatus("done");
+            }
+            if (event.type === "error") {
+              setPodcastStatus("error");
+              setPodcastProgress(event.message ?? "Podcast generation failed.");
+            }
+          } catch { /* ignore malformed chunks */ }
+        }
+      }
+    } catch (err) {
+      setPodcastStatus("error");
+      setPodcastProgress(err instanceof Error ? err.message : "Something went wrong.");
     }
   };
 
@@ -3032,6 +3091,63 @@ export default function HomePage() {
                     </div>
                   )}
 
+                </div>
+              </div>
+
+              {/* Podcast — conversational two-voice episode for Spotify */}
+              <div className="border border-white/[0.07] rounded-xl overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06] bg-white/[0.02]">
+                  <svg className="w-4 h-4 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                  </svg>
+                  <p className="text-xs font-medium text-white/50 uppercase tracking-wide">Podcast (Spotify)</p>
+                </div>
+                <div className="px-4 py-4 space-y-4">
+                  {podcastStatus === "idle" && (
+                    <>
+                      <button
+                        onClick={handleGeneratePodcast}
+                        disabled={!result?.postId}
+                        className="w-full flex items-center justify-center gap-2 bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 hover:border-white/20 text-white/60 hover:text-white/90 text-sm py-3 rounded-lg transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Generate conversational episode
+                      </button>
+                      <p className="text-[10px] text-white/20">Two AI voices (host + expert) with a music intro/outro. Saved to <code className="text-white/30">podcast_audio_url</code> and served on the Spotify feed.</p>
+                    </>
+                  )}
+
+                  {podcastStatus === "generating" && (
+                    <div className="space-y-3">
+                      <p className="text-sm text-white/50">{podcastProgress || "Generating…"}</p>
+                      <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
+                        <div className="h-full bg-[#C9A84C] rounded-full animate-pulse" style={{ width: "60%" }} />
+                      </div>
+                      <p className="text-[10px] text-white/20">Writing the dialogue, voicing both speakers, and stitching the music — a couple of minutes.</p>
+                    </div>
+                  )}
+
+                  {podcastStatus === "done" && podcastUrl && (
+                    <div className="space-y-3">
+                      <audio controls src={podcastUrl} className="w-full h-10 rounded-lg" />
+                      <div className="flex items-center gap-2">
+                        <div className="w-3.5 h-3.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                          <svg className="w-2 h-2 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                        <p className="text-xs text-white/50">Saved to ACF <code className="text-white/30">podcast_audio_url</code> — add the post to the Podcast category to publish it.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {podcastStatus === "error" && (
+                    <div className="space-y-2">
+                      <p className="text-sm text-red-400/80">{podcastProgress || "Podcast generation failed."}</p>
+                      <button onClick={handleGeneratePodcast} className="text-xs text-white/40 hover:text-white/70 transition-colors">
+                        Try again
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
