@@ -922,6 +922,7 @@ export default function HomePage() {
   const [podcastStatus, setPodcastStatus]   = useState<"idle" | "generating" | "done" | "error">("idle");
   const [podcastProgress, setPodcastProgress] = useState("");
   const [podcastUrl, setPodcastUrl]         = useState<string | null>(null);
+  const [podcastProvider, setPodcastProvider] = useState<"elevenlabs" | "kokoro">("kokoro");
 
   const startStepCycle = () => {
     setStepIndex(0);
@@ -1823,7 +1824,7 @@ export default function HomePage() {
       const res = await fetch("/api/generate-podcast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: result.postId, title: result.title, focusKeyword: result.focusKeyword }),
+        body: JSON.stringify({ postId: result.postId, title: result.title, focusKeyword: result.focusKeyword, ttsProvider: podcastProvider }),
       });
       if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -3105,6 +3106,17 @@ export default function HomePage() {
                 <div className="px-4 py-4 space-y-4">
                   {podcastStatus === "idle" && (
                     <>
+                      <div>
+                        <label className="block text-xs text-white/35 mb-1.5">Voice engine</label>
+                        <select
+                          value={podcastProvider}
+                          onChange={(e) => setPodcastProvider(e.target.value as "elevenlabs" | "kokoro")}
+                          className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2.5 text-white/80 text-sm focus:outline-none focus:border-[#C9A84C]/50 transition-all duration-200"
+                        >
+                          <option value="elevenlabs">ElevenLabs — premium two-voice (uses credits)</option>
+                          <option value="kokoro">Kokoro — free (Replicate)</option>
+                        </select>
+                      </div>
                       <button
                         onClick={handleGeneratePodcast}
                         disabled={!result?.postId}

@@ -29,8 +29,13 @@ import { generateKokoroSpeech } from "./replicate";
 const execFileAsync = promisify(execFile);
 const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 
-// Voice engine: "elevenlabs" (default) or "kokoro" (free Replicate fallback).
-const TTS_PROVIDER = (process.env.PODCAST_TTS_PROVIDER || "elevenlabs").toLowerCase();
+export type TtsProvider = "elevenlabs" | "kokoro";
+
+/** Resolve the voice engine: explicit choice → env default → elevenlabs. */
+export function resolveTtsProvider(choice?: string): TtsProvider {
+  const v = (choice || process.env.PODCAST_TTS_PROVIDER || "elevenlabs").toLowerCase();
+  return v === "kokoro" ? "kokoro" : "elevenlabs";
+}
 
 // Universal ElevenLabs premade voice IDs (available to all accounts).
 const HOST_VOICE   = process.env.ELEVENLABS_PODCAST_HOST_VOICE_ID   || "21m00Tcm4TlvDq8ikWAM"; // Rachel — warm interviewer
@@ -73,8 +78,8 @@ async function synthesizeTurnKokoro(turn: DialogueTurn): Promise<Buffer> {
  * Synthesize every turn. ElevenLabs runs with bounded concurrency; Kokoro runs
  * sequentially because Replicate heavily rate-limits low-credit accounts.
  */
-async function synthesizeAll(turns: DialogueTurn[]): Promise<Buffer[]> {
-  if (TTS_PROVIDER === "kokoro") {
+async function synthesizeAll(turns: DialogueTurn[], provider: TtsProvider): Promise<Buffer[]> {
+  if (provider === "kokoro") {
     const out: Buffer[] = [];
     for (const turn of turns) out.push(await synthesizeTurnKokoro(turn));
     return out;
@@ -104,11 +109,11 @@ async function ffmpeg(args: string[]): Promise<void> {
  * If BACKGROUND_MUSIC_URL is unset/unreachable, the stings are skipped and the
  * spoken turns are stitched on their own.
  */
-export async function buildPodcastEpisode(turns: DialogueTurn[]): Promise<Buffer> {
+export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsProvider = "elevenlabs"): Promise<Buffer> {
   const dir = await mkdtemp(join(tmpdir(), "podcast-"));
   try {
-    // 1. Voice every turn (ElevenLabs or Kokoro, per PODCAST_TTS_PROVIDER)
-    const turnBuffers = await synthesizeAll(turns);
+    // 1. Voice every turn with the chosen engine
+    const turnBuffers = await synthesizeAll(turns, provider);
     const turnFiles: string[] = [];
     for (let i = 0; i < turnBuffers.length; i++) {
       const f = join(dir, `turn-${String(i).padStart(3, "0")}.mp3`);

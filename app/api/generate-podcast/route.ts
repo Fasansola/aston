@@ -15,7 +15,7 @@
 
 import { NextRequest } from "next/server";
 import { generatePodcastDialogue } from "@/lib/podcastDialogue";
-import { buildPodcastEpisode } from "@/lib/podcastAudio";
+import { buildPodcastEpisode, resolveTtsProvider } from "@/lib/podcastAudio";
 import { uploadMediaToWordPress } from "@/lib/wordpress";
 import { getPodcastConfig } from "@/lib/podcast";
 
@@ -80,7 +80,7 @@ async function fetchSourceText(postId: number): Promise<{ title: string; text: s
 }
 
 export async function POST(req: NextRequest) {
-  let body: { postId?: number; title?: string; focusKeyword?: string };
+  let body: { postId?: number; title?: string; focusKeyword?: string; ttsProvider?: string };
   try { body = await req.json(); }
   catch { return new Response(JSON.stringify({ error: "Invalid request body." }), { status: 400 }); }
 
@@ -88,7 +88,8 @@ export async function POST(req: NextRequest) {
   if (!postId || typeof postId !== "number") {
     return new Response(JSON.stringify({ error: "postId is required." }), { status: 400 });
   }
-  const provider = (process.env.PODCAST_TTS_PROVIDER || "elevenlabs").toLowerCase();
+  // Per-request voice engine from the UI selector, with env/default fallback.
+  const provider = resolveTtsProvider(body.ttsProvider);
   const requiredKey = provider === "kokoro" ? "REPLICATE_API_TOKEN" : "ELEVENLABS_API_KEY";
   if (!process.env[requiredKey]) {
     return new Response(JSON.stringify({ error: `Podcast audio not configured. Missing: ${requiredKey}` }), { status: 503 });
@@ -112,7 +113,7 @@ export async function POST(req: NextRequest) {
         );
 
         send({ type: "progress", message: `Voicing ${dialogue.turns.length} lines with two voices (${provider})…` });
-        const mp3 = await buildPodcastEpisode(dialogue.turns);
+        const mp3 = await buildPodcastEpisode(dialogue.turns, provider);
 
         send({ type: "progress", message: "Uploading episode audio…" });
         const slug = (title || `post-${postId}`).toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
