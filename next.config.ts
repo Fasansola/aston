@@ -13,6 +13,10 @@ const nextConfig: NextConfig = {
     "@aws-sdk/client-iam",
     "@aws-sdk/client-cloudwatch-logs",
     "@aws-sdk/client-service-quotas",
+    // ffmpeg-static locates its binary via __dirname; if Next bundles it, that
+    // path breaks (spawn …/ffmpeg ENOENT). Keep it external so it resolves the
+    // real node_modules path at runtime.
+    "ffmpeg-static",
   ],
   images: {
     remotePatterns: [
