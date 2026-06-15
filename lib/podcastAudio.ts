@@ -45,10 +45,9 @@ const EXPERT_VOICE = process.env.ELEVENLABS_PODCAST_EXPERT_VOICE_ID || "pNInz6ob
 const KOKORO_HOST_VOICE   = process.env.KOKORO_PODCAST_HOST_VOICE   || "bf_emma";   // British female
 const KOKORO_EXPERT_VOICE = process.env.KOKORO_PODCAST_EXPERT_VOICE || "bm_george"; // British male
 
-// Music sting: short and quiet so it's a subtle intro/outro, not a jarring blast.
-// Tunable via env without a code change.
-const STING_SECS   = Number(process.env.PODCAST_STING_SECS)   || 2.5;
-const STING_VOLUME = Number(process.env.PODCAST_STING_VOLUME) || 0.28; // 0–1 (was effectively 1.0)
+// Continuous background music bed under the whole episode — kept very low so it
+// sits well behind the voices. Good default chosen so no tuning is needed.
+const MUSIC_VOLUME = Number(process.env.PODCAST_MUSIC_VOLUME) || 0.09; // 0–1
 
 /** Synthesize one turn via ElevenLabs (two premade voices). */
 async function synthesizeTurnElevenLabs(turn: DialogueTurn, apiKey: string): Promise<Buffer> {
@@ -109,10 +108,23 @@ async function ffmpeg(args: string[]): Promise<void> {
   await execFileAsync(ffmpegPath, args, { maxBuffer: 1024 * 1024 * 64 });
 }
 
+/** Parse a media file's duration (seconds) from ffmpeg's stderr. Returns 0 if unknown. */
+async function probeDurationSecs(file: string): Promise<number> {
+  try {
+    await ffmpeg(["-i", file]); // no output specified → ffmpeg errors but prints "Duration:"
+    return 0;
+  } catch (e) {
+    const stderr = (e as { stderr?: string })?.stderr ?? String(e);
+    const m = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+    return m ? (+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3]) : 0;
+  }
+}
+
 /**
- * Build the full episode MP3: [music sting] + turns + [music sting].
- * If BACKGROUND_MUSIC_URL is unset/unreachable, the stings are skipped and the
- * spoken turns are stitched on their own.
+ * Build the full episode MP3: all spoken turns concatenated, with a continuous,
+ * very-quiet music bed mixed underneath the entire conversation (gentle fade in
+ * and out). If BACKGROUND_MUSIC_URL is unset/unreachable, the speech is returned
+ * on its own.
  */
 export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsProvider = "elevenlabs"): Promise<Buffer> {
   const dir = await mkdtemp(join(tmpdir(), "podcast-"));
@@ -126,8 +138,14 @@ export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsPr
       turnFiles.push(f);
     }
 
-    // 2. Build music stings (best-effort)
-    const stingFiles: { intro?: string; outro?: string } = {};
+    // 2. Concat all turns into one uniform speech track
+    const speechFile = join(dir, "speech.mp3");
+    const speechInputs = turnFiles.flatMap((f) => ["-i", f]);
+    const speechFilter = turnFiles.map((_, i) => `[${i}:a]`).join("") + `concat=n=${turnFiles.length}:v=0:a=1[out]`;
+    await ffmpeg(["-y", ...speechInputs, "-filter_complex", speechFilter, "-map", "[out]",
+      "-ar", "44100", "-ac", "2", "-b:a", "128k", speechFile]);
+
+    // 3. Mix a continuous low music bed under the whole episode (best-effort)
     const musicUrl = process.env.BACKGROUND_MUSIC_URL;
     if (musicUrl) {
       try {
@@ -135,36 +153,30 @@ export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsPr
         if (musicRes.ok) {
           const musicFile = join(dir, "music.mp3");
           await writeFile(musicFile, Buffer.from(await musicRes.arrayBuffer()));
-          const introSting = join(dir, "sting-in.mp3");
-          const outroSting = join(dir, "sting-out.mp3");
-          const fadeOutStart = Math.max(0.1, STING_SECS - 1.2);
-          await ffmpeg(["-y", "-i", musicFile, "-t", String(STING_SECS),
-            "-af", `volume=${STING_VOLUME},afade=t=in:st=0:d=0.3,afade=t=out:st=${fadeOutStart}:d=1.2`,
-            "-ar", "44100", "-ac", "2", introSting]);
-          await ffmpeg(["-y", "-i", musicFile, "-ss", "8", "-t", String(STING_SECS),
-            "-af", `volume=${STING_VOLUME},afade=t=in:st=0:d=0.6,afade=t=out:st=${fadeOutStart}:d=1.2`,
-            "-ar", "44100", "-ac", "2", outroSting]);
-          stingFiles.intro = introSting;
-          stingFiles.outro = outroSting;
+
+          const dur = await probeDurationSecs(speechFile);
+          const fadeOut = dur > 5 ? `,afade=t=out:st=${(dur - 3).toFixed(2)}:d=3` : "";
+          const episodeFile = join(dir, "episode.mp3");
+          // Loop the music to cover the speech, drop it to bed level, fade it in
+          // (and out near the end), then mix it under the speech at full level.
+          await ffmpeg([
+            "-y",
+            "-i", speechFile,
+            "-stream_loop", "-1", "-i", musicFile,
+            "-filter_complex",
+            `[1:a]volume=${MUSIC_VOLUME},afade=t=in:st=0:d=2${fadeOut}[bed];` +
+            `[0:a][bed]amix=inputs=2:duration=first:normalize=0[out]`,
+            "-map", "[out]", "-ar", "44100", "-ac", "2", "-b:a", "128k", episodeFile,
+          ]);
+          return await readFile(episodeFile);
         }
       } catch (e) {
-        console.warn(`[podcastAudio] music sting skipped (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
+        console.warn(`[podcastAudio] music bed skipped (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
       }
     }
 
-    // 3. Concat everything, re-encoding to a uniform stream (handles mixed inputs)
-    const sequence = [
-      ...(stingFiles.intro ? [stingFiles.intro] : []),
-      ...turnFiles,
-      ...(stingFiles.outro ? [stingFiles.outro] : []),
-    ];
-    const inputs = sequence.flatMap((f) => ["-i", f]);
-    const filter = sequence.map((_, i) => `[${i}:a]`).join("") + `concat=n=${sequence.length}:v=0:a=1[out]`;
-    const outFile = join(dir, "episode.mp3");
-    await ffmpeg(["-y", ...inputs, "-filter_complex", filter, "-map", "[out]",
-      "-ar", "44100", "-ac", "2", "-b:a", "128k", outFile]);
-
-    return await readFile(outFile);
+    // No music (or it failed) — return the speech track on its own
+    return await readFile(speechFile);
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
