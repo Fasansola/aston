@@ -45,9 +45,11 @@ const EXPERT_VOICE = process.env.ELEVENLABS_PODCAST_EXPERT_VOICE_ID || "pNInz6ob
 const KOKORO_HOST_VOICE   = process.env.KOKORO_PODCAST_HOST_VOICE   || "bf_emma";   // British female
 const KOKORO_EXPERT_VOICE = process.env.KOKORO_PODCAST_EXPERT_VOICE || "bm_george"; // British male
 
-// Continuous background music bed under the whole episode — kept very low so it
-// sits well behind the voices. Good default chosen so no tuning is needed.
-const MUSIC_VOLUME = Number(process.env.PODCAST_MUSIC_VOLUME) || 0.09; // 0–1
+// Music plays ONLY at the open and close — never under the conversation.
+// Good fixed defaults so no tuning is needed (still env-overridable).
+const INTRO_SECS   = Number(process.env.PODCAST_INTRO_SECS)   || 4;    // subtle intro length
+const INTRO_VOLUME = Number(process.env.PODCAST_INTRO_VOLUME) || 0.25; // intro plays alone, so a touch more present
+const OUTRO_VOLUME = Number(process.env.PODCAST_OUTRO_VOLUME) || 0.10; // fades in quietly UNDER Liz's outro
 
 /** Synthesize one turn via ElevenLabs (two premade voices). */
 async function synthesizeTurnElevenLabs(turn: DialogueTurn, apiKey: string): Promise<Buffer> {
@@ -121,10 +123,10 @@ async function probeDurationSecs(file: string): Promise<number> {
 }
 
 /**
- * Build the full episode MP3: all spoken turns concatenated, with a continuous,
- * very-quiet music bed mixed underneath the entire conversation (gentle fade in
- * and out). If BACKGROUND_MUSIC_URL is unset/unreachable, the speech is returned
- * on its own.
+ * Build the full episode MP3:
+ *   [subtle music intro ~4s] → clean conversation (no music) → music fades in
+ *   quietly under Liz's outro and plays out.
+ * If BACKGROUND_MUSIC_URL is unset/unreachable, the speech is returned on its own.
  */
 export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsProvider = "elevenlabs"): Promise<Buffer> {
   const dir = await mkdtemp(join(tmpdir(), "podcast-"));
@@ -138,14 +140,14 @@ export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsPr
       turnFiles.push(f);
     }
 
-    // 2. Concat all turns into one uniform speech track
+    // 2. Concat all turns into one uniform speech track (clean — no music here)
     const speechFile = join(dir, "speech.mp3");
     const speechInputs = turnFiles.flatMap((f) => ["-i", f]);
     const speechFilter = turnFiles.map((_, i) => `[${i}:a]`).join("") + `concat=n=${turnFiles.length}:v=0:a=1[out]`;
     await ffmpeg(["-y", ...speechInputs, "-filter_complex", speechFilter, "-map", "[out]",
       "-ar", "44100", "-ac", "2", "-b:a", "128k", speechFile]);
 
-    // 3. Mix a continuous low music bed under the whole episode (best-effort)
+    // 3. Add the music intro + outro only (best-effort)
     const musicUrl = process.env.BACKGROUND_MUSIC_URL;
     if (musicUrl) {
       try {
@@ -154,28 +156,44 @@ export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsPr
           const musicFile = join(dir, "music.mp3");
           await writeFile(musicFile, Buffer.from(await musicRes.arrayBuffer()));
 
-          const dur = await probeDurationSecs(speechFile);
-          const fadeOut = dur > 5 ? `,afade=t=out:st=${(dur - 3).toFixed(2)}:d=3` : "";
+          // 3a. Subtle intro sting (plays alone, fades out as Liz starts)
+          const introFile = join(dir, "intro.mp3");
+          await ffmpeg(["-y", "-i", musicFile, "-t", String(INTRO_SECS),
+            "-af", `volume=${INTRO_VOLUME},afade=t=in:st=0:d=0.4,afade=t=out:st=${Math.max(0.1, INTRO_SECS - 1.4)}:d=1.4`,
+            "-ar", "44100", "-ac", "2", introFile]);
+
+          // 3b. intro + clean speech
+          const combinedFile = join(dir, "combined.mp3");
+          await ffmpeg(["-y", "-i", introFile, "-i", speechFile,
+            "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[out]", "-map", "[out]",
+            "-ar", "44100", "-ac", "2", "-b:a", "128k", combinedFile]);
+
+          // 3c. Music fades in quietly under Liz's final turn and plays out
+          const Dc = await probeDurationSecs(combinedFile);
+          const L  = await probeDurationSecs(turnFiles[turnFiles.length - 1]);
+          const outroStart = (Dc > 0 && L > 0) ? Math.max(0, Dc - L) : (Dc > 6 ? Dc - 6 : 0);
+          const bedFades =
+            `afade=t=in:st=${outroStart.toFixed(2)}:d=2` +
+            (Dc > 0 ? `,afade=t=out:st=${(Dc + 0.5).toFixed(2)}:d=2.5` : "");
           const episodeFile = join(dir, "episode.mp3");
-          // Loop the music to cover the speech, drop it to bed level, fade it in
-          // (and out near the end), then mix it under the speech at full level.
           await ffmpeg([
             "-y",
-            "-i", speechFile,
+            "-i", combinedFile,
             "-stream_loop", "-1", "-i", musicFile,
             "-filter_complex",
-            `[1:a]volume=${MUSIC_VOLUME},afade=t=in:st=0:d=2${fadeOut}[bed];` +
-            `[0:a][bed]amix=inputs=2:duration=first:normalize=0[out]`,
+            `[0:a]apad=pad_dur=3[sp];` +                                  // room for the music tail
+            `[1:a]volume=${OUTRO_VOLUME},${bedFades}[bed];` +             // silent until the outro, then fades in/out
+            `[sp][bed]amix=inputs=2:duration=first:normalize=0[out]`,
             "-map", "[out]", "-ar", "44100", "-ac", "2", "-b:a", "128k", episodeFile,
           ]);
           return await readFile(episodeFile);
         }
       } catch (e) {
-        console.warn(`[podcastAudio] music bed skipped (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
+        console.warn(`[podcastAudio] music intro/outro skipped (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
       }
     }
 
-    // No music (or it failed) — return the speech track on its own
+    // No music (or it failed) — return the clean speech track on its own
     return await readFile(speechFile);
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
