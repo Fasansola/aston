@@ -24,18 +24,26 @@ import { tmpdir } from "os";
 import { join } from "path";
 import ffmpegPath from "ffmpeg-static";
 import type { DialogueTurn } from "./podcastDialogue";
+import { generateKokoroSpeech } from "./replicate";
 
 const execFileAsync = promisify(execFile);
 const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
+
+// Voice engine: "elevenlabs" (default) or "kokoro" (free Replicate fallback).
+const TTS_PROVIDER = (process.env.PODCAST_TTS_PROVIDER || "elevenlabs").toLowerCase();
 
 // Universal ElevenLabs premade voice IDs (available to all accounts).
 const HOST_VOICE   = process.env.ELEVENLABS_PODCAST_HOST_VOICE_ID   || "21m00Tcm4TlvDq8ikWAM"; // Rachel — warm interviewer
 const EXPERT_VOICE = process.env.ELEVENLABS_PODCAST_EXPERT_VOICE_ID || "pNInz6obpgDQGcFmaJgB"; // Adam — authoritative
 
+// Kokoro voices (jaaari/kokoro-82m): two distinct British voices.
+const KOKORO_HOST_VOICE   = process.env.KOKORO_PODCAST_HOST_VOICE   || "bf_emma";   // British female
+const KOKORO_EXPERT_VOICE = process.env.KOKORO_PODCAST_EXPERT_VOICE || "bm_george"; // British male
+
 const STING_SECS = 4;
 
-/** Synthesize one dialogue turn to an MP3 buffer using the speaker's voice. */
-async function synthesizeTurn(turn: DialogueTurn, apiKey: string): Promise<Buffer> {
+/** Synthesize one turn via ElevenLabs (two premade voices). */
+async function synthesizeTurnElevenLabs(turn: DialogueTurn, apiKey: string): Promise<Buffer> {
   const voiceId = turn.speaker === "host" ? HOST_VOICE : EXPERT_VOICE;
   const res = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${voiceId}`, {
     method: "POST",
@@ -54,17 +62,35 @@ async function synthesizeTurn(turn: DialogueTurn, apiKey: string): Promise<Buffe
   return Buffer.from(await res.arrayBuffer());
 }
 
-/** Run synthesis with bounded concurrency so we don't trip ElevenLabs rate limits. */
-async function synthesizeAll(turns: DialogueTurn[], apiKey: string, concurrency = 4): Promise<Buffer[]> {
+/** Synthesize one turn via Kokoro (free, Replicate) using two distinct voices. */
+async function synthesizeTurnKokoro(turn: DialogueTurn): Promise<Buffer> {
+  const voice = turn.speaker === "host" ? KOKORO_HOST_VOICE : KOKORO_EXPERT_VOICE;
+  const { buffer } = await generateKokoroSpeech(turn.text, voice);
+  return buffer;
+}
+
+/**
+ * Synthesize every turn. ElevenLabs runs with bounded concurrency; Kokoro runs
+ * sequentially because Replicate heavily rate-limits low-credit accounts.
+ */
+async function synthesizeAll(turns: DialogueTurn[]): Promise<Buffer[]> {
+  if (TTS_PROVIDER === "kokoro") {
+    const out: Buffer[] = [];
+    for (const turn of turns) out.push(await synthesizeTurnKokoro(turn));
+    return out;
+  }
+
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey) throw new Error("ELEVENLABS_API_KEY is not set");
   const out: Buffer[] = new Array(turns.length);
   let next = 0;
-  async function worker() {
+  const worker = async () => {
     while (next < turns.length) {
       const i = next++;
-      out[i] = await synthesizeTurn(turns[i], apiKey);
+      out[i] = await synthesizeTurnElevenLabs(turns[i], apiKey);
     }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, turns.length) }, worker));
+  };
+  await Promise.all(Array.from({ length: Math.min(4, turns.length) }, worker));
   return out;
 }
 
@@ -79,13 +105,10 @@ async function ffmpeg(args: string[]): Promise<void> {
  * spoken turns are stitched on their own.
  */
 export async function buildPodcastEpisode(turns: DialogueTurn[]): Promise<Buffer> {
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-  if (!apiKey) throw new Error("ELEVENLABS_API_KEY is not set");
-
   const dir = await mkdtemp(join(tmpdir(), "podcast-"));
   try {
-    // 1. Voice every turn
-    const turnBuffers = await synthesizeAll(turns, apiKey);
+    // 1. Voice every turn (ElevenLabs or Kokoro, per PODCAST_TTS_PROVIDER)
+    const turnBuffers = await synthesizeAll(turns);
     const turnFiles: string[] = [];
     for (let i = 0; i < turnBuffers.length; i++) {
       const f = join(dir, `turn-${String(i).padStart(3, "0")}.mp3`);

@@ -88,9 +88,10 @@ export async function POST(req: NextRequest) {
   if (!postId || typeof postId !== "number") {
     return new Response(JSON.stringify({ error: "postId is required." }), { status: 400 });
   }
-  const missing = ["ELEVENLABS_API_KEY"].filter((k) => !process.env[k]);
-  if (missing.length) {
-    return new Response(JSON.stringify({ error: `Podcast audio not configured. Missing: ${missing.join(", ")}` }), { status: 503 });
+  const provider = (process.env.PODCAST_TTS_PROVIDER || "elevenlabs").toLowerCase();
+  const requiredKey = provider === "kokoro" ? "REPLICATE_API_TOKEN" : "ELEVENLABS_API_KEY";
+  if (!process.env[requiredKey]) {
+    return new Response(JSON.stringify({ error: `Podcast audio not configured. Missing: ${requiredKey}` }), { status: 503 });
   }
 
   const stream = new ReadableStream({
@@ -103,9 +104,14 @@ export async function POST(req: NextRequest) {
         if (!text || text.length < 200) throw new Error("Article has too little text to build a conversation.");
 
         send({ type: "progress", message: "Writing the conversation…" });
-        const dialogue = await generatePodcastDialogue(titleHint?.trim() || title, text, focusKeyword);
+        // Kokoro (free, rate-limited) → shorter episode to stay within the
+        // function timeout; ElevenLabs → full length.
+        const dialogue = await generatePodcastDialogue(
+          titleHint?.trim() || title, text, focusKeyword,
+          provider === "kokoro" ? "short" : "medium"
+        );
 
-        send({ type: "progress", message: `Voicing ${dialogue.turns.length} lines with two voices…` });
+        send({ type: "progress", message: `Voicing ${dialogue.turns.length} lines with two voices (${provider})…` });
         const mp3 = await buildPodcastEpisode(dialogue.turns);
 
         send({ type: "progress", message: "Uploading episode audio…" });

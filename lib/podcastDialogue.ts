@@ -29,9 +29,13 @@ const SHOW_NAME = process.env.PODCAST_TITLE || "Aston VIP Insights";
 export async function generatePodcastDialogue(
   title: string,
   sourceText: string,
-  focusKeyword?: string
+  focusKeyword?: string,
+  length: "short" | "medium" = "medium"
 ): Promise<PodcastDialogue> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const lengthRule = length === "short"
+    ? "Length: 3–4 minutes when spoken — roughly 600–900 words total. 8–12 turns."
+    : "Length: 8–12 minutes when spoken — roughly 1400–1900 words total. 14–24 turns.";
 
   const system = `You write natural, engaging two-person podcast conversations for "${SHOW_NAME}", a show by Aston VIP — a high-end international corporate advisory firm (company formation, banking, tax structuring, licensing, residency across the UAE, UK, EU and offshore).
 
@@ -65,12 +69,12 @@ Return a single valid JSON object. No markdown, no code fences:
 }
 
 RULES:
-- Length: 8–12 minutes when spoken — roughly 1400–1900 words total across all turns.
+- ${lengthRule}
 - The FIRST turn must be the HOST giving a spoken intro: welcome to ${SHOW_NAME}, name today's topic, and a one-line hook. Keep it ~2 sentences.
 - The LAST turn must be the HOST giving a spoken outro: a quick wrap-up plus "to speak with the Aston VIP team, visit aston dot a-e". Keep it ~2 sentences.
 - Between intro and outro: a genuine conversation that covers the article's key points — requirements, costs, jurisdictions, risks, and what businesses get wrong.
 - Start with HOST, then alternate host/expert. The expert carries the substance; the host drives with questions and reactions.
-- 14–24 turns total. No single turn longer than ~120 words.`;
+- No single turn longer than ~120 words.`;
 
   const { choices } = await openai.chat.completions.create({
     model: "gpt-4o",
