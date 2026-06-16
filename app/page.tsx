@@ -841,6 +841,18 @@ export default function HomePage() {
     localStorage.setItem("aston_durable_pipeline", on ? "1" : "0");
   };
 
+  useEffect(() => {
+    const stored = localStorage.getItem("aston_auto_media");
+    if (stored) { try { setAutoMedia(JSON.parse(stored)); } catch { /* ignore */ } }
+  }, []);
+  const updateAutoMedia = (key: keyof typeof autoMedia, on: boolean) => {
+    setAutoMedia((prev) => {
+      const next = { ...prev, [key]: on };
+      localStorage.setItem("aston_auto_media", JSON.stringify(next));
+      return next;
+    });
+  };
+
   const [customPrompt, setCustomPrompt] = useState("");
 
   // Strategy inputs
@@ -925,6 +937,14 @@ export default function HomePage() {
   const [podcastProvider, setPodcastProvider] = useState<"elevenlabs" | "kokoro">("kokoro");
   const [podcastEpisodeId, setPodcastEpisodeId]       = useState<number | null>(null);
   const [podcastAudioMediaId, setPodcastAudioMediaId] = useState<number | null>(null);
+
+  // Media outputs — selected before generation, triggered automatically after post is published
+  const [autoMedia, setAutoMedia] = useState({ video: false, podcast: false, audio: false });
+  const [showMediaOptions, setShowMediaOptions] = useState(false);
+  // Snapshot of media opts captured at generation-done time; cleared once consumed by the effect
+  const autoMediaPendingOpts = useRef<{ video: boolean; podcast: boolean; audio: boolean } | null>(null);
+  // Set to true when auto-video is queued, so the YouTube upload fires once rendering completes
+  const shouldAutoUploadVideoRef = useRef(false);
 
   const startStepCycle = () => {
     setStepIndex(0);
@@ -1022,6 +1042,9 @@ export default function HomePage() {
             evtRaw.imagePrompts as Record<string, string>,
             (evtRaw.flowchartMermaid as string) ?? ""
           );
+        }
+        if (autoMedia.video || autoMedia.podcast || autoMedia.audio) {
+          autoMediaPendingOpts.current = { ...autoMedia };
         }
         return "done";
       }
@@ -1528,6 +1551,8 @@ export default function HomePage() {
     setPodcastEpisodeId(null);
     setPodcastAudioMediaId(null);
     setBlogContent(null);
+    autoMediaPendingOpts.current = null;
+    shouldAutoUploadVideoRef.current = false;
   };
 
   const handleGenerateVideo = async () => {
@@ -1869,6 +1894,35 @@ export default function HomePage() {
       setPodcastProgress(err instanceof Error ? err.message : "Something went wrong.");
     }
   };
+
+  // After post generation completes, auto-run whichever media outputs were selected.
+  // Audio runs first so the video pipeline can reuse the narration URL.
+  // Video and podcast then run in parallel.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const opts = autoMediaPendingOpts.current;
+    if (!opts || !result) return;
+    autoMediaPendingOpts.current = null;
+    (async () => {
+      if (opts.audio) await handleGenerateAudio();
+      const parallel: Promise<void>[] = [];
+      if (opts.video) {
+        shouldAutoUploadVideoRef.current = true;
+        parallel.push(handleGenerateVideo());
+      }
+      if (opts.podcast) parallel.push(handleGeneratePodcast());
+      if (parallel.length > 0) await Promise.all(parallel);
+    })();
+  }, [result]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-upload to YouTube once the video finishes rendering (only when triggered via auto-media).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (videoStatus === "ready" && videoUrl && shouldAutoUploadVideoRef.current) {
+      shouldAutoUploadVideoRef.current = false;
+      handleUploadToYouTube();
+    }
+  }, [videoStatus, videoUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isAuthed === null) return (
     <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
@@ -2425,6 +2479,53 @@ export default function HomePage() {
                   <p className="text-red-400 text-sm">{error}</p>
                 </div>
               )}
+
+              {/* Media outputs — selected once, generated automatically */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowMediaOptions((v) => !v)}
+                  className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-[#C9A84C]/30 transition-all duration-150 group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <svg className="w-3.5 h-3.5 text-[#C9A84C]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
+                    </svg>
+                    <span className="text-sm text-white/70 group-hover:text-white transition-colors">Media outputs</span>
+                    <span className="text-xs text-white/30">
+                      ({[autoMedia.video, autoMedia.audio, autoMedia.podcast].filter(Boolean).length} selected)
+                    </span>
+                  </div>
+                  <svg className={`w-4 h-4 text-white/30 transition-transform duration-200 ${showMediaOptions ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {showMediaOptions && (
+                  <div className="mt-3 space-y-2 p-4 rounded-lg border border-white/[0.08] bg-white/[0.02]">
+                    <p className="text-white/25 text-xs mb-3 leading-relaxed">
+                      Generated automatically after the article is published. Video is uploaded to YouTube when rendering finishes.
+                    </p>
+                    {([
+                      { key: "video"   as const, label: "YouTube video",    hint: "Script → scenes → narration → captions → uploads to YouTube" },
+                      { key: "audio"   as const, label: "Read-aloud audio", hint: "Article narration attached to the WordPress post" },
+                      { key: "podcast" as const, label: "Podcast episode",  hint: "Two-voice conversation published to the Spotify RSS feed" },
+                    ]).map(({ key, label, hint }) => (
+                      <label key={key} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer select-none transition-colors ${autoMedia[key] ? "border-[#C9A84C]/20 bg-[#C9A84C]/[0.03]" : "border-white/[0.06]"}`}>
+                        <input
+                          type="checkbox"
+                          checked={autoMedia[key]}
+                          onChange={(e) => updateAutoMedia(key, e.target.checked)}
+                          className="w-3.5 h-3.5 accent-[#C9A84C]"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white/80">{label}</p>
+                          <p className="text-[10px] text-white/25">{hint}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <label className="flex items-center justify-between gap-3 mb-3 px-3 py-2.5 rounded-lg border border-white/[0.08] bg-white/[0.02] cursor-pointer">
                 <span className="flex flex-col">
