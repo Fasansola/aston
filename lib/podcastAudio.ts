@@ -48,11 +48,11 @@ const KOKORO_EXPERT_VOICE = process.env.KOKORO_PODCAST_EXPERT_VOICE || "bm_georg
 // Music plays ONLY at the open and close, and is blended into/out of the speech
 // with ffmpeg's acrossfade filter (smooth, automatic — no manual fade timing).
 // Good fixed defaults so no tuning is needed (still env-overridable).
-const INTRO_SECS    = Number(process.env.PODCAST_INTRO_SECS)    || 5;    // music before Liz starts
-const OUTRO_SECS    = Number(process.env.PODCAST_OUTRO_SECS)    || 6;    // music after Liz signs off
-const CROSSFADE_SEC = Number(process.env.PODCAST_CROSSFADE_SEC) || 1.5;  // blend between music and speech
-const INTRO_VOLUME  = Number(process.env.PODCAST_INTRO_VOLUME)  || 0.35;
-const OUTRO_VOLUME  = Number(process.env.PODCAST_OUTRO_VOLUME)  || 0.32;
+const INTRO_SECS    = Number(process.env.PODCAST_INTRO_SECS)    || 5;
+const OUTRO_SECS    = Number(process.env.PODCAST_OUTRO_SECS)    || 10;   // enough room for a clean fade
+const CROSSFADE_SEC = Number(process.env.PODCAST_CROSSFADE_SEC) || 2;
+const INTRO_VOLUME  = Number(process.env.PODCAST_INTRO_VOLUME)  || 0.22; // sting, not bed — keep quiet
+const OUTRO_VOLUME  = Number(process.env.PODCAST_OUTRO_VOLUME)  || 0.18;
 
 /** Synthesize one turn via ElevenLabs (two premade voices). */
 async function synthesizeTurnElevenLabs(turn: DialogueTurn, apiKey: string): Promise<Buffer> {
@@ -65,7 +65,7 @@ async function synthesizeTurnElevenLabs(turn: DialogueTurn, apiKey: string): Pro
       model_id: "eleven_multilingual_v2",
       // Lower stability = more natural variation/emotion (less monotone); a touch
       // more style for conversational inflection. Tuned for podcast dialogue.
-      voice_settings: { stability: 0.3, similarity_boost: 0.75, style: 0.55, use_speaker_boost: true },
+      voice_settings: { stability: 0.52, similarity_boost: 0.80, style: 0.22, use_speaker_boost: true },
     }),
     signal: AbortSignal.timeout(90_000),
   });
@@ -150,19 +150,22 @@ export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsPr
           await writeFile(musicFile, Buffer.from(await musicRes.arrayBuffer()));
 
           const episodeFile = join(dir, "episode.mp3");
-          // One pass: take two slices of the music (intro + a different outro
-          // section), level + edge-fade them, then acrossfade intro→speech and
-          // speech→outro. acrossfade overlaps each pair by CROSSFADE_SEC and
-          // blends automatically, so no duration math is needed.
+          // stream_loop=-1 means both music inputs are infinite loops, so atrim
+          // always has enough source regardless of the track's actual duration.
+          // aformat normalises sample rate + channel layout before acrossfade
+          // (acrossfade errors silently on mismatched formats, e.g. 48kHz music
+          // mixed with 44100Hz speech produces garbled output without this).
+          const outroFadeStart = Math.max(0.1, OUTRO_SECS - 3);
           await ffmpeg([
             "-y",
-            "-i", speechFile,   // 0
-            "-i", musicFile,    // 1 → intro slice
-            "-i", musicFile,    // 2 → outro slice
+            "-i", speechFile,                      // 0: speech
+            "-stream_loop", "-1", "-i", musicFile, // 1: intro (looped)
+            "-stream_loop", "-1", "-i", musicFile, // 2: outro (looped)
             "-filter_complex",
-            `[1:a]atrim=0:${INTRO_SECS},asetpts=PTS-STARTPTS,volume=${INTRO_VOLUME},afade=t=in:st=0:d=0.8[intro];` +
-            `[2:a]atrim=8:${8 + OUTRO_SECS},asetpts=PTS-STARTPTS,volume=${OUTRO_VOLUME},afade=t=out:st=${Math.max(0.1, OUTRO_SECS - 2.5)}:d=2.5[outro];` +
-            `[intro][0:a]acrossfade=d=${CROSSFADE_SEC}:c1=tri:c2=tri[a];` +
+            `[1:a]atrim=0:${INTRO_SECS},asetpts=PTS-STARTPTS,volume=${INTRO_VOLUME},afade=t=in:st=0:d=0.8,aformat=sample_rates=44100:channel_layouts=stereo[intro];` +
+            `[2:a]atrim=0:${OUTRO_SECS},asetpts=PTS-STARTPTS,volume=${OUTRO_VOLUME},afade=t=out:st=${outroFadeStart}:d=3,aformat=sample_rates=44100:channel_layouts=stereo[outro];` +
+            `[0:a]aformat=sample_rates=44100:channel_layouts=stereo[sp];` +
+            `[intro][sp]acrossfade=d=${CROSSFADE_SEC}:c1=tri:c2=tri[a];` +
             `[a][outro]acrossfade=d=${CROSSFADE_SEC}:c1=tri:c2=tri[out]`,
             "-map", "[out]", "-ar", "44100", "-ac", "2", "-b:a", "128k", episodeFile,
           ]);
