@@ -114,8 +114,22 @@ async function fetchAssetToS3(
 }
 
 async function fetchLogoToS3(logoUrl: string): Promise<string> {
-  const ext = logoUrl.endsWith(".svg") ? "svg" : "png";
-  return fetchAssetToS3(logoUrl, `aston-logo.${ext}`, "image/svg+xml");
+  if (!logoUrl.toLowerCase().endsWith(".svg")) {
+    return fetchAssetToS3(logoUrl, "aston-logo.png", "image/png");
+  }
+  // Remotion's <Img> component cannot render SVGs from external URLs inside
+  // Lambda's headless Chromium. Convert to PNG first so it always loads.
+  try {
+    const res = await fetch(logoUrl, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`Logo fetch failed: ${res.status}`);
+    const svgBuf = Buffer.from(await res.arrayBuffer());
+    const sharp = (await import("sharp")).default;
+    const pngBuf = await sharp(svgBuf).png().toBuffer();
+    return await uploadAssetToS3(pngBuf, "aston-logo.png", "image/png");
+  } catch (err) {
+    console.warn(`[generate-video] SVG→PNG conversion failed, using original URL: ${err instanceof Error ? err.message : err}`);
+    return logoUrl;
+  }
 }
 
 export async function POST(req: NextRequest) {
