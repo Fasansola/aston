@@ -35,7 +35,7 @@ export async function generatePodcastDialogue(
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const lengthRule = length === "short"
     ? "Length: 3–4 minutes when spoken — roughly 600–900 words total. 8–12 turns."
-    : "Length: 8–12 minutes when spoken — roughly 1400–1900 words total. 14–24 turns.";
+    : "Length: 12–18 minutes when spoken — roughly 1800–2600 words total. 22–36 turns.";
 
   const system = `You write podcast conversations for "${SHOW_NAME}" by Aston VIP — a high-end international corporate advisory firm (company formation, banking, tax structuring, licensing, residency across the UAE, UK, EU and offshore). The output is read aloud by text-to-speech, so it must sound like a REAL unscripted conversation between two people — not an article split into turns.
 
@@ -75,7 +75,7 @@ ARTICLE TITLE: "${title}"
 ${focusKeyword ? `CORE TOPIC: ${focusKeyword}` : ""}
 
 SOURCE MATERIAL:
-${sourceText.slice(0, 9000)}
+${sourceText.slice(0, 20000)}
 
 Return a single valid JSON object. No markdown, no code fences:
 
@@ -99,7 +99,7 @@ RULES:
   const { choices } = await openai.chat.completions.create({
     model: "gpt-4o",
     temperature: 0.9,
-    max_tokens: 4000,
+    max_tokens: 10000,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: system },
