@@ -936,6 +936,7 @@ export default function HomePage() {
   const [podcastUrl, setPodcastUrl]         = useState<string | null>(null);
   const [podcastEpisodeId, setPodcastEpisodeId]       = useState<number | null>(null);
   const [podcastAudioMediaId, setPodcastAudioMediaId] = useState<number | null>(null);
+  const [podcastLength, setPodcastLength]   = useState<15 | 30 | 45 | 60>(30);
 
   // Media outputs — selected before generation, triggered automatically after post is published
   const [autoMedia, setAutoMedia] = useState({ video: false, podcast: false, audio: false });
@@ -1549,6 +1550,7 @@ export default function HomePage() {
     setPodcastUrl(null);
     setPodcastEpisodeId(null);
     setPodcastAudioMediaId(null);
+    setPodcastLength(30);
     setBlogContent(null);
     autoMediaPendingOpts.current = null;
     shouldAutoUploadVideoRef.current = false;
@@ -1852,7 +1854,7 @@ export default function HomePage() {
       const res = await fetch("/api/generate-podcast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: result.postId, title: result.title, focusKeyword: result.focusKeyword }),
+        body: JSON.stringify({ postId: result.postId, title: result.title, focusKeyword: result.focusKeyword, length: podcastLength }),
       });
       if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -3212,12 +3214,23 @@ export default function HomePage() {
                 <div className="px-4 py-4 space-y-4">
                   {podcastStatus === "idle" && (
                     <>
+                      <div className="flex gap-1.5">
+                        {([15, 30, 45, 60] as const).map((mins) => (
+                          <button
+                            key={mins}
+                            onClick={() => setPodcastLength(mins)}
+                            className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${podcastLength === mins ? "bg-[#C9A84C]/20 border border-[#C9A84C]/40 text-[#C9A84C]" : "bg-white/[0.04] border border-white/[0.08] text-white/40 hover:text-white/60"}`}
+                          >
+                            {mins} min
+                          </button>
+                        ))}
+                      </div>
                       <button
                         onClick={handleGeneratePodcast}
                         disabled={!result?.postId}
                         className="w-full flex items-center justify-center gap-2 bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 hover:border-white/20 text-white/60 hover:text-white/90 text-sm py-3 rounded-lg transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
-                        Generate conversational episode
+                        Generate {podcastLength}-min episode
                       </button>
                       <p className="text-[10px] text-white/20">Two AI voices (host + expert) with a music intro/outro. Creates a published episode in the Podcasts post type, served on the Spotify feed.</p>
                     </>

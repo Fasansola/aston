@@ -17,8 +17,7 @@ type Turn = { speaker: "host" | "expert"; text: string };
 export default function PodcastTestPage() {
   const [title, setTitle]       = useState("");
   const [notes, setNotes]       = useState("");
-  const [provider, setProvider] = useState<"elevenlabs" | "kokoro">("kokoro");
-  const [length, setLength]     = useState<"short" | "medium">("short");
+  const [length, setLength]     = useState<15 | 30 | 45 | 60>(15);
   const [status, setStatus]     = useState<Status>("idle");
   const [progress, setProgress] = useState("");
   const [elapsed, setElapsed]   = useState(0);
@@ -53,7 +52,7 @@ export default function PodcastTestPage() {
       const res = await fetch("/api/generate-podcast-test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title.trim(), sourceText: notes.trim() || undefined, ttsProvider: provider, length }),
+        body: JSON.stringify({ title: title.trim(), sourceText: notes.trim() || undefined, length }),
       });
       if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -137,23 +136,15 @@ export default function PodcastTestPage() {
               className="w-full bg-white/[0.04] border border-white/[0.09] rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-white/20 transition-colors resize-none"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="block text-xs text-white/40 uppercase tracking-widest">Voice engine</label>
-              <select value={provider} onChange={(e) => setProvider(e.target.value as "elevenlabs" | "kokoro")}
-                className="w-full bg-white/[0.04] border border-white/[0.09] rounded-xl px-3 py-2.5 text-sm text-white/80 focus:outline-none focus:border-white/20">
-                <option value="elevenlabs">ElevenLabs (premium)</option>
-                <option value="kokoro">Kokoro (free)</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="block text-xs text-white/40 uppercase tracking-widest">Length</label>
-              <select value={length} onChange={(e) => setLength(e.target.value as "short" | "medium")}
-                className="w-full bg-white/[0.04] border border-white/[0.09] rounded-xl px-3 py-2.5 text-sm text-white/80 focus:outline-none focus:border-white/20">
-                <option value="short">Short (~3–4 min)</option>
-                <option value="medium">Medium (~8–12 min)</option>
-              </select>
-            </div>
+          <div className="space-y-1.5">
+            <label className="block text-xs text-white/40 uppercase tracking-widest">Length</label>
+            <select value={length} onChange={(e) => setLength(Number(e.target.value) as 15 | 30 | 45 | 60)}
+              className="w-full bg-white/[0.04] border border-white/[0.09] rounded-xl px-3 py-2.5 text-sm text-white/80 focus:outline-none focus:border-white/20">
+              <option value={15}>15 minutes</option>
+              <option value={30}>30 minutes</option>
+              <option value={45}>45 minutes</option>
+              <option value={60}>60 minutes</option>
+            </select>
           </div>
         </div>
 
@@ -180,7 +171,7 @@ export default function PodcastTestPage() {
             </div>
             <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
               <div className="h-full bg-[#C9A84C] rounded-full transition-all duration-1000 ease-linear"
-                style={{ width: `${Math.min((elapsed / (length === "medium" ? 180 : 90)) * 90, 90)}%` }} />
+                style={{ width: `${Math.min((elapsed / (length * 6)) * 90, 90)}%` }} />
             </div>
             <p className="text-[10px] text-white/20">Writing the dialogue, voicing both speakers, stitching the music.</p>
           </div>

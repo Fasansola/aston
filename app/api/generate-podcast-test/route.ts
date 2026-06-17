@@ -11,13 +11,13 @@
  */
 
 import { NextRequest } from "next/server";
-import { generatePodcastDialogue } from "@/lib/podcastDialogue";
+import { generatePodcastDialogue, type PodcastLengthMins } from "@/lib/podcastDialogue";
 import { buildPodcastEpisode } from "@/lib/podcastAudio";
 
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
-  let body: { title?: string; sourceText?: string; ttsProvider?: string; length?: string };
+  let body: { title?: string; sourceText?: string; length?: number };
   try { body = await req.json(); }
   catch { return new Response(JSON.stringify({ error: "Invalid request body." }), { status: 400 }); }
 
@@ -26,7 +26,8 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: "A topic or title is required." }), { status: 400 });
   }
 
-  const length: "short" | "medium" = body.length === "medium" ? "medium" : "short";
+  const validLengths: PodcastLengthMins[] = [15, 30, 45, 60];
+  const length: PodcastLengthMins = validLengths.includes(body.length as PodcastLengthMins) ? (body.length as PodcastLengthMins) : 15;
   if (!process.env.ELEVENLABS_API_KEY) {
     return new Response(JSON.stringify({ error: "Voice engine not configured. Missing: ELEVENLABS_API_KEY" }), { status: 503 });
   }

@@ -24,18 +24,26 @@ export interface PodcastDialogue {
   turns: DialogueTurn[];    // intro + body + outro, in order
 }
 
+export type PodcastLengthMins = 15 | 30 | 45 | 60;
+
+const LENGTH_CONFIG: Record<PodcastLengthMins, { rule: string; maxTokens: number; sourceChars: number }> = {
+  15: { rule: "Length: ~15 minutes when spoken — roughly 1,800–2,200 words total. 24–32 turns.",   maxTokens: 5000,  sourceChars: 12000 },
+  30: { rule: "Length: ~30 minutes when spoken — roughly 3,800–4,500 words total. 50–65 turns.",   maxTokens: 10000, sourceChars: 22000 },
+  45: { rule: "Length: ~45 minutes when spoken — roughly 5,500–6,500 words total. 75–95 turns.",   maxTokens: 14000, sourceChars: 32000 },
+  60: { rule: "Length: ~60 minutes when spoken — roughly 7,500–9,000 words total. 100–130 turns.", maxTokens: 16000, sourceChars: 45000 },
+};
+
 const SHOW_NAME = process.env.PODCAST_TITLE || "Aston VIP Insights";
 
 export async function generatePodcastDialogue(
   title: string,
   sourceText: string,
   focusKeyword?: string,
-  length: "short" | "medium" = "medium"
+  length: PodcastLengthMins = 30
 ): Promise<PodcastDialogue> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const lengthRule = length === "short"
-    ? "Length: 3–4 minutes when spoken — roughly 600–900 words total. 8–12 turns."
-    : "Length: 12–18 minutes when spoken — roughly 1800–2600 words total. 22–36 turns.";
+  const cfg = LENGTH_CONFIG[length];
+  const lengthRule = cfg.rule;
 
   const system = `You write podcast conversations for "${SHOW_NAME}" by Aston VIP — a high-end international corporate advisory firm (company formation, banking, tax structuring, licensing, residency across the UAE, UK, EU and offshore). The output is read aloud by text-to-speech, so it must sound like a REAL unscripted conversation between two people — not an article split into turns.
 
@@ -75,7 +83,7 @@ ARTICLE TITLE: "${title}"
 ${focusKeyword ? `CORE TOPIC: ${focusKeyword}` : ""}
 
 SOURCE MATERIAL:
-${sourceText.slice(0, 20000)}
+${sourceText.slice(0, cfg.sourceChars)}
 
 Return a single valid JSON object. No markdown, no code fences:
 
@@ -99,7 +107,7 @@ RULES:
   const { choices } = await openai.chat.completions.create({
     model: "gpt-4o",
     temperature: 0.9,
-    max_tokens: 10000,
+    max_tokens: cfg.maxTokens,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: system },

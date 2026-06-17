@@ -14,12 +14,12 @@
  */
 
 import { NextRequest } from "next/server";
-import { generatePodcastDialogue } from "@/lib/podcastDialogue";
+import { generatePodcastDialogue, type PodcastLengthMins } from "@/lib/podcastDialogue";
 import { buildPodcastEpisode } from "@/lib/podcastAudio";
 import { uploadMediaToWordPress } from "@/lib/wordpress";
 import { getPodcastConfig } from "@/lib/podcast";
 
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 const WP_AUTH = Buffer.from(
   `${process.env.WP_USERNAME}:${process.env.WP_APP_PASSWORD}`
@@ -93,11 +93,13 @@ async function fetchSourceText(postId: number): Promise<{ title: string; text: s
 }
 
 export async function POST(req: NextRequest) {
-  let body: { postId?: number; title?: string; focusKeyword?: string; ttsProvider?: string };
+  let body: { postId?: number; title?: string; focusKeyword?: string; length?: number };
   try { body = await req.json(); }
   catch { return new Response(JSON.stringify({ error: "Invalid request body." }), { status: 400 }); }
 
   const { postId, title: titleHint, focusKeyword } = body;
+  const validLengths: PodcastLengthMins[] = [15, 30, 45, 60];
+  const podcastLength: PodcastLengthMins = validLengths.includes(body.length as PodcastLengthMins) ? (body.length as PodcastLengthMins) : 30;
   if (!postId || typeof postId !== "number") {
     return new Response(JSON.stringify({ error: "postId is required." }), { status: 400 });
   }
@@ -116,7 +118,7 @@ export async function POST(req: NextRequest) {
 
         send({ type: "progress", message: "Writing the conversation…" });
         const dialogue = await generatePodcastDialogue(
-          titleHint?.trim() || title, text, focusKeyword, "medium"
+          titleHint?.trim() || title, text, focusKeyword, podcastLength
         );
 
         send({ type: "progress", message: `Voicing ${dialogue.turns.length} lines with ElevenLabs…` });
