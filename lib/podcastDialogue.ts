@@ -26,11 +26,11 @@ export interface PodcastDialogue {
 
 export type PodcastLengthMins = 15 | 30 | 45 | 60;
 
-const LENGTH_CONFIG: Record<PodcastLengthMins, { rule: string; minTurns: number; maxTokens: number; sourceChars: number }> = {
-  15: { rule: "HARD REQUIREMENT — write EXACTLY 28 to 34 turns minimum. ~15 minutes spoken, 1,800–2,400 words. Do not wrap up until you have written at least 28 turns.",   minTurns: 20, maxTokens: 9000,  sourceChars: 12000 },
-  30: { rule: "HARD REQUIREMENT — write EXACTLY 55 to 68 turns minimum. ~30 minutes spoken, 3,800–4,800 words. Do not wrap up until you have written at least 55 turns.",   minTurns: 40, maxTokens: 14000, sourceChars: 22000 },
-  45: { rule: "HARD REQUIREMENT — write EXACTLY 82 to 98 turns minimum. ~45 minutes spoken, 5,500–6,800 words. Do not wrap up until you have written at least 82 turns.",   minTurns: 60, maxTokens: 16000, sourceChars: 32000 },
-  60: { rule: "HARD REQUIREMENT — write EXACTLY 110 to 130 turns minimum. ~60 minutes spoken, 7,500–9,000 words. Do not wrap up until you have written at least 110 turns.", minTurns: 80, maxTokens: 16000, sourceChars: 45000 },
+const LENGTH_CONFIG: Record<PodcastLengthMins, { rule: string; minTurns: number; minWords: number; maxTokens: number; sourceChars: number }> = {
+  15: { rule: "HARD REQUIREMENT — write 28–34 turns AND at least 1,800 total words. Expert turns must be 80–150 words each (5–9 sentences of real substance). Do NOT close the JSON array until you have reached BOTH the turn count AND the word count.",   minTurns: 22, minWords: 1600, maxTokens: 9000,  sourceChars: 12000 },
+  30: { rule: "HARD REQUIREMENT — write 55–68 turns AND at least 3,800 total words. Expert turns must be 80–150 words each (5–9 sentences of real substance). Do NOT close the JSON array until you have reached BOTH the turn count AND the word count.",   minTurns: 44, minWords: 3500, maxTokens: 14000, sourceChars: 22000 },
+  45: { rule: "HARD REQUIREMENT — write 82–98 turns AND at least 5,500 total words. Expert turns must be 100–160 words each (6–10 sentences of real substance). Do NOT close the JSON array until you have reached BOTH the turn count AND the word count.",   minTurns: 60, minWords: 5000, maxTokens: 16000, sourceChars: 32000 },
+  60: { rule: "HARD REQUIREMENT — write 100–120 turns AND at least 6,500 total words. Expert turns must be 100–160 words each (6–10 sentences of real substance). Do NOT close the JSON array until you have reached BOTH the turn count AND the word count.", minTurns: 70, minWords: 6000, maxTokens: 16000, sourceChars: 45000 },
 };
 
 const SHOW_NAME = process.env.PODCAST_TITLE || "Aston VIP Insights";
@@ -64,7 +64,7 @@ HOW TO MAKE IT SOUND HUMAN (this is the whole point)
 NEVER DO THIS (it kills the realism)
 - No formal/essay connectors: "Furthermore", "Moreover", "Additionally", "In conclusion", "It is important to note".
 - No reading lists aloud ("First… Second… Third…"). Weave points into the chat instead.
-- No long monologues. If the expert goes more than ~4 sentences, the host should cut in.
+- Expert turns are typically 80–150 words (5–9 sentences): full explanations packed with real specifics. Never truncate an expert answer early. Very short expert turns ("Exactly" or "That's right") are only for brief confirmations — use them at most once every 10 turns.
 - No stage directions, sound effects, speaker labels, or markdown. Spoken words only.
 
 RULES
@@ -102,7 +102,7 @@ RULES:
 - The LAST turn is LIZ wrapping up: a quick takeaway, thank Stephan by name, then the call to action "to speak with the Aston VIP team, visit aston dot a-e". ~2-3 sentences.
 - Between intro and outro: a genuine, flowing conversation covering the key points — requirements, costs, jurisdictions, risks, what businesses get wrong. Cover them through back-and-forth, not a checklist.
 - Start with the HOST. Mostly alternate, but the host can interject a short reaction before the expert continues. The expert carries the substance; the host stays curious and reactive.
-- Vary turn length: mix 2-5 word reactions with longer explanations. No single turn longer than ~80 words.`;
+- EXPERT (STEPHAN) turns: 80–150 words each. Never write a short expert answer — pack in specifics, real numbers, real scenarios. HOST (LIZ) turns: 5–20 words for quick reactions, 20–50 words for questions. Short host turns keep pace; long expert turns carry the content.`;
 
   const { choices } = await openai.chat.completions.create({
     model: "gpt-4o",
@@ -130,6 +130,10 @@ RULES:
 
   if (turns.length < cfg.minTurns) {
     throw new Error(`Podcast dialogue too short: got ${turns.length} turns, need at least ${cfg.minTurns} for a ${length}-minute episode`);
+  }
+  const totalWords = turns.reduce((sum, t) => sum + t.text.split(/\s+/).filter(Boolean).length, 0);
+  if (totalWords < cfg.minWords) {
+    throw new Error(`Podcast dialogue too brief: got ${totalWords} words, need at least ${cfg.minWords} for a ${length}-minute episode`);
   }
 
   return {
