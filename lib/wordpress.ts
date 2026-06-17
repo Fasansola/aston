@@ -370,6 +370,33 @@ export async function createWordPressPost(
 }
 
 /**
+ * Publishes a WordPress draft post and returns its live permalink.
+ * Called automatically when a video is uploaded to YouTube so the article
+ * link in the YouTube description points to a live page, not a draft.
+ */
+export async function publishWordPressPost(postId: number): Promise<{ link: string }> {
+  let response;
+  try {
+    response = await axios.post(
+      `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
+      { status: "publish" },
+      { headers: BASE_HEADERS, timeout: 20_000 }
+    );
+  } catch (err: unknown) {
+    if (axios.isAxiosError(err)) {
+      const detail = JSON.stringify(err.response?.data ?? err.message);
+      throw new Error(`WP post publish failed (${err.response?.status}): ${detail}`);
+    }
+    throw err;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any = response.data;
+  const link: string = typeof data?.link === "string" ? data.link : `${WP_URL}/?p=${postId}`;
+  console.log(`[wordpress] Post ${postId} published — ${link}`);
+  return { link };
+}
+
+/**
  * Patches a WordPress post to attach the four generated images.
  * Called as a second step after the post has already been published (text-first pipeline).
  */

@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { uploadToYouTube, updatePostVideoUrl, postVideoComment } from "@/lib/video";
 import { generateYouTubeSeoPackage, CHAPTERS_PLACEHOLDER, CONTACT_URL } from "@/lib/youtubeSeo";
+import { publishWordPressPost } from "@/lib/wordpress";
 
 export const maxDuration = 180;
 
@@ -64,13 +65,28 @@ export async function POST(req: NextRequest) {
 
     console.log(`[upload-video] Uploading ${videoBuffer.length} bytes to YouTube…`);
 
+    // ── Publish the WordPress post so the article link in the YouTube
+    // description points to a live page, not a draft permalink. ──────
+    let liveBlogUrl = blogUrl?.trim() || "";
+    if (postId) {
+      try {
+        const published = await publishWordPressPost(postId);
+        liveBlogUrl = published.link;
+        console.log(`[upload-video] Article published — ${liveBlogUrl}`);
+      } catch (publishErr) {
+        // Non-fatal: log and continue with whatever URL we have. A publish
+        // failure should not block the YouTube upload.
+        console.warn(`[upload-video] Could not publish WP post ${postId} (non-fatal):`, publishErr instanceof Error ? publishErr.message : publishErr);
+      }
+    }
+
     // ── YouTube SEO package: keyword-first title, rich description, real tags ──
     const seo = await generateYouTubeSeoPackage({
       blogTitle: title.trim(),
       focusKeyword: focusKeyword?.trim() || title.trim(),
       secondaryKeywords: secondaryKeywords?.filter((k) => typeof k === "string" && k.trim()),
       summary: summary?.trim(),
-      blogUrl: blogUrl?.trim(),
+      blogUrl: liveBlogUrl || undefined,
       language: language ?? undefined,
     });
 
