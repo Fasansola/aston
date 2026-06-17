@@ -172,7 +172,9 @@ function splitScriptIntoChunks(text: string): string[] {
 
 /**
  * Single-voice narration via ElevenLabs Host voice — used for video voiceover.
- * Chunks long scripts at sentence boundaries and concatenates the MP3 buffers.
+ * Chunks long scripts at sentence boundaries, then merges with ffmpeg so the
+ * output is a single valid MP3 (raw Buffer.concat embeds ID3 headers mid-stream
+ * which ffprobe rejects with "Failed to find two consecutive MPEG audio frames").
  */
 export async function generateElevenLabsNarration(
   script: string
@@ -192,7 +194,6 @@ export async function generateElevenLabsNarration(
       body: JSON.stringify({
         text: chunks[i],
         model_id: "eleven_turbo_v2_5",
-        // Higher stability for consistent narration delivery (not conversational).
         voice_settings: { stability: 0.65, similarity_boost: 0.75, style: 0.10, use_speaker_boost: true },
       }),
       signal: AbortSignal.timeout(90_000),
@@ -204,5 +205,29 @@ export async function generateElevenLabsNarration(
     buffers.push(Buffer.from(await res.arrayBuffer()));
   }
 
-  return { buffer: Buffer.concat(buffers), mimeType: "audio/mpeg" };
+  // Single chunk — no merge needed, the buffer is already a valid MP3.
+  if (buffers.length === 1) {
+    return { buffer: buffers[0], mimeType: "audio/mpeg" };
+  }
+
+  // Multiple chunks: merge with ffmpeg so the result is a single valid MP3.
+  // Raw Buffer.concat would embed ID3 headers mid-stream, breaking ffprobe.
+  const dir = await mkdtemp(join(tmpdir(), "narration-"));
+  try {
+    const chunkFiles: string[] = [];
+    for (let i = 0; i < buffers.length; i++) {
+      const f = join(dir, `chunk-${String(i).padStart(3, "0")}.mp3`);
+      await writeFile(f, buffers[i]);
+      chunkFiles.push(f);
+    }
+    const outFile = join(dir, "narration.mp3");
+    const inputs = chunkFiles.flatMap((f) => ["-i", f]);
+    const filter = chunkFiles.map((_, i) => `[${i}:a]`).join("") +
+      `concat=n=${chunkFiles.length}:v=0:a=1[out]`;
+    await ffmpeg(["-y", ...inputs, "-filter_complex", filter, "-map", "[out]",
+      "-ar", "44100", "-ac", "2", "-b:a", "128k", outFile]);
+    return { buffer: await readFile(outFile), mimeType: "audio/mpeg" };
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
 }
