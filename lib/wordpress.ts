@@ -208,7 +208,6 @@ export function pickCategories(focusKeyword: string, secondaryKeywords: string[]
 
 /**
  * Create a WordPress post with all ACF fields pre-filled.
- * Posts as "draft" so you can review before publishing.
  * assembled contains the content sections with IMGSLOT placeholders removed.
  */
 export async function createWordPressPost(
@@ -227,7 +226,8 @@ export async function createWordPressPost(
     postSplitImg: number;
     featuredImg: number;
   } | null,
-  language?: string
+  language?: string,
+  status: "draft" | "publish" = "publish"
 ) {
   const langCode = normaliseLangCode(language);
   const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
@@ -245,7 +245,7 @@ export async function createWordPressPost(
         // ── Standard WordPress fields ──────────────────────
         title:           postTitle,
         content: assembled.main_content,
-        status: "draft",
+        status,
         ...(imageIds?.featuredImg ? { featured_media: imageIds.featuredImg } : {}),
         slug: content.slug,
         excerpt: content.excerpt,

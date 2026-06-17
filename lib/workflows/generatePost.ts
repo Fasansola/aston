@@ -224,10 +224,11 @@ async function qaStep(
   return { qa, readMins };
 }
 
-// ── Publish (always a WordPress draft) ────────────────────────
+// ── Publish ────────────────────────────────────────────────────
 
 async function publishStep(
-  title: string, content: BlogContent, imagePrompts: ImagePrompts, language: string
+  title: string, content: BlogContent, imagePrompts: ImagePrompts, language: string,
+  wpStatus: "draft" | "publish" = "publish"
 ): Promise<{
   postId: number; link: string | null; articleHtml: string;
   assembled: { main_content: string; more_content_1: string; more_content_3: string; more_content_4: string };
@@ -240,7 +241,7 @@ async function publishStep(
     more_content_3: content.more_content_3.replace("IMGSLOT_TWO", ""),
     more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
   };
-  const post = await createWordPressPost(content.seo_title || title, content, imagePrompts, assembled, null, language || undefined);
+  const post = await createWordPressPost(content.seo_title || title, content, imagePrompts, assembled, null, language || undefined, wpStatus);
   const articleHtml = [
     content.key_takeaways, assembled.main_content, content.keypoint_one, assembled.more_content_1,
     content.more_content_2, content.quote_1, assembled.more_content_3, content.keypoint_two,
@@ -382,9 +383,9 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
         await emit({ type: "qa_retry", attempt: attempt + 1, max: MAX_QA });
         continue;
       }
-      // EXHAUSTED — never discard: save as draft + notify which checks failed.
+      // EXHAUSTED — save as draft (failed QA should not go live) + notify.
       console.log("[wf] step: publish (qa-exhausted)");
-      const published = await publishStep(title, content, imagePrompts, input.language);
+      const published = await publishStep(title, content, imagePrompts, input.language, "draft");
       await emit(buildDoneEvent({
         published, content, imagePrompts, fileSlug, imageModel: input.imageModel,
         readMins, wordCount: qa.wordCount, language: input.language,
