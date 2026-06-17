@@ -26,11 +26,11 @@ export interface PodcastDialogue {
 
 export type PodcastLengthMins = 15 | 30 | 45 | 60;
 
-const LENGTH_CONFIG: Record<PodcastLengthMins, { rule: string; maxTokens: number; sourceChars: number }> = {
-  15: { rule: "Length: ~15 minutes when spoken — roughly 1,800–2,200 words total. 24–32 turns.",   maxTokens: 5000,  sourceChars: 12000 },
-  30: { rule: "Length: ~30 minutes when spoken — roughly 3,800–4,500 words total. 50–65 turns.",   maxTokens: 10000, sourceChars: 22000 },
-  45: { rule: "Length: ~45 minutes when spoken — roughly 5,500–6,500 words total. 75–95 turns.",   maxTokens: 14000, sourceChars: 32000 },
-  60: { rule: "Length: ~60 minutes when spoken — roughly 7,500–9,000 words total. 100–130 turns.", maxTokens: 16000, sourceChars: 45000 },
+const LENGTH_CONFIG: Record<PodcastLengthMins, { rule: string; minTurns: number; maxTokens: number; sourceChars: number }> = {
+  15: { rule: "HARD REQUIREMENT — write EXACTLY 28 to 34 turns minimum. ~15 minutes spoken, 1,800–2,400 words. Do not wrap up until you have written at least 28 turns.",   minTurns: 20, maxTokens: 9000,  sourceChars: 12000 },
+  30: { rule: "HARD REQUIREMENT — write EXACTLY 55 to 68 turns minimum. ~30 minutes spoken, 3,800–4,800 words. Do not wrap up until you have written at least 55 turns.",   minTurns: 40, maxTokens: 14000, sourceChars: 22000 },
+  45: { rule: "HARD REQUIREMENT — write EXACTLY 82 to 98 turns minimum. ~45 minutes spoken, 5,500–6,800 words. Do not wrap up until you have written at least 82 turns.",   minTurns: 60, maxTokens: 16000, sourceChars: 32000 },
+  60: { rule: "HARD REQUIREMENT — write EXACTLY 110 to 130 turns minimum. ~60 minutes spoken, 7,500–9,000 words. Do not wrap up until you have written at least 110 turns.", minTurns: 80, maxTokens: 16000, sourceChars: 45000 },
 };
 
 const SHOW_NAME = process.env.PODCAST_TITLE || "Aston VIP Insights";
@@ -128,8 +128,8 @@ RULES:
       !!t && (t.speaker === "host" || t.speaker === "expert") && typeof t.text === "string" && t.text.trim().length > 0)
     .map((t) => ({ speaker: t.speaker, text: t.text.trim() }));
 
-  if (turns.length < 4) {
-    throw new Error(`Podcast dialogue too short (${turns.length} turns)`);
+  if (turns.length < cfg.minTurns) {
+    throw new Error(`Podcast dialogue too short: got ${turns.length} turns, need at least ${cfg.minTurns} for a ${length}-minute episode`);
   }
 
   return {
