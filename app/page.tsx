@@ -1042,7 +1042,7 @@ export default function HomePage() {
             (evtRaw.flowchartMermaid as string) ?? ""
           );
         }
-        if (autoMedia.video || autoMedia.podcast || autoMedia.audio) {
+        if (!data.needsReview && (autoMedia.video || autoMedia.podcast || autoMedia.audio)) {
           autoMediaPendingOpts.current = { ...autoMedia };
         }
         return "done";
