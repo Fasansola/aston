@@ -2509,7 +2509,6 @@ export default function HomePage() {
                     {([
                       { key: "video"   as const, label: "YouTube video",    hint: "Script → scenes → narration → captions → uploads to YouTube" },
                       { key: "audio"   as const, label: "Read-aloud audio", hint: "Article narration attached to the WordPress post" },
-                      { key: "podcast" as const, label: "Podcast episode",  hint: "Two-voice conversation published to the Spotify RSS feed" },
                     ]).map(({ key, label, hint }) => (
                       <label key={key} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer select-none transition-colors ${autoMedia[key] ? "border-[#C9A84C]/20 bg-[#C9A84C]/[0.03]" : "border-white/[0.06]"}`}>
                         <input
@@ -2524,6 +2523,35 @@ export default function HomePage() {
                         </div>
                       </label>
                     ))}
+                    {/* Podcast row with inline length picker */}
+                    <div className={`px-3 py-2.5 rounded-lg border transition-colors ${autoMedia.podcast ? "border-[#C9A84C]/20 bg-[#C9A84C]/[0.03]" : "border-white/[0.06]"}`}>
+                      <label className="flex items-center gap-3 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={autoMedia.podcast}
+                          onChange={(e) => updateAutoMedia("podcast", e.target.checked)}
+                          className="w-3.5 h-3.5 accent-[#C9A84C]"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white/80">Podcast episode</p>
+                          <p className="text-[10px] text-white/25">Two-voice conversation published to the Spotify RSS feed</p>
+                        </div>
+                      </label>
+                      {autoMedia.podcast && (
+                        <div className="flex gap-1.5 mt-2.5 ml-6">
+                          {([15, 30, 45, 60] as const).map((mins) => (
+                            <button
+                              key={mins}
+                              type="button"
+                              onClick={() => setPodcastLength(mins)}
+                              className={`flex-1 py-1 rounded text-[11px] font-medium transition-all duration-150 ${podcastLength === mins ? "bg-[#C9A84C]/20 border border-[#C9A84C]/40 text-[#C9A84C]" : "bg-white/[0.04] border border-white/[0.08] text-white/40 hover:text-white/60"}`}
+                            >
+                              {mins} min
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
