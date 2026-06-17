@@ -12,7 +12,7 @@
 
 import { NextRequest } from "next/server";
 import { generatePodcastDialogue } from "@/lib/podcastDialogue";
-import { buildPodcastEpisode, resolveTtsProvider } from "@/lib/podcastAudio";
+import { buildPodcastEpisode } from "@/lib/podcastAudio";
 
 export const maxDuration = 300;
 
@@ -26,11 +26,9 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: "A topic or title is required." }), { status: 400 });
   }
 
-  const provider = resolveTtsProvider(body.ttsProvider);
-  const length: "short" | "medium" = body.length === "medium" ? "medium" : "short"; // default short to save credits
-  const requiredKey = provider === "kokoro" ? "REPLICATE_API_TOKEN" : "ELEVENLABS_API_KEY";
-  if (!process.env[requiredKey]) {
-    return new Response(JSON.stringify({ error: `Voice engine not configured. Missing: ${requiredKey}` }), { status: 503 });
+  const length: "short" | "medium" = body.length === "medium" ? "medium" : "short";
+  if (!process.env.ELEVENLABS_API_KEY) {
+    return new Response(JSON.stringify({ error: "Voice engine not configured. Missing: ELEVENLABS_API_KEY" }), { status: 503 });
   }
 
   const stream = new ReadableStream({
@@ -42,15 +40,15 @@ export async function POST(req: NextRequest) {
         const sourceText = body.sourceText?.trim() || `A focused discussion about: ${title}`;
         const dialogue = await generatePodcastDialogue(title, sourceText, undefined, length);
 
-        send({ type: "progress", message: `Voicing ${dialogue.turns.length} lines (${provider})…` });
-        const mp3 = await buildPodcastEpisode(dialogue.turns, provider);
+        send({ type: "progress", message: `Voicing ${dialogue.turns.length} lines with ElevenLabs…` });
+        const mp3 = await buildPodcastEpisode(dialogue.turns);
 
         send({
           type: "done", success: true,
           episodeTitle: dialogue.episodeTitle,
-          turns: dialogue.turns,                 // transcript for review
-          audioBase64: mp3.toString("base64"),   // inline playback/download — not persisted
-          provider, length,
+          turns: dialogue.turns,
+          audioBase64: mp3.toString("base64"),
+          length,
         });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Podcast test failed.";
