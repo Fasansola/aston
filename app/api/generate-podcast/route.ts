@@ -15,7 +15,7 @@
 
 import { NextRequest } from "next/server";
 import { generatePodcastDialogue } from "@/lib/podcastDialogue";
-import { buildPodcastEpisode, resolveTtsProvider } from "@/lib/podcastAudio";
+import { buildPodcastEpisode } from "@/lib/podcastAudio";
 import { uploadMediaToWordPress } from "@/lib/wordpress";
 import { getPodcastConfig } from "@/lib/podcast";
 
@@ -101,11 +101,8 @@ export async function POST(req: NextRequest) {
   if (!postId || typeof postId !== "number") {
     return new Response(JSON.stringify({ error: "postId is required." }), { status: 400 });
   }
-  // Per-request voice engine from the UI selector, with env/default fallback.
-  const provider = resolveTtsProvider(body.ttsProvider);
-  const requiredKey = provider === "kokoro" ? "REPLICATE_API_TOKEN" : "ELEVENLABS_API_KEY";
-  if (!process.env[requiredKey]) {
-    return new Response(JSON.stringify({ error: `Podcast audio not configured. Missing: ${requiredKey}` }), { status: 503 });
+  if (!process.env.ELEVENLABS_API_KEY) {
+    return new Response(JSON.stringify({ error: "Podcast audio not configured. Missing: ELEVENLABS_API_KEY" }), { status: 503 });
   }
 
   const stream = new ReadableStream({
@@ -118,15 +115,12 @@ export async function POST(req: NextRequest) {
         if (!text || text.length < 200) throw new Error("Article has too little text to build a conversation.");
 
         send({ type: "progress", message: "Writing the conversation…" });
-        // Kokoro (free, rate-limited) → shorter episode to stay within the
-        // function timeout; ElevenLabs → full length.
         const dialogue = await generatePodcastDialogue(
-          titleHint?.trim() || title, text, focusKeyword,
-          provider === "kokoro" ? "short" : "medium"
+          titleHint?.trim() || title, text, focusKeyword, "medium"
         );
 
-        send({ type: "progress", message: `Voicing ${dialogue.turns.length} lines with two voices (${provider})…` });
-        const mp3 = await buildPodcastEpisode(dialogue.turns, provider);
+        send({ type: "progress", message: `Voicing ${dialogue.turns.length} lines with ElevenLabs…` });
+        const mp3 = await buildPodcastEpisode(dialogue.turns);
 
         send({ type: "progress", message: "Uploading episode audio…" });
         const slug = (title || `post-${postId}`).toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);

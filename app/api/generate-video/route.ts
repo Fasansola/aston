@@ -26,7 +26,8 @@ import { submitRemotionRender }                                                 
 import type { VideoSegment }                                                       from "@/src/remotion/VideoComposition";
 import { uploadSceneImageToS3, uploadAssetToS3 }                                  from "@/lib/sceneImageS3";
 import { uploadMediaToWordPress }                                                  from "@/lib/wordpress";
-import { generateKokoroSpeech, estimateMp3DurationSeconds } from "@/lib/replicate";
+import { estimateMp3DurationSeconds } from "@/lib/replicate";
+import { generateElevenLabsNarration } from "@/lib/podcastAudio";
 
 export const maxDuration = 300;
 
@@ -237,14 +238,7 @@ export async function POST(req: NextRequest) {
         // never from the full article (which could be 20+ minutes of content).
         const script = timedSegments.map((s) => s.narration).join(" ");
 
-        // Wrap Kokoro in a 150 s deadline — if it hangs we fail fast with
-        // a clear error rather than silently hitting Vercel's 300 s limit.
-        const audioResult = await Promise.race([
-          generateKokoroSpeech(script),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("Audio generation timed out after 150 s. Try using an existing audio file.")), 150_000)
-          ),
-        ]);
+        const audioResult = await generateElevenLabsNarration(script);
         audioDurationSeconds = estimateMp3DurationSeconds(audioResult.buffer);
         const ext = audioResult.mimeType === "audio/mpeg" ? "mp3" : "wav";
         const filename = `${slug}-video-audio.${ext}`;

@@ -6,9 +6,7 @@
  *
  *   music sting (in)  →  [host/expert turns]  →  music sting (out)
  *
- * Stitching uses the bundled ffmpeg-static binary; all work happens in /tmp
- * (writable on Vercel). Reuses BACKGROUND_MUSIC_URL (the video pipeline's track)
- * for the sting, so no new asset is required.
+ * Also exports generateElevenLabsNarration for single-voice video voiceover.
  *
  * Env:
  *   ELEVENLABS_API_KEY                 (required)
@@ -24,26 +22,13 @@ import { tmpdir } from "os";
 import { join } from "path";
 import ffmpegPath from "ffmpeg-static";
 import type { DialogueTurn } from "./podcastDialogue";
-import { generateKokoroSpeech } from "./replicate";
 
 const execFileAsync = promisify(execFile);
 const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 
-export type TtsProvider = "elevenlabs" | "kokoro";
-
-/** Resolve the voice engine: explicit choice → env default → elevenlabs. */
-export function resolveTtsProvider(choice?: string): TtsProvider {
-  const v = (choice || process.env.PODCAST_TTS_PROVIDER || "elevenlabs").toLowerCase();
-  return v === "kokoro" ? "kokoro" : "elevenlabs";
-}
-
 // Universal ElevenLabs premade voice IDs (available to all accounts).
 const HOST_VOICE   = process.env.ELEVENLABS_PODCAST_HOST_VOICE_ID   || "21m00Tcm4TlvDq8ikWAM"; // Rachel — warm interviewer
 const EXPERT_VOICE = process.env.ELEVENLABS_PODCAST_EXPERT_VOICE_ID || "pNInz6obpgDQGcFmaJgB"; // Adam — authoritative
-
-// Kokoro voices (jaaari/kokoro-82m): two distinct British voices.
-const KOKORO_HOST_VOICE   = process.env.KOKORO_PODCAST_HOST_VOICE   || "bf_emma";   // British female
-const KOKORO_EXPERT_VOICE = process.env.KOKORO_PODCAST_EXPERT_VOICE || "bm_george"; // British male
 
 // Music plays ONLY at the open and close. Each clip has explicit afade edges
 // so fades are guaranteed — no EOS detection needed. All env-overridable.
@@ -52,8 +37,8 @@ const OUTRO_SECS    = Number(process.env.PODCAST_OUTRO_SECS)    || 10;
 const INTRO_VOLUME  = Number(process.env.PODCAST_INTRO_VOLUME)  || 0.20;
 const OUTRO_VOLUME  = Number(process.env.PODCAST_OUTRO_VOLUME)  || 0.16;
 
-/** Synthesize one turn via ElevenLabs (two premade voices). */
-async function synthesizeTurnElevenLabs(turn: DialogueTurn, apiKey: string): Promise<Buffer> {
+/** Synthesize one dialogue turn via ElevenLabs. */
+async function synthesizeTurn(turn: DialogueTurn, apiKey: string): Promise<Buffer> {
   const voiceId = turn.speaker === "host" ? HOST_VOICE : EXPERT_VOICE;
   const res = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${voiceId}`, {
     method: "POST",
@@ -61,8 +46,8 @@ async function synthesizeTurnElevenLabs(turn: DialogueTurn, apiKey: string): Pro
     body: JSON.stringify({
       text: turn.text,
       model_id: "eleven_multilingual_v2",
-      // Lower stability = more natural variation/emotion (less monotone); a touch
-      // more style for conversational inflection. Tuned for podcast dialogue.
+      // Lower stability = more natural variation/emotion; a touch of style for
+      // conversational inflection. Tuned for podcast dialogue.
       voice_settings: { stability: 0.52, similarity_boost: 0.80, style: 0.22, use_speaker_boost: true },
     }),
     signal: AbortSignal.timeout(90_000),
@@ -74,24 +59,8 @@ async function synthesizeTurnElevenLabs(turn: DialogueTurn, apiKey: string): Pro
   return Buffer.from(await res.arrayBuffer());
 }
 
-/** Synthesize one turn via Kokoro (free, Replicate) using two distinct voices. */
-async function synthesizeTurnKokoro(turn: DialogueTurn): Promise<Buffer> {
-  const voice = turn.speaker === "host" ? KOKORO_HOST_VOICE : KOKORO_EXPERT_VOICE;
-  const { buffer } = await generateKokoroSpeech(turn.text, voice);
-  return buffer;
-}
-
-/**
- * Synthesize every turn. ElevenLabs runs with bounded concurrency; Kokoro runs
- * sequentially because Replicate heavily rate-limits low-credit accounts.
- */
-async function synthesizeAll(turns: DialogueTurn[], provider: TtsProvider): Promise<Buffer[]> {
-  if (provider === "kokoro") {
-    const out: Buffer[] = [];
-    for (const turn of turns) out.push(await synthesizeTurnKokoro(turn));
-    return out;
-  }
-
+/** Synthesize all dialogue turns with bounded concurrency (max 4 parallel). */
+async function synthesizeAll(turns: DialogueTurn[]): Promise<Buffer[]> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) throw new Error("ELEVENLABS_API_KEY is not set");
   const out: Buffer[] = new Array(turns.length);
@@ -99,7 +68,7 @@ async function synthesizeAll(turns: DialogueTurn[], provider: TtsProvider): Prom
   const worker = async () => {
     while (next < turns.length) {
       const i = next++;
-      out[i] = await synthesizeTurnElevenLabs(turns[i], apiKey);
+      out[i] = await synthesizeTurn(turns[i], apiKey);
     }
   };
   await Promise.all(Array.from({ length: Math.min(4, turns.length) }, worker));
@@ -114,16 +83,13 @@ async function ffmpeg(args: string[]): Promise<void> {
 /**
  * Build the full episode MP3:
  *   [music intro] ⤬ clean conversation ⤬ [music outro]
- * The intro music blends into the speech and the speech blends into the outro
- * music using ffmpeg's acrossfade filter — smooth, automatic crossfades with no
- * manual fade timing. No music plays under the body of the conversation.
  * If BACKGROUND_MUSIC_URL is unset/unreachable, the speech is returned on its own.
  */
-export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsProvider = "elevenlabs"): Promise<Buffer> {
+export async function buildPodcastEpisode(turns: DialogueTurn[]): Promise<Buffer> {
   const dir = await mkdtemp(join(tmpdir(), "podcast-"));
   try {
-    // 1. Voice every turn with the chosen engine
-    const turnBuffers = await synthesizeAll(turns, provider);
+    // 1. Voice every turn with ElevenLabs
+    const turnBuffers = await synthesizeAll(turns);
     const turnFiles: string[] = [];
     for (let i = 0; i < turnBuffers.length; i++) {
       const f = join(dir, `turn-${String(i).padStart(3, "0")}.mp3`);
@@ -148,10 +114,6 @@ export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsPr
           await writeFile(musicFile, Buffer.from(await musicRes.arrayBuffer()));
 
           const episodeFile = join(dir, "episode.mp3");
-          // concat approach: intro → speech → outro, each with its own explicit
-          // afade edges. No acrossfade (which requires reliable EOS detection
-          // from the first stream — fragile with stream_loop+atrim and caused
-          // the music to blast at full volume with no fade).
           const introFadeOut = Math.max(0.1, INTRO_SECS - 2);
           const outroFadeOut = Math.max(0.1, OUTRO_SECS - 3);
           await ffmpeg([
@@ -160,19 +122,15 @@ export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsPr
             "-stream_loop", "-1", "-i", musicFile, // 1: intro
             "-stream_loop", "-1", "-i", musicFile, // 2: outro
             "-filter_complex",
-            // intro: trim, normalize format, level, fade in + fade out at the end
             `[1:a]atrim=0:${INTRO_SECS},asetpts=PTS-STARTPTS,` +
             `aformat=sample_rates=44100:channel_layouts=stereo,` +
             `volume=${INTRO_VOLUME},` +
             `afade=t=in:st=0:d=0.8,afade=t=out:st=${introFadeOut}:d=2[intro];` +
-            // outro: trim, normalize format, level, fade in at the start + fade out
             `[2:a]atrim=0:${OUTRO_SECS},asetpts=PTS-STARTPTS,` +
             `aformat=sample_rates=44100:channel_layouts=stereo,` +
             `volume=${OUTRO_VOLUME},` +
             `afade=t=in:st=0:d=1.5,afade=t=out:st=${outroFadeOut}:d=3[outro];` +
-            // speech: just normalize format, play at full volume
             `[0:a]aformat=sample_rates=44100:channel_layouts=stereo[sp];` +
-            // sequence: intro → speech → outro (no EOS detection needed)
             `[intro][sp][outro]concat=n=3:v=0:a=1[out]`,
             "-map", "[out]", "-ar", "44100", "-ac", "2", "-b:a", "128k", episodeFile,
           ]);
@@ -183,9 +141,68 @@ export async function buildPodcastEpisode(turns: DialogueTurn[], provider: TtsPr
       }
     }
 
-    // No music (or it failed) — return the clean speech track on its own
     return await readFile(speechFile);
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+// ── Single-voice narration for video voiceover ────────────────
+
+const NARRATION_CHUNK_LIMIT = 2400;
+
+function splitScriptIntoChunks(text: string): string[] {
+  if (text.length <= NARRATION_CHUNK_LIMIT) return [text];
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > NARRATION_CHUNK_LIMIT) {
+    const slice = remaining.slice(0, NARRATION_CHUNK_LIMIT);
+    const lastSentence = Math.max(
+      slice.lastIndexOf(". "),
+      slice.lastIndexOf("! "),
+      slice.lastIndexOf("? "),
+    );
+    const cutAt = lastSentence > 0 ? lastSentence + 2 : NARRATION_CHUNK_LIMIT;
+    chunks.push(remaining.slice(0, cutAt).trim());
+    remaining = remaining.slice(cutAt).trim();
+  }
+  if (remaining.length > 0) chunks.push(remaining);
+  return chunks;
+}
+
+/**
+ * Single-voice narration via ElevenLabs Host voice — used for video voiceover.
+ * Chunks long scripts at sentence boundaries and concatenates the MP3 buffers.
+ */
+export async function generateElevenLabsNarration(
+  script: string
+): Promise<{ buffer: Buffer; mimeType: string }> {
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey) throw new Error("ELEVENLABS_API_KEY is not set");
+
+  const chunks = splitScriptIntoChunks(script);
+  console.log(`[elevenlabs] Narration — ${script.split(/\s+/).filter(Boolean).length} words, ${chunks.length} chunk(s), voice: ${HOST_VOICE}`);
+
+  const buffers: Buffer[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    console.log(`[elevenlabs] Narration chunk ${i + 1}/${chunks.length} — ${chunks[i].length} chars`);
+    const res = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${HOST_VOICE}`, {
+      method: "POST",
+      headers: { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
+      body: JSON.stringify({
+        text: chunks[i],
+        model_id: "eleven_turbo_v2_5",
+        // Higher stability for consistent narration delivery (not conversational).
+        voice_settings: { stability: 0.65, similarity_boost: 0.75, style: 0.10, use_speaker_boost: true },
+      }),
+      signal: AbortSignal.timeout(90_000),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => res.statusText);
+      throw new Error(`ElevenLabs narration failed (${res.status}): ${err.slice(0, 200)}`);
+    }
+    buffers.push(Buffer.from(await res.arrayBuffer()));
+  }
+
+  return { buffer: Buffer.concat(buffers), mimeType: "audio/mpeg" };
 }
