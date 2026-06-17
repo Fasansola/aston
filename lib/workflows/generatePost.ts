@@ -246,7 +246,14 @@ async function publishStep(
     content.more_content_2, content.quote_1, assembled.more_content_3, content.keypoint_two,
     assembled.more_content_4, content.quote_2, content.more_content_5, content.more_content_6, content.final_points,
   ].filter(Boolean).join("\n");
-  return { postId: post.id, link: post.link ?? null, articleHtml, assembled };
+  // Extract only JSON-serializable scalars — WDK rejects step return values
+  // that contain functions or prototype-inherited methods.
+  return {
+    postId: typeof post?.id === "number" ? post.id : 0,
+    link:   typeof post?.link === "string" ? post.link : null,
+    articleHtml,
+    assembled,
+  };
 }
 
 // Build the full `done` event payload — matches the old /api/generate contract
