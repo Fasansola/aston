@@ -216,8 +216,8 @@ function scoreSearchBasics(input: ReadinessInput): ReadinessSubscore {
   const metaLen = (input.metaDescription ?? "").length;
   if (!input.metaDescription?.trim()) {
     issues.push({ id: "sb_2", severity: "failed", category: "search_basics", message: "Meta description is missing", blocking: true, suggestedFix: "Add a meta description (130–165 characters)", actions: ["auto_fix", "manual_fix"] });
-  } else if (metaLen < 130 || metaLen > 165) {
-    issues.push({ id: "sb_2", severity: "warning", category: "search_basics", message: `Meta description is ${metaLen} characters (target 145–155)`, blocking: false, suggestedFix: metaLen > 165 ? "Shorten the meta description" : "Lengthen the meta description", actions: ["auto_fix", "manual_fix"] });
+  } else if (metaLen < 110 || metaLen > 165) {
+    issues.push({ id: "sb_2", severity: "warning", category: "search_basics", message: `Meta description is ${metaLen} characters (target 110–165)`, blocking: false, suggestedFix: metaLen > 165 ? "Shorten the meta description" : "Lengthen the meta description", actions: ["auto_fix", "manual_fix"] });
     earned += 2;
   } else {
     earned += 5;
@@ -243,11 +243,11 @@ function scoreSearchBasics(input: ReadinessInput): ReadinessSubscore {
   }
 
   // Word count
-  if (input.wordCount >= 1800 && input.wordCount <= 3500) {
+  if (input.wordCount >= 1800 && input.wordCount <= 5500) {
     earned += 4;
   } else if (input.wordCount >= 1200) {
     earned += 2;
-    issues.push({ id: "sb_5", severity: "warning", category: "search_basics", message: `Word count is ${input.wordCount} (target 1,800–3,500)`, blocking: false, suggestedFix: "Expand the article with more detailed sections", actions: ["manual_fix"] });
+    issues.push({ id: "sb_5", severity: "warning", category: "search_basics", message: `Word count is ${input.wordCount} (target 1,800–5,500)`, blocking: false, suggestedFix: "Expand the article with more detailed sections", actions: ["manual_fix"] });
   } else {
     issues.push({ id: "sb_5", severity: "failed", category: "search_basics", message: `Article is too short — ${input.wordCount} words (minimum 1,800)`, blocking: true, suggestedFix: "Expand the article significantly before publishing", actions: ["manual_fix"] });
   }

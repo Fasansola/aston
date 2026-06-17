@@ -254,11 +254,11 @@ export function runQA(
 
   // Total word count — warning only, does not block publishing
   const wordCount = countWords(allFields);
-  checks.word_count_in_range = wordCount >= 2100 && wordCount <= 4500;
+  checks.word_count_in_range = wordCount >= 2100 && wordCount <= 5500;
   if (wordCount < 2100)
     warnings.push(`Word count low: ${wordCount} words (minimum 2,100)`);
-  else if (wordCount > 4500)
-    warnings.push(`Word count high: ${wordCount} words (maximum 4,500)`);
+  else if (wordCount > 5500)
+    warnings.push(`Word count high: ${wordCount} words (maximum 5,500)`);
 
   // H3 section count (minimum 4 across body fields)
   const h3Count = countTag(bodyFields, "h3");
