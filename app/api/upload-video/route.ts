@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
       const kw = focusKeyword?.trim() || title.trim();
       const commentLines = [
         `Need help with ${kw}? Book a consultation: ${CONTACT_URL}`,
-        ...(blogUrl?.trim() ? [`Read the full guide: ${blogUrl.trim()}`] : []),
+        ...(liveBlogUrl?.trim() ? [`Read the full guide: ${liveBlogUrl.trim()}`] : []),
       ];
       try {
         await postVideoComment(videoId, commentLines.join("\n"));
