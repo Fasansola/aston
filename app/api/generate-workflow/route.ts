@@ -82,7 +82,16 @@ export async function POST(req: NextRequest) {
     imageModel,
   };
 
-  const run = await start(generatePostWorkflow, [input]);
+  let run: Awaited<ReturnType<typeof start>>;
+  try {
+    run = await start(generatePostWorkflow, [input]);
+  } catch (err) {
+    const msg = err instanceof Error && err.message
+      ? err.message
+      : `Workflow failed to start: ${String(err)}`;
+    console.error("[generate-workflow] start() threw:", err);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 
   // Stream the workflow's SSE events back. The runId header lets the client
   // reconnect to this run if the connection drops mid-generation.
