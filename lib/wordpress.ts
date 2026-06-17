@@ -303,19 +303,20 @@ export async function createWordPressPost(
   // with HTML (e.g. a redirect page, WAF block, or plugin error). A string has
   // String.prototype.link which is a function — WDK's serializer rejects it,
   // causing spurious retries and duplicate posts.
-  const postData = response.data as Record<string, unknown>;
-  if (typeof postData !== "object" || postData === null || typeof postData.id !== "number") {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawData: any = response.data;
+  if (typeof rawData !== "object" || rawData === null || typeof rawData.id !== "number") {
     const preview =
-      typeof postData === "string"
-        ? (postData as unknown as string).slice(0, 600)
-        : JSON.stringify(postData).slice(0, 600);
+      typeof rawData === "string"
+        ? String(rawData).slice(0, 600)
+        : JSON.stringify(rawData).slice(0, 600);
     throw new Error(
       `WP post creation returned unexpected response (HTTP ${response.status}, no numeric post id). ` +
       `Content-Type: ${String(response.headers?.["content-type"] ?? "unknown")}. ` +
       `Body: ${preview}`
     );
   }
-  const postId: number = postData.id as number;
+  const postId: number = rawData.id;
 
   // ── Polylang: set language via custom REST endpoint ───────────
   // This covers Polylang Free (which ignores the `lang` POST param above).
@@ -365,7 +366,7 @@ export async function createWordPressPost(
       console.warn(`[wordpress] Yoast meta patch failed for post ${postId} (non-fatal): ${detail}`);
     });
 
-  return postData;
+  return rawData;
 }
 
 /**
