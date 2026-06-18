@@ -229,6 +229,8 @@ export function runQA(
   // Internal links: minimum 7 (document target: 3-10 per 1,000 words)
   checks.internal_links_sufficient =
     (content.internal_links_used?.length ?? 0) >= 7;
+  if (!checks.internal_links_sufficient)
+    warnings.push(`Only ${content.internal_links_used?.length ?? 0} internal links (target 7+)`);
 
   // Images uploaded
   checks.featured_image_exists = (imageIds.featuredImg ?? 0) > 0;
@@ -420,15 +422,16 @@ export function runQA(
     "slug_exists",
     "excerpt_exists",
     "main_content_exists",
-    "main_content_has_internal_link",
-    "main_content_has_external_link",
     "key_takeaways_exists",
     "more_content_5_exists",
     "final_points_exists",
     "cta_exists",
-    "internal_links_sufficient",
     "keypoints_exist",
-    "external_links_present",
+    // Link presence/count checks are NOT blocking. We actively remove dead
+    // (404) links, and removing one must never hold a post for review. These
+    // still surface as warnings so low link counts stay visible:
+    //   main_content_has_internal_link, main_content_has_external_link,
+    //   internal_links_sufficient, external_links_present
     // image checks removed from blocking — images are generated in a
     // separate /api/generate-images request after QA passes
     // "featured_image_exists",

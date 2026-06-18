@@ -262,13 +262,15 @@ async function validateInternal(
   }
 
   if (!res.ok) {
+    // A dead internal link (404 etc.) is removed from the post rather than
+    // held against it — non-blocking so it never prevents publishing.
     return {
-      id, type: "internal", status: "failed",
+      id, type: "internal", status: "warning",
       anchorText, url, finalUrl: res.finalUrl, httpStatus: res.status,
-      problem: `Returned ${res.status ?? "no response"} — this internal link is broken`,
-      suggestedFix: "Replace with the closest valid Aston page or remove the link",
-      blocking: true,
-      actions: ["auto_fix", "edit", "remove", "recheck"],
+      problem: `Returned ${res.status ?? "no response"} — broken link, remove it`,
+      suggestedFix: "Remove this dead link (publishing is not blocked)",
+      blocking: false,
+      actions: ["remove", "auto_fix", "edit", "recheck"],
     };
   }
 
@@ -332,13 +334,14 @@ async function validateExternal(
   const res = await safeFetch(url);
 
   if (res.reason === "dns_failed") {
+    // Domain does not exist — treat like a 404: remove the link, don't block.
     return {
-      id, type: "external", status: "failed",
+      id, type: "external", status: "warning",
       anchorText, url, finalUrl: null, httpStatus: null, authorityScore,
-      problem: `Domain "${domain}" does not exist — DNS lookup failed`,
-      suggestedFix: "Replace with a working authoritative source on the same topic",
-      blocking: true,
-      actions: ["find_better_source", "edit", "remove", "recheck"],
+      problem: `Domain "${domain}" does not exist — DNS lookup failed, remove it`,
+      suggestedFix: "Remove this dead link (publishing is not blocked)",
+      blocking: false,
+      actions: ["remove", "find_better_source", "edit", "recheck"],
     };
   }
 
@@ -368,13 +371,15 @@ async function validateExternal(
   }
 
   if (!res.ok) {
+    // A dead external link (404 etc.) is removed rather than held against the
+    // post — non-blocking so it never prevents publishing.
     return {
-      id, type: "external", status: "failed",
+      id, type: "external", status: "warning",
       anchorText, url, finalUrl: res.finalUrl, httpStatus: res.status, authorityScore,
-      problem: `External link returned ${res.status ?? "no response"}`,
-      suggestedFix: "Replace with a working authoritative source on the same topic",
-      blocking: true,
-      actions: ["find_better_source", "edit", "remove", "recheck"],
+      problem: `External link returned ${res.status ?? "no response"} — broken, remove it`,
+      suggestedFix: "Remove this dead link (publishing is not blocked)",
+      blocking: false,
+      actions: ["remove", "find_better_source", "edit", "recheck"],
     };
   }
 
