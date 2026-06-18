@@ -1110,15 +1110,15 @@ read_mins:
 Number string only. Estimate at 200 words per minute. Example: "9"
 
 flowchart_mermaid:
-Mermaid flowchart syntax for the single core process in this article. Rendered to a PNG and placed at [FLOWCHART_IMG]. It MUST be a WIDE, HORIZONTAL diagram — wider than it is tall — so it sits as a short banner in the post and never as a tall vertical strip.
-- Start with "flowchart LR" (left-to-right). Never use "flowchart TD" — top-down makes the image too tall for the post.
-- EXACTLY 4 to 5 nodes — never more. Pick the few defining steps; merge minor ones. This keeps the horizontal flow readable and the image short.
-- Keep it a single linear left-to-right chain (A --> B --> C --> D). Do NOT use decision nodes or branches — any branching adds vertical height, which is exactly what we are avoiding.
-- Shapes: ([Start]) for the first node, [Action step] for the middle steps, ([End]) for the last node
-- Arrows: --> only, in one straight left-to-right line
-- Labels: 2 to 4 words each, plain text only — no punctuation, no parentheses, no special characters inside a label
-- Unique IDs (A B C...). No classDef, no subgraphs, no inline styling — the Aston brand theme is applied automatically on render
-- Raw Mermaid syntax only — no fences, no markdown
+Mermaid syntax for the single most important step-by-step process in THIS article — the real journey a reader would follow (e.g. the company formation sequence, the bank account application process, the licensing path, the visa journey). It is rendered to a PNG and placed at [FLOWCHART_IMG]. It must genuinely teach the reader how the process works — specific, accurate and useful, never generic filler.
+- Start with "flowchart LR" (left-to-right). Never use "flowchart TD" — top-down renders too tall for the post. Left-to-right keeps it a short, wide banner even with several steps.
+- 6 to 8 nodes that map the ACTUAL stages of the process in the real order they happen. Every node must name a concrete, specific stage drawn from this article — NEVER generic placeholders like "Action step" or "Review".
+- Wrap EVERY label in double quotes so it can be properly descriptive, e.g. A["Choose free zone and activity"] --> B["Reserve trade name"] --> C["Submit KYC and UBO file"]. Each label is a specific 3 to 6 word step naming the real action, document, regulator or milestone. Where the article gives a concrete timeline or figure, fold it in (e.g. "DFSA review 4 to 6 weeks", "Deposit minimum share capital").
+- You MAY include ONE decision node where the process genuinely forks (e.g. mainland vs free zone, approved vs rejected) written as {"Short question"} with -- Yes --> and -- No --> branches. Use at most one decision; keep everything else a straight left-to-right chain so the image stays short.
+- Shapes: (["Start label"]) for the first node, ["Step label"] for the middle steps, (["End label"]) for the final node, and {"Question"} only for the single optional decision.
+- Inside the quoted labels use plain words, spaces and numbers only — no parentheses, colons, slashes, ampersands, percent signs or other special characters, which break the renderer. Write "nine percent" not "9%", "AED 15000" not "AED 15,000".
+- Unique IDs (A B C...). No classDef, no subgraphs, no inline styling — the Aston brand theme is applied automatically on render.
+- Raw Mermaid syntax only — no code fences, no markdown.
 
 internal_links_used:
 Array of objects recording every internal link placed in the article body.
