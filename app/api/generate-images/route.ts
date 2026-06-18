@@ -34,7 +34,9 @@ import {
 } from "@/lib/wordpress";
 import axios from "axios";
 
-export const maxDuration = 300;
+// gpt-image-2 reasoning can take minutes per image; allow headroom for the
+// four parallel generations plus a retry without hitting the wall.
+export const maxDuration = 600;
 
 // ACF field names that may contain the [FLOWCHART_IMG] placeholder
 const FLOWCHART_FIELDS: Array<{ acf: string }> = [

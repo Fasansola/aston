@@ -1531,7 +1531,10 @@ export async function generateImage(prompt: string, model: ImageModel = "imagen-
       n: 1,
       size: "1536x1024",
       quality: "high",
-    }, { signal: AbortSignal.timeout(60_000) });
+      // gpt-image-2 has native reasoning and can take up to ~4 minutes per
+      // image — a 60s cap timed out every request. The four images run in
+      // parallel under the route's 300s maxDuration, so 240s each fits.
+    }, { signal: AbortSignal.timeout(240_000) });
 
     const b64 = response.data?.[0]?.b64_json;
     if (b64) return Buffer.from(b64, "base64");
