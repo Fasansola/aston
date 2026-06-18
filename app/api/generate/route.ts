@@ -368,7 +368,7 @@ export async function POST(req: NextRequest) {
             imagePrompts,             // forwarded by client to /api/generate-images
             fileSlug,                 // forwarded by client to /api/generate-images
             imageModel,               // forwarded by client to /api/generate-images
-            flowchartMermaid: content.flowchart_mermaid ?? "", // forwarded to /api/generate-images
+            flowchartSteps: content.flowchart_steps ?? [], // forwarded to /api/generate-images
             mode,
             title,
             slug:         content.slug,

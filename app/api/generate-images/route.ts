@@ -4,11 +4,11 @@
  * POST /api/generate-images
  *
  * Second-phase of the split pipeline:
- *   1. Renders the Mermaid flowchart diagram to PNG via mermaid.ink
+ *   1. Builds the on-brand HTML step diagram from flowchartSteps
  *   2. Generates the four article images (kp1, kp2, split, featured)
- *   3. Uploads all five images to WordPress media library
+ *   3. Uploads all four images to WordPress media library
  *   4. Patches the post: attaches image IDs + featured image
- *   5. Replaces [FLOWCHART_IMG] placeholder in content fields with <img> tag
+ *   5. Replaces [FLOWCHART_IMG] placeholder in content fields with the HTML diagram
  *
  * SSE event shapes:
  *   { type: "progress", message: string }
@@ -19,7 +19,7 @@
  *   postId:            number
  *   fileSlug:          string
  *   imageModel:        "imagen-4" | "gpt-image-2"
- *   flowchartMermaid?: string   — Mermaid syntax; skipped if empty
+ *   flowchartSteps?: FlowchartStep[]  — ordered process steps; skipped if empty
  *   imagePrompts: { ... }
  * }
  */
@@ -29,8 +29,9 @@ import { generateImage, type ImageModel } from "@/lib/openai";
 import {
   uploadImageToWordPress,
   updateWordPressPostImages,
-  renderMermaidToPng,
+  buildFlowchartHtml,
   patchWordPressContentField,
+  type FlowchartStep,
 } from "@/lib/wordpress";
 import axios from "axios";
 
@@ -93,13 +94,13 @@ export async function POST(req: NextRequest) {
     postId,
     fileSlug,
     imageModel: bodyImageModel,
-    flowchartMermaid,
+    flowchartSteps,
     imagePrompts,
   } = body as {
     postId?: number;
     fileSlug?: string;
     imageModel?: string;
-    flowchartMermaid?: string;
+    flowchartSteps?: FlowchartStep[];
     imagePrompts?: {
       keypoint_one_img_prompt: string;
       keypoint_one_img_alt: string;
@@ -131,25 +132,13 @@ export async function POST(req: NextRequest) {
 
   (async () => {
     try {
-      // ── Step 1: Render Mermaid flowchart to PNG ─────────────
+      // ── Step 1: Build the on-brand HTML step diagram ────────
+      // No image / third-party renderer — this is styled HTML embedded directly
+      // into the article where the [FLOWCHART_IMG] placeholder sits.
       let flowchartImgTag = "";
-      let flowchartUrl = "";
-      if (flowchartMermaid?.trim()) {
-        await send({ type: "progress", message: "Rendering flowchart diagram…" });
-        try {
-          const flowchartBuf = await renderMermaidToPng(flowchartMermaid.trim());
-          const uploaded = await uploadImageToWordPress(
-            flowchartBuf,
-            `${fileSlug}-flowchart.png`,
-            "Process flowchart diagram"
-          );
-          flowchartUrl = uploaded.url;
-          flowchartImgTag = `<figure class="aston-flowchart"><img src="${flowchartUrl}" alt="Process flowchart diagram" loading="lazy" /></figure>`;
-          console.log(`[generate-images] Flowchart uploaded: ${flowchartUrl}`);
-        } catch (fcErr) {
-          // Non-fatal — log and continue without the flowchart image
-          console.warn(`[generate-images] Flowchart render/upload failed (non-fatal): ${fcErr instanceof Error ? fcErr.message : String(fcErr)}`);
-        }
+      if (flowchartSteps && flowchartSteps.length > 0) {
+        flowchartImgTag = buildFlowchartHtml(flowchartSteps);
+        console.log(`[generate-images] Built HTML flowchart with ${flowchartSteps.length} steps`);
       }
 
       // ── Step 2: Generate 4 article images in parallel ───────
@@ -256,7 +245,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      await send({ type: "done", imageIds, flowchartUrl: flowchartUrl || null });
+      await send({ type: "done", imageIds, flowchartEmbedded: !!flowchartImgTag });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[generate-images] Failed: ${msg}`);

@@ -522,9 +522,48 @@ const ASTON_MERMAID_THEME = `%%{init: {
 }}%%`;
 
 /**
+ * Builds a self-contained, on-brand HTML step diagram from an ordered list of
+ * steps. Replaces the old Mermaid/mermaid.ink image approach: this renders as
+ * real HTML in the post (no third-party renderer, no image), uses inline styles
+ * so it looks identical regardless of the WordPress theme's CSS, and reflows
+ * responsively (flex-wrap) so it is wide on desktop and stacks on mobile.
+ *
+ * Aston brand: navy cards (#1b2a4a), gold accents (#C9A84C), numbered badges
+ * showing the sequence. Returns "" when there are no steps.
+ */
+export function buildFlowchartHtml(steps: FlowchartStep[] | undefined | null): string {
+  if (!steps || steps.length === 0) return "";
+
+  const esc = (s: string) =>
+    (s ?? "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").trim();
+
+  const cards = steps
+    .filter((s) => s && (s.title || s.detail))
+    .map((s, i) => `
+    <div style="flex:1 1 160px;min-width:150px;background:#1b2a4a;border:1px solid #C9A84C;border-radius:12px;padding:18px 16px;box-sizing:border-box;">
+      <div style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#C9A84C;color:#1b2a4a;font-weight:700;font-size:14px;line-height:1;margin-bottom:10px;">${i + 1}</div>
+      <div style="color:#ffffff;font-weight:600;font-size:15px;line-height:1.3;margin:0 0 6px;">${esc(s.title)}</div>
+      <div style="color:#cdd5e3;font-size:13px;line-height:1.5;margin:0;">${esc(s.detail)}</div>
+    </div>`)
+    .join("");
+
+  if (!cards) return "";
+
+  return `<figure class="aston-flow" style="margin:30px 0;padding:0;border:0;">
+  <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:stretch;">${cards}
+  </div>
+</figure>`;
+}
+
+/**
  * Renders a Mermaid diagram string to a PNG buffer using the mermaid.ink
  * hosted renderer — no browser / Puppeteer dependency needed.
  * Prepends Aston brand theme (navy nodes, gold borders, cream background).
+ *
+ * @deprecated Flowcharts now use buildFlowchartHtml (styled HTML). Kept only
+ * for any legacy callers; not used by the current pipeline.
  */
 export async function renderMermaidToPng(mermaidSyntax: string): Promise<Buffer> {
   // Defensive clean-up: the model is told to return raw syntax, but sometimes
@@ -595,9 +634,15 @@ export interface BlogContent {
   // Link usage report
   internal_links_used: Array<{ anchor: string; url: string }>;
   external_links_used: Array<{ anchor: string; url: string }>;
-  // Mermaid flowchart — rendered to PNG in the image generation phase.
-  // Not saved to WordPress directly; used to produce a [FLOWCHART_IMG] replacement.
-  flowchart_mermaid?: string;
+  // Process flowchart — an ordered list of steps. Built into a styled on-brand
+  // HTML step diagram (buildFlowchartHtml) that replaces the [FLOWCHART_IMG]
+  // placeholder. No image rendering / third-party service involved.
+  flowchart_steps?: FlowchartStep[];
+}
+
+export interface FlowchartStep {
+  title: string;   // short step name (2–5 words)
+  detail: string;  // one concise sentence on what happens in this step
 }
 
 export interface ImagePrompts {

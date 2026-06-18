@@ -294,7 +294,7 @@ function buildDoneEvent(args: {
     language: language || null,
     // Downstream triggers (image generation in a separate request)
     imagePrompts, fileSlug, imageModel,
-    flowchartMermaid: content.flowchart_mermaid ?? "",
+    flowchartSteps: content.flowchart_steps ?? [],
     // Link validation
     linksUsed: { internal: content.internal_links_used ?? [], external: content.external_links_used ?? [] },
     // Raw fields for audio narration (assembled where IMGSLOTs were stripped)

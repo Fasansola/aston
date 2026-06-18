@@ -429,7 +429,7 @@ function buildDomainContext(title: string, customPrompt?: string): string {
  *
  * Infographics → styled HTML div blocks (CSS classes, no JS needed).
  * Charts → Chart.js canvas with data stored in data-* attributes.
- * Flowchart → aston-timeline vertical zigzag timeline.
+ * Flowchart → [FLOWCHART_IMG] placeholder, later replaced by a styled HTML step diagram.
  */
 function buildVisualBlockInstructions(): string {
   const parts: string[] = [];
@@ -489,9 +489,9 @@ Rules:
 - Place the chart directly after the paragraph that introduces the data it visualises`);
 
   // ── Flowchart placeholder (mandatory for every article) ──────
-  // The actual flowchart is a Mermaid diagram rendered to PNG server-side.
-  // GPT's job here is ONLY to place the placeholder at the right point in
-  // the article. The Mermaid syntax is written separately in flowchart_mermaid.
+  // The flowchart is a styled on-brand HTML step diagram built from the
+  // flowchart_steps field. GPT's job here is ONLY to place the placeholder at
+  // the right point in the article; the steps are written in flowchart_steps.
   parts.push(`
 FLOWCHART PLACEHOLDER (mandatory — include exactly once per article):
 Find the section that describes a process, application sequence, step-by-step procedure, or decision journey. At the point where the process is introduced, place this exact placeholder on its own line:
@@ -1003,7 +1003,7 @@ Return as a single valid JSON object with exactly these fields. No markdown, no 
   "more_content_6": "string",
   "final_points": "string",
   "read_mins": "string",
-  "flowchart_mermaid": "string",
+  "flowchart_steps": [{ "title": "string", "detail": "string" }],
   "internal_links_used": [{"anchor": "string", "url": "string"}],
   "external_links_used": [{"anchor": "string", "url": "string"}]
 }
@@ -1109,16 +1109,14 @@ Allowed HTML: <ul>, <li>, <strong>
 read_mins:
 Number string only. Estimate at 200 words per minute. Example: "9"
 
-flowchart_mermaid:
-Mermaid syntax for the single most important step-by-step process in THIS article — the real journey a reader would follow (e.g. the company formation sequence, the bank account application process, the licensing path, the visa journey). It is rendered to a PNG and placed at [FLOWCHART_IMG]. It must genuinely teach the reader how the process works — specific, accurate and useful, never generic filler.
-- Start with "flowchart LR" (left-to-right). Never use "flowchart TD" — top-down renders too tall for the post. Left-to-right keeps it a short, wide banner even with several steps.
-- 6 to 8 nodes that map the ACTUAL stages of the process in the real order they happen. Every node must name a concrete, specific stage drawn from this article — NEVER generic placeholders like "Action step" or "Review".
-- Wrap EVERY label in double quotes so it can be properly descriptive, e.g. A["Choose free zone and activity"] --> B["Reserve trade name"] --> C["Submit KYC and UBO file"]. Each label is a specific 3 to 6 word step naming the real action, document, regulator or milestone. Where the article gives a concrete timeline or figure, fold it in (e.g. "DFSA review 4 to 6 weeks", "Deposit minimum share capital").
-- You MAY include ONE decision node where the process genuinely forks (e.g. mainland vs free zone, approved vs rejected) written as {"Short question"} with -- Yes --> and -- No --> branches. Use at most one decision; keep everything else a straight left-to-right chain so the image stays short.
-- Shapes: (["Start label"]) for the first node, ["Step label"] for the middle steps, (["End label"]) for the final node, and {"Question"} only for the single optional decision.
-- Inside the quoted labels use plain words, spaces and numbers only — no parentheses, colons, slashes, ampersands, percent signs or other special characters, which break the renderer. Write "nine percent" not "9%", "AED 15000" not "AED 15,000".
-- Unique IDs (A B C...). No classDef, no subgraphs, no inline styling — the Aston brand theme is applied automatically on render.
-- Raw Mermaid syntax only — no code fences, no markdown.
+flowchart_steps:
+An ordered list of the steps in the single most important step-by-step process in THIS article — the real journey a reader would follow (e.g. the company formation sequence, the bank account application process, the licensing path, the visa journey). These are rendered as a clean on-brand HTML step diagram placed at [FLOWCHART_IMG]. The diagram must genuinely teach the reader how the process works — specific, accurate and useful, never generic filler.
+- Provide 5 to 7 steps, in the real order they happen. Never fewer than 5.
+- Each step is an object: { "title": "...", "detail": "..." }
+  - "title": the concrete stage name, 2 to 5 words, drawn from THIS article (e.g. "Choose free zone", "Submit KYC file", "DFSA review"). Never generic placeholders like "Step 1", "Action" or "Review".
+  - "detail": ONE concise sentence (max 18 words) explaining what actually happens in this step. Fold in a real timeline, document, regulator or figure where the article gives one (e.g. "Regulator reviews the application, usually within four to six weeks").
+- Write figures as words or plain numbers — "nine percent", "AED 15000" — no symbols needed (this is plain text, not code).
+- Cover the genuine start-to-finish arc: the steps should read as a coherent sequence a real client goes through, not a random list of topics.
 
 internal_links_used:
 Array of objects recording every internal link placed in the article body.
@@ -1368,7 +1366,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   // AI search blocks — note: label element intentionally omitted from templates
   quick_answer_block_exists:        `main_content is missing the Quick Answer block — add it after the opening paragraph using EXACTLY this structure (no label element): <div class="aston-quick-answer"><p class="aston-quick-answer__text">[2–3 direct sentences answering the main question, max 60 words, at least one specific fact]</p></div>`,
   definition_block_exists:          `main_content or more_content_1 is missing the Definition block — identify the primary specialised term in this article and add it using EXACTLY this structure (no label element): <div class="aston-definition"><strong class="aston-definition__term">[Term]</strong><p class="aston-definition__text">[Plain-English definition, 1–2 sentences, max 40 words]</p></div>`,
-  flowchart_block_exists:           `[FLOWCHART_IMG] placeholder is missing — add it on its own line inside the section (more_content_1, 2, 3, or 6) that describes the main process or step-by-step sequence. Also ensure the flowchart_mermaid field contains valid Mermaid syntax for that process. Write it exactly as: [FLOWCHART_IMG]`,
+  flowchart_block_exists:           `[FLOWCHART_IMG] placeholder is missing — add it on its own line inside the section (more_content_1, 2, 3, or 6) that describes the main process or step-by-step sequence. Also ensure flowchart_steps contains 5 to 7 ordered { title, detail } steps for that process. Write the placeholder exactly as: [FLOWCHART_IMG]`,
   // Quality checks
   key_takeaways_quality:            "key_takeaways has fewer than 4 list items — rewrite to include exactly 4–6 <li> items, each 8–14 words, each containing a specific fact, number, regulator, jurisdiction, or timeline",
   no_us_spellings:                  "US spellings or house-style violations found — replace with British English (organisation, optimisation, authorised, centre, travelling, licence→license, programme, analyse)",

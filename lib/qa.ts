@@ -324,8 +324,9 @@ export function runQA(
   ].join(" ");
   checks.flowchart_block_exists =
     allBodyForFlowchart.includes('[FLOWCHART_IMG]') ||
+    allBodyForFlowchart.includes('aston-flow') ||
     allBodyForFlowchart.includes('aston-timeline') ||
-    !!content.flowchart_mermaid?.trim();
+    (content.flowchart_steps?.length ?? 0) > 0;
   if (!checks.flowchart_block_exists)
     warnings.push("Flowchart placeholder missing — add [FLOWCHART_IMG] in the section describing the main process");
 
