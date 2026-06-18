@@ -586,12 +586,15 @@ function isNonEnglish(language?: string): boolean {
 
 // Expected section fields in render order. Index maps to the content fields:
 // more_content_1, _2, _3, _4 (Aston role), _6.
+// defaultHeading is a LAST-RESORT fallback used only when the model omits a
+// heading. Kept reasonably specific (not generic filler) so a leaked fallback
+// still reads acceptably; the prompt is the primary driver of real headings.
 const EXPECTED_SECTIONS: Array<{ field: string; defaultHeading: string }> = [
-  { field: "more_content_1", defaultHeading: "Key considerations" },
-  { field: "more_content_2", defaultHeading: "What the process involves" },
-  { field: "more_content_3", defaultHeading: "Practical scenarios to plan for" },
-  { field: "more_content_4", defaultHeading: "Aston VIP's role in your process" },
-  { field: "more_content_6", defaultHeading: "Common mistakes to avoid" },
+  { field: "more_content_1", defaultHeading: "Requirements and eligibility" },
+  { field: "more_content_2", defaultHeading: "Costs and timelines" },
+  { field: "more_content_3", defaultHeading: "Choosing the right structure" },
+  { field: "more_content_4", defaultHeading: "How Aston VIP helps" },
+  { field: "more_content_6", defaultHeading: "Mistakes that cost businesses" },
 ];
 
 /**
@@ -780,53 +783,60 @@ BLUEPRINT RULES:
 - focus_keyword: ${strategy ? `use exactly "${strategy.keyword_model.primary_keyword}" — this has been determined by the strategy engine` : "the single phrase this article should rank for in Google — 2 to 4 words, as a reader would actually type it into Google"}
 - secondary_keywords: provide 8 to 10 distinct secondary keywords. ${strategy ? "Select the strongest from the strategy brief's secondary keyword list above, prioritising service variants, jurisdiction variants, and commercial-intent phrases. Do not invent weak variants." : "Cover service variants, jurisdiction variants, and commercial-intent phrasing a real reader would search."} They will be distributed across the six body sections, so favour variety over repetition of the focus keyword.
 
-- seo_title: Write a title optimised for high click-through rate in Google search. The title must feel like it was written by someone who has personally advised hundreds of real clients on this exact topic — specific, no-nonsense, commercially sharp. STRICT RULES — all must be met simultaneously:
-  1. Contains the exact focus keyword — place it wherever it reads most naturally, not forced to the front
-  2. Exactly 50–60 characters including spaces — count every character before returning; rewrite until within range
-  3. Sentence case only — first word and proper nouns capitalised; never title case
-  4. No site name, no pipes, no dashes, no question marks, no colons
-  5. One clean flowing phrase — not a list, not two clauses joined by punctuation
+- seo_title: Write a title optimised for high click-through rate in Google search. The title must feel like it was written by someone who has personally advised hundreds of real clients on this exact topic: specific, no-nonsense, commercially sharp. STRICT RULES, all must be met simultaneously:
+  1. Contains the exact focus keyword, placed wherever it reads most naturally, not forced to the front
+  2. Exactly 50–60 characters including spaces. Count every character before returning; rewrite until within range
+  3. Sentence case only. First word and proper nouns capitalised; never title case
+  4. No site name, no pipes, no dashes (hyphen, en dash or em dash), no question marks, no colons
+  5. One clean flowing phrase, not a list, not two clauses joined by punctuation
 
-  6. BANNED PATTERNS — never use any of these under any circumstances:
+  6. SINGLE FOCUS, this is mandatory: the title must target ONE search idea. Do NOT bolt two distinct topics together with "and", "plus" or "&" (the weak title "Dubai free zone company setup costs and bank checks" fails because it crams two separate searches into one title). If two angles compete, choose the single strongest one and drop the other. A title naming a list of features ("costs and banking and visas") always loses to one with a sharp single focus.
+
+  7. ZERO AMBIGUITY, every word must be unambiguous and match how the reader actually searches:
+     - Ban any word with a double meaning. "bank checks" reads as cheques as easily as banking due diligence: write "banking" or "bank account" instead. Re-read each word and replace anything a reader could misread.
+     - Use the phrase the reader would type into Google, not Aston VIP's internal service wording.
+
+  8. BANNED PATTERNS, never use any of these under any circumstances:
      Generic suffixes: "complete guide", "explained", "step-by-step guide", "what you need to know", "how it works", "a guide", "overview", "everything you need to know", "all you need to know", "ultimate guide", "beginners guide"
      Weak constructions: "The institutional case for", "redefining", "go-to", "unlock", "leverage", "navigate", "landscape", "deep dive", "a look at", "understanding", "introduction to", "exploring", "an overview of"
      Generic openers: never start with "A guide", "How to set up", "What is", "All about", "The basics of"
 
-  7. PROVEN HIGH-CTR PATTERNS — choose the construction that best matches the article's search intent:
+  9. PROVEN HIGH-CTR PATTERNS (all dash-free), choose the construction that best matches the article's search intent:
 
      When the reader wants to UNDERSTAND something (informational intent):
-     - "[Topic] in [jurisdiction] — what most [founders/operators] get wrong"
-     - "Why [topic] works differently in [jurisdiction] than most expect"
-     - "What [regulator] actually requires for [topic] approval"
+     - "What most [founders] get wrong about [topic] in [jurisdiction]"
+     - "Why [topic] works differently in [jurisdiction]"
+     - "What [regulator] actually requires for [topic]"
      - "The real cost of [topic] in [jurisdiction]"
      - "Why [topic] applications fail in [jurisdiction]"
-     - "What [jurisdiction]'s [topic] rules mean for your business"
+     - "What [jurisdiction]'s [topic] rules mean for founders"
 
      When the reader is EVALUATING OPTIONS or ready to act (commercial intent):
      - "[Topic] eligibility, costs and timelines in [jurisdiction]"
-     - "How to [achieve goal] in [jurisdiction] — costs and requirements"
-     - "[Topic A] vs [topic B] for [audience] in [jurisdiction]"
-     - "What banks require from [topic] clients in [jurisdiction]"
-     - "Before you [action] in [jurisdiction] — what you must prepare"
+     - "What [topic] in [jurisdiction] actually costs"
+     - "[Topic A] vs [topic B] for [audience]"
+     - "What banks require from [topic] clients"
+     - "What to prepare before [action] in [jurisdiction]"
      - "[Topic] requirements for [audience] in [jurisdiction]"
 
      When the reader is COMPARING or DECIDING between options:
-     - "Which [jurisdiction/structure/free zone] is right for [topic] businesses"
-     - "[Jurisdiction A] vs [jurisdiction B] for [topic] — a real comparison"
+     - "Which [free zone] is right for [topic] businesses"
+     - "[Jurisdiction A] vs [jurisdiction B] for [topic]"
      - "Choosing the right [option] for [topic] in [jurisdiction]"
 
      When the reader KNOWS THEY HAVE A PROBLEM:
-     - "Why your [topic] keeps getting rejected — and how to fix it"
+     - "Why [topic] applications keep getting rejected"
      - "What stops [audience] from [goal] in [jurisdiction]"
-     - "[Number] [topic] mistakes that cost businesses in [jurisdiction]"
+     - "[Number] [topic] mistakes that cost businesses money"
 
-  8. ADDITIONAL RULES for sharper titles:
-     - Use specific numbers when they add real precision: "3 banking mistakes", "5 free zones compared", "9% corporate tax threshold"
-     - Include 2025 or 2026 ONLY for regulatory or compliance topics where currency matters — not for evergreen structural topics
-     - Name specific jurisdictions, regulators, or structures; never stay abstract (write "DIFC", "VARA", "DMCC" — not "UAE regulator")
-     - Match the title to how the reader would actually phrase their Google search — not how Aston VIP internally describes the service
+  10. ADDITIONAL RULES for sharper titles:
+     - Use specific numbers when they add real precision: "3 banking mistakes", "5 free zones compared", "9 percent tax threshold"
+     - Include 2025 or 2026 ONLY for regulatory or compliance topics where currency matters, not for evergreen structural topics
+     - Name specific jurisdictions, regulators, or structures; never stay abstract (write "DIFC", "VARA", "DMCC", not "UAE regulator")
      - Avoid starting with "The" unless genuinely the most natural construction
-     - The focus keyword should feel inevitable in context — not bolted on
+     - The focus keyword should feel inevitable in context, not bolted on
+
+  11. FINAL SELF-CHECK before returning the title, confirm ALL of: one clear single focus (no "X and Y"), not one ambiguous or double-meaning word, the focus keyword reads naturally, 50–60 characters, no dashes or colons.
 
 - meta_description: This appears verbatim on Google — it must be complete, punchy, and entice the reader to click. STRICT RULES — all must be met simultaneously:
   1. HARD MAXIMUM: 141 characters including spaces. This is an absolute ceiling — never exceed it under any circumstance. Count the characters in your final string before returning it. If your draft is 142 or more characters, rewrite the sentence with shorter words or remove a clause — do NOT truncate mid-word or mid-thought.
@@ -846,9 +856,13 @@ BLUEPRINT RULES:
   4. Only add 1 extra word after the focus keyword if it meaningfully disambiguates (e.g. "-guide", "-requirements", "-2025") — otherwise stop at the keyword itself
   5. No numbers, no years, unless they are part of the focus keyword itself
 - intro_angle: one sentence describing what the intro should establish — the business problem or opportunity
-- sections[].h3_heading: the exact H3 heading for that section, sentence case, max 8 words
+- sections[].h3_heading: the exact H3 heading, written for SEO. STRICT RULES:
+  - Be SPECIFIC to this section's real content. Never a generic label like "Key considerations", "What the process involves", "Practical scenarios", "Common mistakes", "Overview", "Introduction" or "What you need to know". Front-load the meaningful term.
+  - KEYWORD COVERAGE (balanced, no stuffing): across the whole article at least 2 H3 headings must contain the focus keyword "${strategy ? strategy.keyword_model.primary_keyword : ""}" or a close variant, and about half the H3 headings should naturally include a secondary or semantic keyword${strategy ? " drawn from the secondary keywords / entity terms above" : " a reader would search"}. Only where it reads naturally; never repeat the focus keyword in most headings.
+  - Phrase it like the sub-question a searcher would actually ask, so it can win featured snippets and AI answers.
+  - House style: sentence case, max 8 words / 60 characters, no colons, no dashes.
 - sections[].angle: one sentence describing what that section covers and what the reader should understand after reading it
-- sections[].subsections[].h4_heading: the exact H4 heading, sentence case, max 8 words
+- sections[].subsections[].h4_heading: the exact H4 heading. Same rules as h3_heading: specific to the subsection (never generic), sentence case, max 8 words / 60 chars, no colons, no dashes; weave in a secondary/semantic keyword where it reads naturally.
 - sections[].subsections[].angle: one sentence describing the subsection focus
 - more_content_4 must always open with an Aston VIP CTA heading adapted to the topic
 - more_content_6 must be a distinct fifth body section covering a practical angle not addressed in sections 1–4 (e.g. common mistakes, jurisdiction comparison, a specific use case, or a compliance checklist). Do not duplicate more_content_4 themes.
@@ -1308,6 +1322,8 @@ const CHECK_TO_FIELDS: Record<string, string[]> = {
   focus_keyword_in_intro:           ["main_content"],
   focus_keyword_in_heading:         ["main_content", "more_content_1"],
   seo_title_length_ok:              ["seo_title"],
+  seo_title_focused:                ["seo_title"],
+  headings_specific:                ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_6"],
   meta_description_length_ok:       ["meta_description"],
   no_dashes_in_title:               ["seo_title"],
   // Non-blocking — structure
@@ -1351,6 +1367,8 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   focus_keyword_in_intro:           "focus keyword missing from the first paragraph of main_content — include it in the first sentence",
   focus_keyword_in_heading:         "focus keyword not found in any H2/H3 heading — naturally include it in at least one heading",
   seo_title_length_ok:              "seo_title is outside 45–65 characters — rewrite to fit within this range while keeping the focus keyword",
+  seo_title_focused:                "seo_title is not single-focus or uses an ambiguous term — rewrite it to target ONE clear search idea (do not join two distinct topics with \"and\"/\"&\"), and replace any double-meaning word (e.g. \"bank checks\" → \"banking\" or \"bank account\"). Keep the exact focus keyword, sentence case, 50–60 characters, no dashes or colons.",
+  headings_specific:                "one or more H3/H4 headings are generic filler (e.g. \"Key considerations\", \"What the process involves\", \"Common mistakes\"). Rewrite each as a specific, descriptive heading tied to that section's real content, phrased like the sub-question a searcher would ask, and weave in the focus keyword or a secondary keyword where it reads naturally. Keep sentence case, max 8 words, no colons or dashes.",
   meta_description_length_ok:       "meta_description is outside 110–141 characters — rewrite to land in this range",
   no_dashes_in_title:               "seo_title contains a dash — rewrite the title without using dashes",
   // Structure

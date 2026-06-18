@@ -29,6 +29,8 @@ export const RETRYABLE_WARNING_CHECKS = [
   "definition_block_exists",
   "sentence_length_ok",
   "no_us_spellings",
+  "seo_title_focused",
+  "headings_specific",
 ] as const;
 
 export interface QAReport {
@@ -131,6 +133,18 @@ const HOUSE_STYLE_VIOLATIONS = [
   "licenced",
   "licencing",
 ];
+
+// Ambiguous / double-meaning terms that must not appear in the SEO title.
+// "bank checks" reads as cheques as easily as banking due diligence.
+const AMBIGUOUS_TITLE_TERMS = ["bank check", "bank checks"];
+
+// Generic, low-SEO headings the model must replace with specific, keyword-bearing ones.
+const GENERIC_HEADINGS = new Set([
+  "key considerations", "what the process involves", "practical scenarios to plan for",
+  "practical scenarios", "common mistakes to avoid", "common mistakes", "overview",
+  "introduction", "what you need to know", "how it works", "getting started",
+  "key points", "things to consider", "the basics", "key takeaways aside",
+]);
 
 function hasColonInHeadings(html: string): boolean {
   const headings = (html ?? "").match(/<h[2-5][^>]*>(.*?)<\/h[2-5]>/gi) ?? [];
@@ -298,6 +312,16 @@ export function runQA(
   if (!checks.focus_keyword_in_heading && kw)
     warnings.push("Focus keyword not found in any section heading");
 
+  // Headings must be specific, not generic filler. Check every H3/H4 across the
+  // body (incl. more_content_6) against the generic-heading denylist.
+  const headingsForSpecificity = extractHeadingText(
+    [bodyFields, content.more_content_6].join(" ")
+  ).map((h) => h.trim());
+  const genericHeadings = headingsForSpecificity.filter((h) => GENERIC_HEADINGS.has(h));
+  checks.headings_specific = genericHeadings.length === 0;
+  if (!checks.headings_specific)
+    warnings.push(`Generic heading(s) found: "${[...new Set(genericHeadings)].join('", "')}" — rewrite as specific, keyword-bearing headings`);
+
   // ── AI SEARCH OPTIMISATION CHECKS ────────────────────────
   // Validate the two mandatory structured blocks for Google AI Overviews,
   // featured snippets, and LLM crawlers.
@@ -335,6 +359,17 @@ export function runQA(
   checks.seo_title_length_ok = titleLen >= 45 && titleLen <= 65;
   if (!checks.seo_title_length_ok)
     warnings.push(`SEO title is ${titleLen} chars (target 50–60)`);
+
+  // SEO title clarity: no ambiguous / double-meaning terms (e.g. "bank checks").
+  // Single-focus is steered by the generation prompt rather than enforced here —
+  // a blunt " and " rule would wrongly flag legitimate titles like
+  // "...setup costs and banking" or "eligibility, costs and timelines".
+  const titleLower = (content.seo_title ?? "").toLowerCase();
+  const titleAmbiguous = AMBIGUOUS_TITLE_TERMS.filter((t) => titleLower.includes(t));
+  checks.seo_title_focused =
+    !!content.seo_title?.trim() && titleAmbiguous.length === 0;
+  if (content.seo_title?.trim() && titleAmbiguous.length > 0)
+    warnings.push(`SEO title uses an ambiguous term ("${titleAmbiguous.join('", "')}") — use a clearer phrase the reader would search`);
 
   // Meta description length (110–141 chars)
   const metaLen = (content.meta_description ?? "").length;
