@@ -1110,11 +1110,14 @@ read_mins:
 Number string only. Estimate at 200 words per minute. Example: "9"
 
 flowchart_mermaid:
-Mermaid flowchart syntax for the main process in this article. Rendered to a PNG and placed at [FLOWCHART_IMG].
+Mermaid flowchart syntax for the single core process in this article. Rendered to a compact PNG and placed at [FLOWCHART_IMG]. Keep it SHORT and clean — it must read as a simple, well-designed diagram, not a long sprawling map.
 - Start with "flowchart TD"
-- Shapes: [Action step], {Decision?}, ([Start/End])
-- Arrows: --> for flow, -- Yes --> and -- No --> for decisions
-- 5–10 nodes, unique IDs (A B C...), labels 3–6 words, no special characters, no classDef/subgraphs
+- EXACTLY 4 to 6 nodes — never more. Pick the few defining steps; merge minor ones. A short, clear flow beats a long granular one.
+- Keep it a mostly linear top-to-bottom flow. Use AT MOST ONE decision node, and only if the process genuinely branches. Prefer ZERO decisions for a clean sequential flow — multiple branches make the chart long and messy.
+- Shapes: ([Start]) for the first node, [Action step] for the middle steps, ([End]) for the last node
+- Arrows: --> for flow; for the single optional decision use -- Yes --> and -- No -->
+- Labels: 2 to 4 words each, plain text only — no punctuation, no parentheses, no special characters inside a label
+- Unique IDs (A B C...). No classDef, no subgraphs, no inline styling — the Aston brand theme is applied automatically on render
 - Raw Mermaid syntax only — no fences, no markdown
 
 internal_links_used:

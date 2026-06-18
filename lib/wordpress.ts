@@ -494,6 +494,14 @@ export async function patchWordPressPostLinks(
  */
 const ASTON_MERMAID_THEME = `%%{init: {
   "theme": "base",
+  "flowchart": {
+    "curve":       "basis",
+    "nodeSpacing":  45,
+    "rankSpacing":  55,
+    "padding":      16,
+    "useMaxWidth":  true,
+    "diagramPadding": 12
+  },
   "themeVariables": {
     "background":           "#f5f0e8",
     "primaryColor":         "#1b2a4a",
