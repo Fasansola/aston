@@ -110,7 +110,7 @@ ARTICLE HTML:
 ${html}`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-5.1",
+      model: "gpt-5.5",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: prompt },

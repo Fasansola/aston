@@ -70,8 +70,7 @@ async function fetchMediaPage(page: number) {
 async function generateAltText(imageUrl: string, imageTitle: string): Promise<string> {
   const openai   = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const response = await openai.chat.completions.create({
-    model:      "gpt-4o",
-    max_tokens: 60,
+    model:      "gpt-5.5",
     messages: [
       {
         role:    "system",

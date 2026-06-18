@@ -85,9 +85,8 @@ export async function segmentVideoScript(
   console.log(`[videoScript] ${hasContent ? `${wordCount} words from article` : "standalone — GPT will write script"}`);
 
   const { choices } = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-5.5",
     temperature: 0.3,
-    max_completion_tokens: 5000,
     messages: [
       {
         role: "system",

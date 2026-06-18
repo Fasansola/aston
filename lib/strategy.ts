@@ -9,8 +9,8 @@
 import OpenAI from "openai";
 import { ResearchBrief } from "./research";
 
-const PRIMARY_MODEL  = "gpt-5.1";
-const FALLBACK_MODEL = "gpt-4o";
+const PRIMARY_MODEL  = "gpt-5.5";
+const FALLBACK_MODEL = "gpt-5.1";
 
 async function chatWithFallback(
   openai: OpenAI,

@@ -105,7 +105,7 @@ RULES:
 - EXPERT (STEPHAN) turns: 80–150 words each. Never write a short expert answer — pack in specifics, real numbers, real scenarios. HOST (LIZ) turns: 5–20 words for quick reactions, 20–50 words for questions. Short host turns keep pace; long expert turns carry the content.`;
 
   const { choices } = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-5.5",
     temperature: 0.9,
     max_tokens: cfg.maxTokens,
     response_format: { type: "json_object" },

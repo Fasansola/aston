@@ -116,10 +116,9 @@ Rules:
 - If the source is thin or off-topic, return fewer items rather than inventing content`;
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-5.5",
     messages: [{ role: "user", content: userPrompt }],
     temperature: 0.3,
-    max_tokens: 2000,
   }, { signal: AbortSignal.timeout(120_000) });
 
   const raw = response.choices[0].message.content?.trim() ?? "";

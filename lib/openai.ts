@@ -24,8 +24,8 @@ import { AuthorityLink, formatAuthorityLinksForPrompt } from "./authorityLinks";
 // PRIMARY_MODEL is used for all major generation steps.
 // FALLBACK_MODEL is used automatically if the primary model
 // fails (timeout, rate limit, model unavailable, etc.).
-const PRIMARY_MODEL  = "gpt-5.1";
-const FALLBACK_MODEL = "gpt-4o";
+const PRIMARY_MODEL  = "gpt-5.5";
+const FALLBACK_MODEL = "gpt-5.1";
 
 /**
  * Wraps an OpenAI chat completion call with automatic model fallback.
@@ -52,7 +52,7 @@ async function chatWithFallback(
     // Fallback gets its own generous timeout — no cancellation from primary signal
     return openai.chat.completions.create(
       { ...params, model: FALLBACK_MODEL, stream: false },
-      { signal: AbortSignal.timeout(120_000) }
+      { signal: AbortSignal.timeout(300_000) }
     );
   }
 }
@@ -672,9 +672,9 @@ STRATEGY BRIEF (use as source of truth for this blueprint):
   const wordCountMatch = customPrompt?.match(/(\d[\d,]+)\s*[-–]\s*(\d[\d,]+)\s*words?/i);
   const targetWordCount = wordCountMatch
     ? Math.round((parseInt(wordCountMatch[1].replace(/,/g, ""), 10) + parseInt(wordCountMatch[2].replace(/,/g, ""), 10)) / 2)
-    : 3500;
-  // Section word target scales with the total: 600w for standard, 700w for long-form (3500+)
-  const sectionWordTarget = targetWordCount >= 3500 ? 700 : targetWordCount >= 2800 ? 650 : 600;
+    : 4500;
+  // Section word target scales with total word count
+  const sectionWordTarget = targetWordCount >= 4500 ? 900 : targetWordCount >= 3500 ? 750 : targetWordCount >= 2800 ? 650 : 600;
 
   const customPromptBlock = customPrompt?.trim()
     ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the blueprint):\n${customPrompt.trim()}\n${isDetailedBrief ? `
@@ -827,9 +827,8 @@ BLUEPRINT RULES:
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
-    temperature: 0.4,
-    max_completion_tokens: 5000,
-  }, AbortSignal.timeout(40_000));
+    temperature: 0.7,
+  }, AbortSignal.timeout(90_000));
 
   const choice = response.choices[0];
   if (choice.finish_reason === "length") {
@@ -1100,9 +1099,8 @@ ${linksBlock}`;
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
-    temperature: 0.6,
-    max_completion_tokens: 48000,
-  }, AbortSignal.timeout(150_000));
+    temperature: 0.8,
+  }, AbortSignal.timeout(300_000));
 
   const choice = response.choices[0];
   if (choice.finish_reason === "length") {
@@ -1220,16 +1218,14 @@ Alt text rules (SEO-optimised — all must be met):
 8. Examples of good alt text: "UAE trade license setup for mainland company formation", "DIFC financial services license requirements for fund managers", "Dubai crypto license VARA regulatory framework guide"
 9. Examples of bad alt text: "glass office tower at sunset", "businesspeople shaking hands in lobby", "documents on a desk with calculator"`;
 
-  // Image prompts are simple structured output — gpt-4o-mini is sufficient and faster
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: PRIMARY_MODEL,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
-    temperature: 0.5,
-    max_completion_tokens: 3000,
-  }, { signal: AbortSignal.timeout(40_000) });
+    temperature: 0.7,
+  }, { signal: AbortSignal.timeout(60_000) });
 
   const choice = response.choices[0];
   if (choice.finish_reason === "length") {

@@ -49,9 +49,8 @@ export async function generateVideoPrompt(
     : "";
 
   const { choices } = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-5.5",
     temperature: 0.7,
-    max_tokens: 200,
     messages: [
       {
         role: "system",
