@@ -41,6 +41,19 @@ const INTERNAL_HREF_RE = /href="(\/[^"#][^"]*|https?:\/\/(?:www\.)?aston\.ae[^"]
 // Base used to resolve site-relative hrefs into an absolute URL for checking.
 const SITE_BASE = "https://aston.ae";
 
+// Internal pages that must never be checked or removed — they are known-live
+// and required (e.g. the contact-us CTA that every article ends with).
+const PROTECTED_INTERNAL_PATHS = new Set(["/contact-us", "/contact-us/", "/contact", "/contact/"]);
+
+function isProtectedInternal(rawHref: string): boolean {
+  try {
+    const path = new URL(rawHref, SITE_BASE).pathname.toLowerCase();
+    return PROTECTED_INTERNAL_PATHS.has(path) || PROTECTED_INTERNAL_PATHS.has(path.replace(/\/$/, ""));
+  } catch {
+    return false;
+  }
+}
+
 type LinkVerdict = "keep" | "remove" | "warn";
 
 /**
@@ -192,6 +205,9 @@ export async function scrubBrokenExternalLinks(content: BlogContent): Promise<{
     INTERNAL_HREF_RE.lastIndex = 0;
     while ((m = INTERNAL_HREF_RE.exec(html)) !== null) {
       const raw = m[1];
+      // Never check or remove protected pages (e.g. the contact-us CTA) — they
+      // are always live and required by the article structure.
+      if (isProtectedInternal(raw)) continue;
       try {
         links.set(raw, new URL(raw, SITE_BASE).toString());
       } catch {
