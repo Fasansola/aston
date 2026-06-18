@@ -175,13 +175,13 @@ const applyLicenceFix = (s: string) => LICENCE_MAP.reduce((acc, [re, rep]) => ac
 
 async function scrubStep(
   content: BlogContent, authorityLinks: AuthorityLink[], prevBrokenUrls: string[]
-): Promise<{ content: BlogContent; brokenUrls: string[] }> {
+): Promise<{ content: BlogContent; brokenUrls: string[]; linkWarnings: string[] }> {
   "use step";
   // Pass 1 — strip URLs not on an approved domain
   const approvedUrls = authorityLinks.map((l) => l.url);
   const { content: enforced, removed: unapproved } = enforceApprovedLinks(content, approvedUrls);
-  // Pass 2 — remove genuine 404s
-  const { content: scrubbed, removed: broken } = await scrubBrokenExternalLinks(enforced);
+  // Pass 2 — remove genuine 404s (external + internal); 403s pass with a warning
+  const { content: scrubbed, removed: broken, warnings: linkWarnings } = await scrubBrokenExternalLinks(enforced);
   // Pass 3 — strip links inside visual blocks
   let out = stripLinksFromVisualBlocks(scrubbed);
 
@@ -203,7 +203,7 @@ async function scrubStep(
     out.secondary_keywords = out.secondary_keywords.map((k) => (typeof k === "string" ? applyLicenceFix(k) : k));
   }
 
-  return { content: out, brokenUrls: [...new Set([...prevBrokenUrls, ...unapproved, ...broken])] };
+  return { content: out, brokenUrls: [...new Set([...prevBrokenUrls, ...unapproved, ...broken])], linkWarnings };
 }
 
 // ── Image prompts + QA ────────────────────────────────────────
@@ -369,6 +369,10 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
     const scrubbed = await scrubStep(content, authorityLinks, prevBrokenUrls);
     content = scrubbed.content;
     prevBrokenUrls = scrubbed.brokenUrls;
+    if (scrubbed.linkWarnings.length > 0) {
+      console.warn("[wf] links returned 403 (kept with warning):", scrubbed.linkWarnings.join(", "));
+      await emit({ type: "progress", message: `${scrubbed.linkWarnings.length} link(s) returned 403 and were kept with a warning` });
+    }
 
     const needNewImagePrompts = attempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevChecks![k]);
     console.log("[wf] step: imagePrompts attempt", attempt, "regen:", needNewImagePrompts);

@@ -36,49 +36,61 @@ const LINK_FIELDS: (keyof BlogContent)[] = [
 ];
 
 const EXTERNAL_HREF_RE = /href="(https?:\/\/(?!(?:www\.)?aston\.ae)[^"]+)"/gi;
+// Internal links: site-relative ("/page") or absolute aston.ae URLs.
+const INTERNAL_HREF_RE = /href="(\/[^"#][^"]*|https?:\/\/(?:www\.)?aston\.ae[^"]*)"/gi;
+// Base used to resolve site-relative hrefs into an absolute URL for checking.
+const SITE_BASE = "https://aston.ae";
+
+type LinkVerdict = "keep" | "remove" | "warn";
 
 /**
- * Returns false (remove link) when we are confident the URL does not exist:
+ * Classify a link by its live HTTP response:
  *
- * REMOVE:
+ * REMOVE (link is gone — strip it from every post element):
  *   404 — page definitively does not exist
+ *   410 — page permanently removed
  *   DNS failure (ENOTFOUND) — domain does not exist at all
  *   Connection refused (ECONNREFUSED) — nothing running at that address
  *
- * KEEP:
- *   403 / 405 / 429 — server responded but blocked the bot; page likely exists
- *     (government, regulator, and bank sites routinely do this via WAF)
- *   5xx — server error, transient; don't penalise a real page for a bad moment
- *   Timeout — inconclusive; slow servers should not lose their links
+ * WARN (keep the link but flag it):
+ *   403 / 401 — forbidden / unauthorised. The server blocked the automated
+ *     check (government, regulator, and bank sites routinely do this via WAF)
+ *     but the page almost certainly exists for real visitors.
+ *
+ * KEEP (silently):
  *   2xx / 3xx — link is live
+ *   405 / 429 / 5xx — bot-blocked or transient; don't penalise a real page
+ *   Timeout — inconclusive; slow servers should not lose their links
  */
-async function headCheck(url: string, timeoutMs = 5000): Promise<boolean> {
+async function classifyLink(url: string, timeoutMs = 6000): Promise<LinkVerdict> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const headers = { "User-Agent": "Mozilla/5.0 (compatible; AstonBlogTool/1.0)" };
   try {
-    const res = await fetch(url, {
-      method: "HEAD",
-      redirect: "follow",
-      signal: controller.signal,
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; AstonBlogTool/1.0)" },
-    });
-    // 404 = page definitively does not exist
-    return res.status !== 404;
+    let res = await fetch(url, { method: "HEAD", redirect: "follow", signal: controller.signal, headers });
+    // Some servers reject HEAD with 403/405 but serve GET fine — confirm with GET
+    // so we don't warn on a page that actually loads.
+    if (res.status === 403 || res.status === 405) {
+      res = await fetch(url, { method: "GET", redirect: "follow", signal: controller.signal, headers });
+    }
+    if (res.status === 404 || res.status === 410) return "remove";
+    if (res.status === 403 || res.status === 401) return "warn";
+    return "keep";
   } catch (err: unknown) {
     if (err instanceof Error) {
       const msg = err.message.toLowerCase();
       const code = (err as NodeJS.ErrnoException).code ?? "";
       // DNS lookup failed → domain does not exist
       if (code === "ENOTFOUND" || msg.includes("enotfound") || msg.includes("getaddrinfo")) {
-        return false;
+        return "remove";
       }
       // Connection refused → nothing at that address
       if (code === "ECONNREFUSED" || msg.includes("econnrefused")) {
-        return false;
+        return "remove";
       }
     }
     // Timeout or other network error — benefit of the doubt
-    return true;
+    return "keep";
   } finally {
     clearTimeout(timer);
   }
@@ -148,44 +160,67 @@ export function enforceApprovedLinks(
 }
 
 /**
- * Pass 2 — async HEAD checks.
- * Scrubs any remaining external link that returns a non-2xx HTTP response.
+ * Pass 2 — async live link checks (external AND internal).
+ *
+ * For every link in the post body — external authority links and internal
+ * aston.ae / site-relative links alike — checks the live response and:
+ *   - removes the <a> (keeping anchor text) when the target 404s / is gone
+ *   - keeps the link but reports it in `warnings` when it returns 403/401
+ *   - keeps everything else untouched
+ *
+ * `removed` feeds the targeted fix pass (so a replacement link is sought);
+ * `warnings` is surfaced to the user but does not trigger a rewrite.
  */
 export async function scrubBrokenExternalLinks(content: BlogContent): Promise<{
   content: BlogContent;
   removed: string[];
+  warnings: string[];
 }> {
-  const urlSet = new Set<string>();
+  // Map each raw href (as written in the HTML, used for stripping) to the
+  // absolute URL we actually fetch (site-relative hrefs resolve against SITE_BASE).
+  const links = new Map<string, string>();
 
   for (const field of LINK_FIELDS) {
     const html = (content[field] as string) ?? "";
-    EXTERNAL_HREF_RE.lastIndex = 0;
     let m: RegExpExecArray | null;
+
+    EXTERNAL_HREF_RE.lastIndex = 0;
     while ((m = EXTERNAL_HREF_RE.exec(html)) !== null) {
-      urlSet.add(m[1]);
+      links.set(m[1], m[1]);
+    }
+
+    INTERNAL_HREF_RE.lastIndex = 0;
+    while ((m = INTERNAL_HREF_RE.exec(html)) !== null) {
+      const raw = m[1];
+      try {
+        links.set(raw, new URL(raw, SITE_BASE).toString());
+      } catch {
+        // unparseable href — skip
+      }
     }
   }
 
-  if (urlSet.size === 0) return { content, removed: [] };
+  if (links.size === 0) return { content, removed: [], warnings: [] };
 
-  const urls = [...urlSet];
+  const entries = [...links.entries()];
 
   // Hard 20s deadline for the entire scrub pass — if slow sites cause it to
-  // run long the overall generation hits Vercel's 300s limit. URLs that don't
+  // run long the overall generation hits Vercel's limit. Links that don't
   // resolve within the deadline are kept (benefit of the doubt).
   const SCRUB_DEADLINE_MS = 20_000;
-  const deadline = new Promise<{ url: string; ok: boolean }[]>((resolve) =>
-    setTimeout(() => resolve(urls.map((url) => ({ url, ok: true }))), SCRUB_DEADLINE_MS)
+  const deadline = new Promise<{ raw: string; verdict: LinkVerdict }[]>((resolve) =>
+    setTimeout(() => resolve(entries.map(([raw]) => ({ raw, verdict: "keep" as LinkVerdict }))), SCRUB_DEADLINE_MS)
   );
 
   const checks = Promise.all(
-    urls.map((url) => headCheck(url).then((ok) => ({ url, ok })))
+    entries.map(([raw, fetchUrl]) => classifyLink(fetchUrl).then((verdict) => ({ raw, verdict })))
   );
 
   const results = await Promise.race([checks, deadline]);
-  const broken = new Set(results.filter((r) => !r.ok).map((r) => r.url));
+  const broken   = [...new Set(results.filter((r) => r.verdict === "remove").map((r) => r.raw))];
+  const warnings = [...new Set(results.filter((r) => r.verdict === "warn").map((r) => r.raw))];
 
-  if (broken.size === 0) return { content, removed: [] };
+  if (broken.length === 0) return { content, removed: [], warnings };
 
   const cleaned = { ...content } as BlogContent;
   for (const field of LINK_FIELDS) {
@@ -196,7 +231,7 @@ export async function scrubBrokenExternalLinks(content: BlogContent): Promise<{
     (cleaned as unknown as Record<string, unknown>)[field] = html;
   }
 
-  return { content: cleaned, removed: [...broken] };
+  return { content: cleaned, removed: broken, warnings };
 }
 
 /**

@@ -248,6 +248,19 @@ async function validateInternal(
     };
   }
 
+  // 403/401 — forbidden/unauthorised to the automated check, but the page
+  // almost certainly loads for real visitors. Pass with a warning, don't block.
+  if (res.status === 403 || res.status === 401) {
+    return {
+      id, type: "internal", status: "warning",
+      anchorText, url, finalUrl: res.finalUrl, httpStatus: res.status,
+      problem: `Returned ${res.status} — access forbidden to automated checks; the page likely works for visitors`,
+      suggestedFix: "Open the link in a browser to confirm; no change needed if it loads",
+      blocking: false,
+      actions: ["recheck", "edit"],
+    };
+  }
+
   if (!res.ok) {
     return {
       id, type: "internal", status: "failed",
@@ -337,6 +350,20 @@ async function validateExternal(
       suggestedFix: "Recheck this link before publishing",
       blocking: false,
       actions: ["recheck", "edit", "remove"],
+    };
+  }
+
+  // 403/401 — forbidden/unauthorised to the automated check. Government,
+  // regulator and bank sites routinely block bots via WAF while the page is
+  // live for visitors. Pass with a warning, don't block.
+  if (res.status === 403 || res.status === 401) {
+    return {
+      id, type: "external", status: "warning",
+      anchorText, url, finalUrl: res.finalUrl, httpStatus: res.status, authorityScore,
+      problem: `Returned ${res.status} — the source blocks automated checks but likely works for visitors`,
+      suggestedFix: "Open the link in a browser to confirm; no change needed if it loads",
+      blocking: false,
+      actions: ["recheck", "edit"],
     };
   }
 
