@@ -109,7 +109,6 @@ TAGS RULES:
   try {
     const res = await openai.chat.completions.create({
       model: "gpt-5.5",
-      temperature: 0.6,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },

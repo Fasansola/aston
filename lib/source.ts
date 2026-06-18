@@ -118,7 +118,6 @@ Rules:
   const response = await openai.chat.completions.create({
     model: "gpt-5.5",
     messages: [{ role: "user", content: userPrompt }],
-    temperature: 0.3,
   }, { signal: AbortSignal.timeout(120_000) });
 
   const raw = response.choices[0].message.content?.trim() ?? "";

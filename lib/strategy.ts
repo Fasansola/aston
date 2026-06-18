@@ -10,7 +10,8 @@ import OpenAI from "openai";
 import { ResearchBrief } from "./research";
 
 const PRIMARY_MODEL  = "gpt-5.5";
-const FALLBACK_MODEL = "gpt-5.3";
+// gpt-5.3 returns 404 on this account; gpt-5.5 is the only ≥5.3 model available.
+const FALLBACK_MODEL = "gpt-5.5";
 
 async function chatWithFallback(
   openai: OpenAI,
@@ -226,7 +227,6 @@ Rules:
         { role: "system", content: STRATEGY_SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.4,
       // 24 000 tokens gives headroom for verbose topics.
       max_completion_tokens: 24000,
     }, AbortSignal.timeout(120_000));

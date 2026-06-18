@@ -25,7 +25,9 @@ import { AuthorityLink, formatAuthorityLinksForPrompt } from "./authorityLinks";
 // FALLBACK_MODEL is used automatically if the primary model
 // fails (timeout, rate limit, model unavailable, etc.).
 const PRIMARY_MODEL  = "gpt-5.5";
-const FALLBACK_MODEL = "gpt-5.3";
+// gpt-5.3 returns 404 on this account; gpt-5.5 is the only ≥5.3 model available,
+// so the fallback retries the same model on transient errors (not a downgrade).
+const FALLBACK_MODEL = "gpt-5.5";
 
 /**
  * Wraps an OpenAI chat completion call with automatic model fallback.
@@ -857,7 +859,6 @@ BLUEPRINT RULES:
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
-    temperature: 0.7,
   }, AbortSignal.timeout(90_000));
 
   const choice = response.choices[0];
@@ -1129,7 +1130,6 @@ ${linksBlock}`;
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
-    temperature: 0.8,
   }, AbortSignal.timeout(300_000));
 
   const choice = response.choices[0];
@@ -1254,7 +1254,6 @@ Alt text rules (SEO-optimised — all must be met):
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
-    temperature: 0.7,
   }, { signal: AbortSignal.timeout(60_000) });
 
   const choice = response.choices[0];
@@ -1471,7 +1470,6 @@ The "internal_links_used" and "external_links_used" arrays must include ALL link
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: prompt },
     ],
-    temperature: 0.5,
     max_completion_tokens: 28000,
   }, AbortSignal.timeout(120_000));
 

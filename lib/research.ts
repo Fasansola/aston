@@ -53,7 +53,6 @@ Return a JSON object. No markdown, no code fences.
 }`,
       },
     ],
-    temperature: 0.3,
     max_completion_tokens: 2000,
   }, { signal: AbortSignal.timeout(60_000) });
 
