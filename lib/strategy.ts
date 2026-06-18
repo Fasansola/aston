@@ -10,7 +10,7 @@ import OpenAI from "openai";
 import { ResearchBrief } from "./research";
 
 const PRIMARY_MODEL  = "gpt-5.5";
-const FALLBACK_MODEL = "gpt-5.1";
+const FALLBACK_MODEL = "gpt-5.3";
 
 async function chatWithFallback(
   openai: OpenAI,
@@ -214,7 +214,7 @@ Rules:
 - If SECONDARY_COUNTRIES are provided, use them only for comparison — they must not replace the primary country as the main focus.
 - If LANGUAGE is provided, ensure keywords and questions reflect native search behaviour in that language, not literal translations.`;
 
-  // Retry up to 2 times — gpt-5.1 can return finish_reason "stop" with truncated
+  // Retry up to 2 times — the model can return finish_reason "stop" with truncated
   // JSON on complex topics, causing silent parse failures. A second attempt almost
   // always succeeds because the model picks a more concise generation path.
   const MAX_STRATEGY_ATTEMPTS = 2;

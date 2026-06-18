@@ -337,6 +337,10 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
   // Setup (steps auto-retry transient errors; research/authority degrade gracefully)
   console.log("[wf] step: research");
   const research = await researchStep(title, input.primary_country, input.customInstruction);
+  if (!research) {
+    console.warn("[wf] research returned null — article will be written without live SERP data");
+    await emit({ type: "progress", message: "Live research unavailable — writing from domain knowledge only" });
+  }
   console.log("[wf] step: selectLinks");
   const selectedLinks = await selectLinksStep(title, input.language);
   console.log("[wf] step: sourceBrief");

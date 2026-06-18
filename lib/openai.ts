@@ -25,12 +25,12 @@ import { AuthorityLink, formatAuthorityLinksForPrompt } from "./authorityLinks";
 // FALLBACK_MODEL is used automatically if the primary model
 // fails (timeout, rate limit, model unavailable, etc.).
 const PRIMARY_MODEL  = "gpt-5.5";
-const FALLBACK_MODEL = "gpt-5.1";
+const FALLBACK_MODEL = "gpt-5.3";
 
 /**
  * Wraps an OpenAI chat completion call with automatic model fallback.
- * If the primary model (gpt-5.1) times out or errors, retries immediately
- * with the fallback model (gpt-4o) so generation always completes.
+ * If the primary model (gpt-5.5) times out or errors, retries immediately
+ * with the fallback model (gpt-5.3) so generation always completes.
  */
 async function chatWithFallback(
   openai: OpenAI,
@@ -672,9 +672,9 @@ STRATEGY BRIEF (use as source of truth for this blueprint):
   const wordCountMatch = customPrompt?.match(/(\d[\d,]+)\s*[-–]\s*(\d[\d,]+)\s*words?/i);
   const targetWordCount = wordCountMatch
     ? Math.round((parseInt(wordCountMatch[1].replace(/,/g, ""), 10) + parseInt(wordCountMatch[2].replace(/,/g, ""), 10)) / 2)
-    : 4500;
-  // Section word target scales with total word count
-  const sectionWordTarget = targetWordCount >= 4500 ? 900 : targetWordCount >= 3500 ? 750 : targetWordCount >= 2800 ? 650 : 600;
+    : 3500;
+  // Section word target scales with the total: 600w for standard, 700w for long-form (3500+)
+  const sectionWordTarget = targetWordCount >= 3500 ? 700 : targetWordCount >= 2800 ? 650 : 600;
 
   const customPromptBlock = customPrompt?.trim()
     ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the blueprint):\n${customPrompt.trim()}\n${isDetailedBrief ? `

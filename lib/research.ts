@@ -54,8 +54,8 @@ Return a JSON object. No markdown, no code fences.
       },
     ],
     temperature: 0.3,
-    max_completion_tokens: 200,
-  }, { signal: AbortSignal.timeout(30_000) });
+    max_completion_tokens: 2000,
+  }, { signal: AbortSignal.timeout(60_000) });
 
   const raw = response.choices[0].message.content?.trim() ?? "";
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -121,7 +121,7 @@ Return a JSON array. No markdown, no code fences:
 ]`,
       },
     ],
-  }, { signal: AbortSignal.timeout(30_000) });
+  }, { signal: AbortSignal.timeout(60_000) });
 
   const raw = response.choices[0].message.content?.trim() ?? "";
   const jsonMatch = raw.match(/\[[\s\S]*\]/);
@@ -190,7 +190,7 @@ You are an SEO researcher for a high-end corporate advisory blog. Research the c
 }`,
       },
     ],
-  }, { signal: AbortSignal.timeout(35_000) });
+  }, { signal: AbortSignal.timeout(90_000) });
 
   const raw = response.choices[0].message.content?.trim() ?? "";
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
