@@ -536,7 +536,11 @@ export async function renderMermaidToPng(mermaidSyntax: string): Promise<Buffer>
     .replace(/```\s*$/m, "")
     .trim();
   const stripped = deFenced.replace(/^%%\{[\s\S]*?%%\s*/m, "").trim();
-  const branded  = `${ASTON_MERMAID_THEME}\n${stripped}`;
+  // Force a wide left-to-right layout. Top-down (TD/TB) charts render very tall
+  // and take up too much vertical space in the post, so normalise the direction
+  // even if the model ignores the LR instruction.
+  const horizontal = stripped.replace(/^(flowchart|graph)\s+(TD|TB|BT)\b/im, "$1 LR");
+  const branded  = `${ASTON_MERMAID_THEME}\n${horizontal}`;
   const encoded  = Buffer.from(branded, "utf8").toString("base64url");
   const url      = `https://mermaid.ink/img/${encoded}?width=960`;
   const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
