@@ -778,23 +778,53 @@ BLUEPRINT RULES:
 - focus_keyword: ${strategy ? `use exactly "${strategy.keyword_model.primary_keyword}" — this has been determined by the strategy engine` : "the single phrase this article should rank for in Google — 2 to 4 words, as a reader would actually type it into Google"}
 - secondary_keywords: provide 8 to 10 distinct secondary keywords. ${strategy ? "Select the strongest from the strategy brief's secondary keyword list above, prioritising service variants, jurisdiction variants, and commercial-intent phrases. Do not invent weak variants." : "Cover service variants, jurisdiction variants, and commercial-intent phrasing a real reader would search."} They will be distributed across the six body sections, so favour variety over repetition of the focus keyword.
 
-- seo_title: Write a title that makes a senior institutional adviser stop scrolling. STRICT RULES — all must be met simultaneously:
-  1. Contains the exact focus keyword — it does NOT need to be the first words; place it wherever it reads most naturally
-  2. Exactly 50–60 characters including spaces — count precisely before returning
-  3. Sentence case only — capitalise only the first word and proper nouns
+- seo_title: Write a title optimised for high click-through rate in Google search. The title must feel like it was written by someone who has personally advised hundreds of real clients on this exact topic — specific, no-nonsense, commercially sharp. STRICT RULES — all must be met simultaneously:
+  1. Contains the exact focus keyword — place it wherever it reads most naturally, not forced to the front
+  2. Exactly 50–60 characters including spaces — count every character before returning; rewrite until within range
+  3. Sentence case only — first word and proper nouns capitalised; never title case
   4. No site name, no pipes, no dashes, no question marks, no colons
-  5. One complete, natural phrase — no lists, no two clauses joined by punctuation
-  6. BANNED suffixes — never use: "complete guide", "explained", "step-by-step guide", "what you need to know", "how it works", "a guide", "overview", "everything you need to know", "all you need to know"
-  7. Write with practitioner authority — use constructions like:
-     - "Why [jurisdiction] is becoming the go-to for [topic]"
-     - "Inside [entity]'s [approach/framework] for [topic]"
-     - "What [topic] means for [institutional audience]"
-     - "[Topic] and what serious [founders/investors/operators] get wrong"
-     - "The institutional case for [topic] in [jurisdiction]"
-     - "How [jurisdiction/regulator] is redefining [topic]"
-     - "[Topic] eligibility, timelines and costs in [jurisdiction]"
-     - "Before you [action]: what [topic] actually requires"
-  8. Each title must feel written by a practitioner, not generated — specific, confident, commercially intelligent
+  5. One clean flowing phrase — not a list, not two clauses joined by punctuation
+
+  6. BANNED PATTERNS — never use any of these under any circumstances:
+     Generic suffixes: "complete guide", "explained", "step-by-step guide", "what you need to know", "how it works", "a guide", "overview", "everything you need to know", "all you need to know", "ultimate guide", "beginners guide"
+     Weak constructions: "The institutional case for", "redefining", "go-to", "unlock", "leverage", "navigate", "landscape", "deep dive", "a look at", "understanding", "introduction to", "exploring", "an overview of"
+     Generic openers: never start with "A guide", "How to set up", "What is", "All about", "The basics of"
+
+  7. PROVEN HIGH-CTR PATTERNS — choose the construction that best matches the article's search intent:
+
+     When the reader wants to UNDERSTAND something (informational intent):
+     - "[Topic] in [jurisdiction] — what most [founders/operators] get wrong"
+     - "Why [topic] works differently in [jurisdiction] than most expect"
+     - "What [regulator] actually requires for [topic] approval"
+     - "The real cost of [topic] in [jurisdiction]"
+     - "Why [topic] applications fail in [jurisdiction]"
+     - "What [jurisdiction]'s [topic] rules mean for your business"
+
+     When the reader is EVALUATING OPTIONS or ready to act (commercial intent):
+     - "[Topic] eligibility, costs and timelines in [jurisdiction]"
+     - "How to [achieve goal] in [jurisdiction] — costs and requirements"
+     - "[Topic A] vs [topic B] for [audience] in [jurisdiction]"
+     - "What banks require from [topic] clients in [jurisdiction]"
+     - "Before you [action] in [jurisdiction] — what you must prepare"
+     - "[Topic] requirements for [audience] in [jurisdiction]"
+
+     When the reader is COMPARING or DECIDING between options:
+     - "Which [jurisdiction/structure/free zone] is right for [topic] businesses"
+     - "[Jurisdiction A] vs [jurisdiction B] for [topic] — a real comparison"
+     - "Choosing the right [option] for [topic] in [jurisdiction]"
+
+     When the reader KNOWS THEY HAVE A PROBLEM:
+     - "Why your [topic] keeps getting rejected — and how to fix it"
+     - "What stops [audience] from [goal] in [jurisdiction]"
+     - "[Number] [topic] mistakes that cost businesses in [jurisdiction]"
+
+  8. ADDITIONAL RULES for sharper titles:
+     - Use specific numbers when they add real precision: "3 banking mistakes", "5 free zones compared", "9% corporate tax threshold"
+     - Include 2025 or 2026 ONLY for regulatory or compliance topics where currency matters — not for evergreen structural topics
+     - Name specific jurisdictions, regulators, or structures; never stay abstract (write "DIFC", "VARA", "DMCC" — not "UAE regulator")
+     - Match the title to how the reader would actually phrase their Google search — not how Aston VIP internally describes the service
+     - Avoid starting with "The" unless genuinely the most natural construction
+     - The focus keyword should feel inevitable in context — not bolted on
 
 - meta_description: This appears verbatim on Google — it must be complete, punchy, and entice the reader to click. STRICT RULES — all must be met simultaneously:
   1. HARD MAXIMUM: 141 characters including spaces. This is an absolute ceiling — never exceed it under any circumstance. Count the characters in your final string before returning it. If your draft is 142 or more characters, rewrite the sentence with shorter words or remove a clause — do NOT truncate mid-word or mid-thought.
