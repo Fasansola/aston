@@ -1039,8 +1039,7 @@ export default function HomePage() {
             evtRaw.postId as number,
             evtRaw.fileSlug as string,
             evtRaw.imageModel as string,
-            evtRaw.imagePrompts as Record<string, string>,
-            (evtRaw.flowchartSteps as Array<{ title: string; detail: string }>) ?? []
+            evtRaw.imagePrompts as Record<string, string>
           );
         }
         if (!data.needsReview && (autoMedia.video || autoMedia.podcast || autoMedia.audio)) {
@@ -1724,8 +1723,7 @@ export default function HomePage() {
     postId: number,
     fileSlug: string,
     imageModel: string,
-    imagePrompts: Record<string, string>,
-    flowchartSteps: Array<{ title: string; detail: string }> = []
+    imagePrompts: Record<string, string>
   ) => {
     setImageGenStatus("generating");
     setImageGenMessage("Generating images…");
@@ -1733,7 +1731,7 @@ export default function HomePage() {
       const res = await fetch("/api/generate-images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId, fileSlug, imageModel, imagePrompts, flowchartSteps }),
+        body: JSON.stringify({ postId, fileSlug, imageModel, imagePrompts }),
       });
       if (!res.body) throw new Error("No response body from generate-images.");
       const reader = res.body.getReader();

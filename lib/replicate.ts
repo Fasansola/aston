@@ -375,9 +375,12 @@ export function articleToAudioScript(
 ): string {
   const stripHtml = (html: string) =>
     (html ?? "")
-      // Remove entire aston visual block divs — these are visual-only and unreadable as audio
+      // Remove entire aston visual block divs + the flowchart figure — these are
+      // visual-only and unreadable as audio
       .replace(/<div[^>]*class="aston-[^"]*"[\s\S]*?<\/div>/gi, "")
+      .replace(/<figure[^>]*class="aston-flow"[\s\S]*?<\/figure>/gi, "")
       .replace(/<canvas[^>]*>[\s\S]*?<\/canvas>/gi, "")
+      .replace(/\[FLOWCHART_IMG\]/gi, " ")  // drop any leftover placeholder text
       .replace(/<[^>]+>/g, " ")
       .replace(/\s+/g, " ")
       .trim();

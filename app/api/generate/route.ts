@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePrompts, IMAGE_QA_CHECKS, type ImageModel } from "@/lib/openai";
 import { getSettings } from "@/lib/storage";
-import { createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
+import { createWordPressPost, embedFlowchartHtml, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 import { runQA, RETRYABLE_WARNING_CHECKS } from "@/lib/qa";
 import { enforceApprovedLinks, scrubBrokenExternalLinks, stripLinksFromVisualBlocks } from "@/lib/linkScrubber";
@@ -332,32 +332,34 @@ export async function POST(req: NextRequest) {
 
           // IMGSLOT_* markers are replaced with "" here — the actual images are
           // attached later by /api/generate-images which patches the WP post.
-          // [FLOWCHART_IMG] is left in place so generate-images can replace it
-          // with the rendered Mermaid PNG <img> tag.
+          // The [FLOWCHART_IMG] placeholder is replaced now with the styled HTML
+          // step diagram, so the flowchart is part of the post immediately and
+          // never depends on image generation succeeding.
+          const embedded = embedFlowchartHtml(content);
           const assembled = {
-            main_content:   content.main_content.replace("IMGSLOT_MAIN", ""),
-            more_content_1: content.more_content_1.replace("IMGSLOT_ONE", ""),
-            more_content_3: content.more_content_3.replace("IMGSLOT_TWO", ""),
-            more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
+            main_content:   embedded.main_content.replace("IMGSLOT_MAIN", ""),
+            more_content_1: embedded.more_content_1.replace("IMGSLOT_ONE", ""),
+            more_content_3: embedded.more_content_3.replace("IMGSLOT_TWO", ""),
+            more_content_4: embedded.more_content_4.replace("IMGSLOT_SPLIT", ""),
           };
 
-          const post = await createWordPressPost(content.seo_title || title, content, imagePrompts, assembled, null, language || undefined);
+          const post = await createWordPressPost(embedded.seo_title || title, embedded, imagePrompts, assembled, null, language || undefined);
           console.log(`[generate] Post created! ID: ${post.id}, slug: "${content.slug}"`);
 
           const articleHtml = [
-            content.key_takeaways,
+            embedded.key_takeaways,
             assembled.main_content,
-            content.keypoint_one,
+            embedded.keypoint_one,
             assembled.more_content_1,
-            content.more_content_2,
-            content.quote_1,
+            embedded.more_content_2,
+            embedded.quote_1,
             assembled.more_content_3,
-            content.keypoint_two,
+            embedded.keypoint_two,
             assembled.more_content_4,
-            content.quote_2,
-            content.more_content_5,
-            content.more_content_6,
-            content.final_points,
+            embedded.quote_2,
+            embedded.more_content_5,
+            embedded.more_content_6,
+            embedded.final_points,
           ].filter(Boolean).join("\n");
 
           await send({
@@ -368,7 +370,6 @@ export async function POST(req: NextRequest) {
             imagePrompts,             // forwarded by client to /api/generate-images
             fileSlug,                 // forwarded by client to /api/generate-images
             imageModel,               // forwarded by client to /api/generate-images
-            flowchartSteps: content.flowchart_steps ?? [], // forwarded to /api/generate-images
             mode,
             title,
             slug:         content.slug,

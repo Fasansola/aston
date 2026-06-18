@@ -32,7 +32,7 @@ import {
   generateBlueprint, generateBlogContent, fixBlogContent,
   generateImagePrompts, IMAGE_QA_CHECKS, type ImageModel,
 } from "@/lib/openai";
-import { createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
+import { createWordPressPost, embedFlowchartHtml, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 import { runQA, RETRYABLE_WARNING_CHECKS } from "@/lib/qa";
 import { enforceApprovedLinks, scrubBrokenExternalLinks, stripLinksFromVisualBlocks } from "@/lib/linkScrubber";
@@ -234,18 +234,22 @@ async function publishStep(
   assembled: { main_content: string; more_content_1: string; more_content_3: string; more_content_4: string };
 }> {
   "use step";
-  // IMGSLOT_* markers are placeholders the image step replaces later.
+  // Embed the flowchart HTML now, so it is part of the post regardless of how
+  // image generation goes. IMGSLOT_* markers are placeholders the image step
+  // replaces later.
+  const embedded = embedFlowchartHtml(content);
+  console.log(`[wf] flowchart steps: ${embedded.flowchart_steps?.length ?? 0}`);
   const assembled = {
-    main_content:   content.main_content.replace("IMGSLOT_MAIN", ""),
-    more_content_1: content.more_content_1.replace("IMGSLOT_ONE", ""),
-    more_content_3: content.more_content_3.replace("IMGSLOT_TWO", ""),
-    more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
+    main_content:   embedded.main_content.replace("IMGSLOT_MAIN", ""),
+    more_content_1: embedded.more_content_1.replace("IMGSLOT_ONE", ""),
+    more_content_3: embedded.more_content_3.replace("IMGSLOT_TWO", ""),
+    more_content_4: embedded.more_content_4.replace("IMGSLOT_SPLIT", ""),
   };
-  const post = await createWordPressPost(content.seo_title || title, content, imagePrompts, assembled, null, language || undefined, wpStatus);
+  const post = await createWordPressPost(embedded.seo_title || title, embedded, imagePrompts, assembled, null, language || undefined, wpStatus);
   const articleHtml = [
-    content.key_takeaways, assembled.main_content, content.keypoint_one, assembled.more_content_1,
-    content.more_content_2, content.quote_1, assembled.more_content_3, content.keypoint_two,
-    assembled.more_content_4, content.quote_2, content.more_content_5, content.more_content_6, content.final_points,
+    embedded.key_takeaways, assembled.main_content, embedded.keypoint_one, assembled.more_content_1,
+    embedded.more_content_2, embedded.quote_1, assembled.more_content_3, embedded.keypoint_two,
+    assembled.more_content_4, embedded.quote_2, embedded.more_content_5, embedded.more_content_6, embedded.final_points,
   ].filter(Boolean).join("\n");
   // Extract only JSON-serializable scalars — WDK rejects step return values
   // that contain functions or prototype-inherited methods.
@@ -294,7 +298,6 @@ function buildDoneEvent(args: {
     language: language || null,
     // Downstream triggers (image generation in a separate request)
     imagePrompts, fileSlug, imageModel,
-    flowchartSteps: content.flowchart_steps ?? [],
     // Link validation
     linksUsed: { internal: content.internal_links_used ?? [], external: content.external_links_used ?? [] },
     // Raw fields for audio narration (assembled where IMGSLOTs were stripped)

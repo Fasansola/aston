@@ -558,6 +558,38 @@ export function buildFlowchartHtml(steps: FlowchartStep[] | undefined | null): s
 }
 
 /**
+ * Replace the [FLOWCHART_IMG] placeholder in a post's content with the styled
+ * HTML step diagram, at publish time — decoupled from image generation so a
+ * slow/failed image render can never strip the flowchart. Returns a new content
+ * object. If there are no steps, any stray placeholder is removed; if steps
+ * exist but no placeholder was written, the diagram is appended to more_content_2.
+ */
+export function embedFlowchartHtml(content: BlogContent): BlogContent {
+  const html = buildFlowchartHtml(content.flowchart_steps);
+  const out = { ...content } as BlogContent;
+  const rec = out as unknown as Record<string, unknown>;
+  const fields = [
+    "main_content", "more_content_1", "more_content_2", "more_content_3",
+    "more_content_4", "more_content_5", "more_content_6", "final_points",
+  ];
+  let placed = false;
+  for (const f of fields) {
+    const v = typeof rec[f] === "string" ? (rec[f] as string) : "";
+    if (!v.includes("[FLOWCHART_IMG]")) continue;
+    if (html && !placed) {
+      rec[f] = v.replace("[FLOWCHART_IMG]", html).replace(/\s*\[FLOWCHART_IMG\]\s*/g, "\n").trim();
+      placed = true;
+    } else {
+      rec[f] = v.replace(/\s*\[FLOWCHART_IMG\]\s*/g, "\n").trim();
+    }
+  }
+  if (html && !placed) {
+    rec.more_content_2 = (((rec.more_content_2 as string) ?? "") + "\n" + html).trim();
+  }
+  return out;
+}
+
+/**
  * Renders a Mermaid diagram string to a PNG buffer using the mermaid.ink
  * hosted renderer — no browser / Puppeteer dependency needed.
  * Prepends Aston brand theme (navy nodes, gold borders, cream background).
