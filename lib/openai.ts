@@ -1516,17 +1516,17 @@ The "internal_links_used" and "external_links_used" arrays must include ALL link
 
 // ── Image generation ──────────────────────────────────────────
 
-export type ImageModel = "imagen-4" | "gpt-image-1";
+export type ImageModel = "imagen-4" | "gpt-image-2";
 
 /**
  * Generate an image and return it as a Buffer.
  * Supports Imagen 4 (Google AI Studio) and GPT-image-1 (OpenAI).
  */
 export async function generateImage(prompt: string, model: ImageModel = "imagen-4"): Promise<Buffer> {
-  if (model === "gpt-image-1") {
+  if (model === "gpt-image-2") {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const response = await openai.images.generate({
-      model: "gpt-image-1",
+      model: "gpt-image-2",
       prompt,
       n: 1,
       size: "1536x1024",

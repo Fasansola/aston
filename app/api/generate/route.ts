@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
   const customInstruction = (customPrompt as string).trim() || undefined;
   const settings = await getSettings();
   const imageModel: ImageModel =
-    bodyImageModel === "gpt-image-1" ? "gpt-image-1" :
+    bodyImageModel === "gpt-image-2" ? "gpt-image-2" :
     bodyImageModel === "imagen-4"    ? "imagen-4"    :
     settings.imageModel ?? "imagen-4";
 

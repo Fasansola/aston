@@ -23,7 +23,7 @@ interface QueueStats {
 interface SchedulerSettings {
   enabled: boolean; blogsPerDay: number; publishMode: "draft_only";
   maxRetries: number; blockOnQaWarning: boolean; maxPerRun: number;
-  runHour: number; imageModel: "imagen-4" | "gpt-image-1";
+  runHour: number; imageModel: "imagen-4" | "gpt-image-2";
 }
 interface RunLog {
   runId: string; startedAt: string; completedAt: string | null;
@@ -734,9 +734,9 @@ export default function AdminPage() {
                       <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Image Generation</p>
                       <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3.5">
                         <p className="text-xs font-medium text-gray-500 mb-2">Image model</p>
-                        <Select value={settings.imageModel ?? "imagen-4"} onChange={(e) => saveScheduler({ imageModel: e.target.value as "imagen-4" | "gpt-image-1" })} disabled={savingSettings} className="w-full">
+                        <Select value={settings.imageModel ?? "imagen-4"} onChange={(e) => saveScheduler({ imageModel: e.target.value as "imagen-4" | "gpt-image-2" })} disabled={savingSettings} className="w-full">
                           <option value="imagen-4">Imagen 4 (Google)</option>
-                          <option value="gpt-image-1">GPT-image-1 (OpenAI)</option>
+                          <option value="gpt-image-2">GPT Image 2 (OpenAI)</option>
                         </Select>
                       </div>
                     </div>

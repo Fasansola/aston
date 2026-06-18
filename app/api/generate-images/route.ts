@@ -18,7 +18,7 @@
  * Body: {
  *   postId:            number
  *   fileSlug:          string
- *   imageModel:        "imagen-4" | "gpt-image-1"
+ *   imageModel:        "imagen-4" | "gpt-image-2"
  *   flowchartMermaid?: string   — Mermaid syntax; skipped if empty
  *   imagePrompts: { ... }
  * }
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
   }
 
   const imageModel: ImageModel =
-    bodyImageModel === "gpt-image-1" ? "gpt-image-1" : "imagen-4";
+    bodyImageModel === "gpt-image-2" ? "gpt-image-2" : "imagen-4";
 
   const encoder = new TextEncoder();
   const stream  = new TransformStream<Uint8Array, Uint8Array>();

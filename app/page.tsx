@@ -863,7 +863,7 @@ export default function HomePage() {
   const [priorityService, setPriorityService]       = useState("");
   const [language, setLanguage]                     = useState("");
   const [siteLanguages, setSiteLanguages]           = useState<{ code: string; name: string }[]>([]);
-  const [imageModel, setImageModel]                 = useState<"imagen-4" | "gpt-image-1">("imagen-4");
+  const [imageModel, setImageModel]                 = useState<"imagen-4" | "gpt-image-2">("imagen-4");
 
   useEffect(() => {
     fetch("/api/links/languages")
@@ -2169,11 +2169,11 @@ export default function HomePage() {
                         <label className="block text-xs text-white/35 mb-1.5">Image model</label>
                         <select
                           value={imageModel}
-                          onChange={(e) => setImageModel(e.target.value as "imagen-4" | "gpt-image-1")}
+                          onChange={(e) => setImageModel(e.target.value as "imagen-4" | "gpt-image-2")}
                           className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40 transition-colors appearance-none"
                         >
                           <option value="imagen-4" className="bg-[#1a1a1a]">Imagen 4 (Google)</option>
-                          <option value="gpt-image-1" className="bg-[#1a1a1a]">GPT-image-1 (OpenAI)</option>
+                          <option value="gpt-image-2" className="bg-[#1a1a1a]">GPT Image 2 (OpenAI)</option>
                         </select>
                       </div>
                     </div>

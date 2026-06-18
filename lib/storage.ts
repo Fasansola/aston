@@ -47,7 +47,7 @@ export interface QueueItem {
   customPrompt?: string;
 }
 
-export type ImageModel = "imagen-4" | "gpt-image-1";
+export type ImageModel = "imagen-4" | "gpt-image-2";
 
 export interface SchedulerSettings {
   enabled: boolean;
