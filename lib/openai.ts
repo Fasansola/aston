@@ -1233,7 +1233,8 @@ Alt text rules (SEO-optimised — all must be met):
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
-  }, { signal: AbortSignal.timeout(60_000) });
+    // 120s, not 60s: gpt-5.5 reasoning is slower than the gpt-4o this was tuned for.
+  }, { signal: AbortSignal.timeout(120_000) });
 
   const choice = response.choices[0];
   if (choice.finish_reason === "length") {
@@ -1454,7 +1455,9 @@ The "internal_links_used" and "external_links_used" arrays must include ALL link
       { role: "user", content: prompt },
     ],
     max_completion_tokens: 28000,
-  }, AbortSignal.timeout(120_000));
+    // 300s to match the content step: a full-article fix on gpt-5.5 (up to 28k
+    // tokens of reasoning + output) overruns the old gpt-4o-era 120s budget.
+  }, AbortSignal.timeout(300_000));
 
   if (response.choices[0]?.finish_reason === "length") {
     throw new Error("fixBlogContent response was cut off — increase max_completion_tokens");

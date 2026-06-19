@@ -106,13 +106,15 @@ RULES:
 
   const { choices } = await openai.chat.completions.create({
     model: "gpt-5.5",
-    max_tokens: cfg.maxTokens,
+    // gpt-5.x requires max_completion_tokens; the old max_tokens is a 400 error.
+    max_completion_tokens: cfg.maxTokens,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
     ],
-  }, { signal: AbortSignal.timeout(90_000) });
+    // 300s (route maxDuration is 800): a 45–60 min podcast is a long generation.
+  }, { signal: AbortSignal.timeout(300_000) });
 
   const raw = choices[0]?.message?.content?.trim() ?? "";
   let parsed: Partial<PodcastDialogue>;

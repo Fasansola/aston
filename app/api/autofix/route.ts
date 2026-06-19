@@ -14,7 +14,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { applyAutoFixes } from "@/lib/readinessValidator";
 import OpenAI from "openai";
 
-export const maxDuration = 120;
+// 300s: the AI rewrite is a full-article pass on gpt-5.5 (up to 32k tokens);
+// 120s was tuned for the gpt-4o era and now times the function out.
+export const maxDuration = 300;
 
 const SYSTEM_PROMPT = `You are a senior SEO copyeditor and content strategist for Aston VIP (Aston.ae) — a full-service international corporate advisory firm based in London and Dubai. Aston VIP advises entrepreneurs, investors, family offices, and fintech businesses on company formation, regulatory licensing, corporate banking, and cross-border tax structuring across 20+ jurisdictions including the UAE (mainland, DIFC, ADGM, free zones), UK, Cyprus, Switzerland, Hong Kong, and others.
 

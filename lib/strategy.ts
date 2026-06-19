@@ -29,7 +29,7 @@ async function chatWithFallback(
     console.warn(`[strategy] ${PRIMARY_MODEL} failed (${errMsg}) — retrying with ${FALLBACK_MODEL}`);
     return openai.chat.completions.create(
       { ...params, model: FALLBACK_MODEL, stream: false },
-      { signal: AbortSignal.timeout(120_000) }
+      { signal: AbortSignal.timeout(240_000) }
     );
   }
 }
@@ -229,7 +229,9 @@ Rules:
       ],
       // 24 000 tokens gives headroom for verbose topics.
       max_completion_tokens: 24000,
-    }, AbortSignal.timeout(120_000));
+      // 240s: the 12-step strategy is a heavy reasoning + 24k-token task on
+      // gpt-5.5, slower than the gpt-4o this 120s was originally tuned for.
+    }, AbortSignal.timeout(240_000));
 
     const choice = response.choices[0];
     if (choice.finish_reason === "length") {
