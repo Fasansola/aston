@@ -28,12 +28,39 @@ import { uploadSceneImageToS3, uploadAssetToS3 }                                
 import { uploadMediaToWordPress }                                                  from "@/lib/wordpress";
 import { estimateMp3DurationSeconds } from "@/lib/replicate";
 import { generateElevenLabsNarration } from "@/lib/podcastAudio";
+import OpenAI from "openai";
 
-export const maxDuration = 300;
+// 800s: scene images now use GPT Image 2 (slow, reasoning-based). They run in
+// bounded parallel, but the pipeline still needs generous headroom over the
+// old Imagen-era 300s.
+export const maxDuration = 800;
 
 // Dark navy 1×1 PNG — used when image generation fails so Remotion always has a valid URL.
 const FALLBACK_IMG = "https://placehold.co/1280x720/0f1a2e/0f1a2e.png";
 
+// Primary scene-image generator: GPT Image 2. Uses 1536x1024 (the proven,
+// SDK-valid landscape size also used for post images); Remotion cover-fits it
+// into the 16:9 frame. Slower than Imagen but higher quality.
+async function callGptImage2(prompt: string): Promise<Buffer> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const response = await openai.images.generate({
+    model: "gpt-image-2",
+    prompt,
+    n: 1,
+    size: "1536x1024",
+    quality: "high",
+  }, { signal: AbortSignal.timeout(200_000) });
+  const b64 = response.data?.[0]?.b64_json;
+  if (b64) return Buffer.from(b64, "base64");
+  const url = response.data?.[0]?.url;
+  if (url) {
+    const res = await fetch(url);
+    return Buffer.from(await res.arrayBuffer());
+  }
+  throw new Error("GPT Image 2 returned no image data");
+}
+
+// Fast fallback generator, used only if GPT Image 2 fails on a scene.
 async function callImagen(prompt: string): Promise<Buffer> {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
   const response = await ai.models.generateImages({
@@ -51,12 +78,12 @@ async function callImagen(prompt: string): Promise<Buffer> {
 }
 
 /**
- * Generates a scene image with up to 3 attempts, each using a simpler prompt
- * if the previous one was blocked by Imagen 4's safety filter.
+ * Generates a scene image. Primary is GPT Image 2; if it fails (timeout,
+ * moderation, etc.) we fall back to Imagen 4, which also retries with simpler
+ * prompts if its safety filter blocks the full brief.
  *
- * Attempt 1 — full photography brief (the GPT-generated prompt)
- * Attempt 2 — strip camera/lens specs; keep subject + location + lighting
- * Attempt 3 — generic business scene based on the section title
+ * GPT Image 2 — full photography brief (the GPT-generated prompt)
+ * Imagen 4    — full brief, then simpler, then a generic business scene
  */
 async function generateSceneImage(prompt: string, sectionTitle?: string): Promise<Buffer> {
   // Strip camera/lens specs for a simpler fallback — keeps subject and location
@@ -71,10 +98,19 @@ async function generateSceneImage(prompt: string, sectionTitle?: string): Promis
     ? `A photograph of a modern professional business environment related to ${sectionTitle}, clean office setting in Dubai, natural daylight, warm neutral tones`
     : "A photograph of a sleek modern glass office building in Dubai financial district, blue sky, warm afternoon light, professional corporate setting";
 
+  // Primary: GPT Image 2 (one attempt — it is slow, so we don't stack retries).
+  try {
+    console.log(`[generate-video] Image attempt (gpt-image-2)`);
+    return await callGptImage2(prompt);
+  } catch (err) {
+    console.warn(`[generate-video] gpt-image-2 failed: ${err instanceof Error ? err.message : String(err)} — falling back to Imagen 4`);
+  }
+
+  // Fallback: Imagen 4, with progressively simpler prompts for its safety filter.
   const attempts = [
-    { label: "full prompt",    prompt: prompt },
-    { label: "simple prompt",  prompt: simplePrompt },
-    { label: "generic prompt", prompt: genericPrompt },
+    { label: "imagen full prompt",    prompt: prompt },
+    { label: "imagen simple prompt",  prompt: simplePrompt },
+    { label: "imagen generic prompt", prompt: genericPrompt },
   ];
 
   let lastError: Error | null = null;
@@ -189,26 +225,41 @@ export async function POST(req: NextRequest) {
       const timedSegments = await segmentVideoScript(title.trim(), scriptFields);
       console.log(`[generate-video] ${timedSegments.length} scenes segmented`);
 
-      // ── 2. Generate background images — one at a time with progress ─
-      // Running sequentially avoids overwhelming Imagen 4 and gives the
-      // user live feedback on each scene instead of a long silent wait.
-      const imageBuffers: (Buffer | null)[] = [];
-      for (let i = 0; i < timedSegments.length; i++) {
-        await send({
-          type: "progress",
-          message: `Generating scene image ${i + 1} of ${timedSegments.length}…`,
-          elapsedSecs: elapsed(),
-        });
-        try {
-          const buf = await generateSceneImage(timedSegments[i].imagePrompt, timedSegments[i].sectionTitle);
-          imageBuffers.push(buf);
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          console.warn(`[generate-video] Scene image ${i + 1} failed: ${errMsg}`);
-          await send({ type: "progress", message: `Scene ${i + 1} image failed (${errMsg}) — using placeholder`, elapsedSecs: elapsed() });
-          imageBuffers.push(null);
+      // ── 2. Generate background images — bounded parallel ─────────
+      // GPT Image 2 is slow (reasoning-based), so generating the scenes
+      // sequentially would overrun the function. Run up to 3 at a time, each
+      // slot reporting progress as it finishes. A null entry becomes a
+      // placeholder downstream so the render never blocks on one bad scene.
+      const IMAGE_CONCURRENCY = 3;
+      const imageBuffers: (Buffer | null)[] = new Array(timedSegments.length).fill(null);
+      await send({
+        type: "progress",
+        message: `Generating ${timedSegments.length} scene images with GPT Image 2…`,
+        elapsedSecs: elapsed(),
+      });
+      let nextImage = 0;
+      let doneImages = 0;
+      const imageWorker = async () => {
+        while (nextImage < timedSegments.length) {
+          const i = nextImage++;
+          try {
+            imageBuffers[i] = await generateSceneImage(timedSegments[i].imagePrompt, timedSegments[i].sectionTitle);
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            console.warn(`[generate-video] Scene image ${i + 1} failed: ${errMsg}`);
+            imageBuffers[i] = null;
+          }
+          doneImages++;
+          await send({
+            type: "progress",
+            message: `Scene images ${doneImages} of ${timedSegments.length} ready…`,
+            elapsedSecs: elapsed(),
+          });
         }
-      }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(IMAGE_CONCURRENCY, timedSegments.length) }, imageWorker)
+      );
 
       // ── 3. Upload images to WP media — sequential with delay ─────
       const slug = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
