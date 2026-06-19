@@ -19,6 +19,7 @@ import { SelectedLinks, formatLinksForPrompt } from "./links";
 import { SourceBrief, formatBriefForPrompt } from "./source";
 import { StrategyBrief } from "./strategy";
 import { AuthorityLink, formatAuthorityLinksForPrompt } from "./authorityLinks";
+import { selectOptimalTitle } from "./titleEngine";
 
 // ── Model configuration ───────────────────────────────────────
 // PRIMARY_MODEL is used for all major generation steps.
@@ -649,6 +650,12 @@ export async function generateBlueprint(
 ): Promise<Blueprint> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+  // ── Title engine: generate 20 candidates, score them, lock the winner ──
+  // The selected title becomes the H1, the SEO title and the article theme.
+  const titleSelection = await selectOptimalTitle({ topic: title, strategy, customPrompt, language });
+  const lockedTitle = titleSelection.title;
+  const lockedKeyword = titleSelection.focusKeyword;
+
   const linkCategories = [
     ...selectedLinks.internal.map((l) => l.title),
     ...selectedLinks.external.map((l) => l.title),
@@ -705,7 +712,9 @@ The custom instructions above specify multiple sections, headings, or angles. Yo
 
   const domainContext = buildDomainContext(title, customPrompt);
 
-  const userPrompt = `Blog title: "${title}"
+  const userPrompt = `Topic: "${title}"
+LOCKED ARTICLE TITLE (this is the H1, the SEO title and the theme — build the whole article around it): "${lockedTitle}"
+LOCKED FOCUS KEYWORD: "${lockedKeyword}"
 Available link topics for context: ${linkCategories}
 ${languageBlock}${domainContext}${strategyBlock}${customPromptBlock}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}
 
@@ -780,63 +789,10 @@ Plan the structure of this blog post and return it as a single valid JSON object
 }
 
 BLUEPRINT RULES:
-- focus_keyword: ${strategy ? `use exactly "${strategy.keyword_model.primary_keyword}" — this has been determined by the strategy engine` : "the single phrase this article should rank for in Google — 2 to 4 words, as a reader would actually type it into Google"}
+- focus_keyword: use exactly "${lockedKeyword}" — this is locked, derived from the selected title. Do not change it.
 - secondary_keywords: provide 8 to 10 distinct secondary keywords. ${strategy ? "Select the strongest from the strategy brief's secondary keyword list above, prioritising service variants, jurisdiction variants, and commercial-intent phrases. Do not invent weak variants." : "Cover service variants, jurisdiction variants, and commercial-intent phrasing a real reader would search."} They will be distributed across the six body sections, so favour variety over repetition of the focus keyword.
 
-- seo_title: Write a title optimised for high click-through rate in Google search. The title must feel like it was written by someone who has personally advised hundreds of real clients on this exact topic: specific, no-nonsense, commercially sharp. STRICT RULES, all must be met simultaneously:
-  1. Contains the exact focus keyword, placed wherever it reads most naturally, not forced to the front
-  2. Exactly 50–60 characters including spaces. Count every character before returning; rewrite until within range
-  3. Sentence case only. First word and proper nouns capitalised; never title case
-  4. No site name, no pipes, no dashes (hyphen, en dash or em dash), no question marks, no colons
-  5. One clean flowing phrase, not a list, not two clauses joined by punctuation
-
-  6. SINGLE FOCUS, this is mandatory: the title must target ONE search idea. Do NOT bolt two distinct topics together with "and", "plus" or "&" (the weak title "Dubai free zone company setup costs and bank checks" fails because it crams two separate searches into one title). If two angles compete, choose the single strongest one and drop the other. A title naming a list of features ("costs and banking and visas") always loses to one with a sharp single focus.
-
-  7. ZERO AMBIGUITY, every word must be unambiguous and match how the reader actually searches:
-     - Ban any word with a double meaning. "bank checks" reads as cheques as easily as banking due diligence: write "banking" or "bank account" instead. Re-read each word and replace anything a reader could misread.
-     - Use the phrase the reader would type into Google, not Aston VIP's internal service wording.
-
-  8. BANNED PATTERNS, never use any of these under any circumstances:
-     Generic suffixes: "complete guide", "explained", "step-by-step guide", "what you need to know", "how it works", "a guide", "overview", "everything you need to know", "all you need to know", "ultimate guide", "beginners guide"
-     Weak constructions: "The institutional case for", "redefining", "go-to", "unlock", "leverage", "navigate", "landscape", "deep dive", "a look at", "understanding", "introduction to", "exploring", "an overview of"
-     Generic openers: never start with "A guide", "How to set up", "What is", "All about", "The basics of"
-
-  9. PROVEN HIGH-CTR PATTERNS (all dash-free), choose the construction that best matches the article's search intent:
-
-     When the reader wants to UNDERSTAND something (informational intent):
-     - "What most [founders] get wrong about [topic] in [jurisdiction]"
-     - "Why [topic] works differently in [jurisdiction]"
-     - "What [regulator] actually requires for [topic]"
-     - "The real cost of [topic] in [jurisdiction]"
-     - "Why [topic] applications fail in [jurisdiction]"
-     - "What [jurisdiction]'s [topic] rules mean for founders"
-
-     When the reader is EVALUATING OPTIONS or ready to act (commercial intent):
-     - "[Topic] eligibility, costs and timelines in [jurisdiction]"
-     - "What [topic] in [jurisdiction] actually costs"
-     - "[Topic A] vs [topic B] for [audience]"
-     - "What banks require from [topic] clients"
-     - "What to prepare before [action] in [jurisdiction]"
-     - "[Topic] requirements for [audience] in [jurisdiction]"
-
-     When the reader is COMPARING or DECIDING between options:
-     - "Which [free zone] is right for [topic] businesses"
-     - "[Jurisdiction A] vs [jurisdiction B] for [topic]"
-     - "Choosing the right [option] for [topic] in [jurisdiction]"
-
-     When the reader KNOWS THEY HAVE A PROBLEM:
-     - "Why [topic] applications keep getting rejected"
-     - "What stops [audience] from [goal] in [jurisdiction]"
-     - "[Number] [topic] mistakes that cost businesses money"
-
-  10. ADDITIONAL RULES for sharper titles:
-     - Use specific numbers when they add real precision: "3 banking mistakes", "5 free zones compared", "9 percent tax threshold"
-     - Include 2025 or 2026 ONLY for regulatory or compliance topics where currency matters, not for evergreen structural topics
-     - Name specific jurisdictions, regulators, or structures; never stay abstract (write "DIFC", "VARA", "DMCC", not "UAE regulator")
-     - Avoid starting with "The" unless genuinely the most natural construction
-     - The focus keyword should feel inevitable in context, not bolted on
-
-  11. FINAL SELF-CHECK before returning the title, confirm ALL of: one clear single focus (no "X and Y"), not one ambiguous or double-meaning word, the focus keyword reads naturally, 50–60 characters, no dashes or colons.
+- seo_title: use this EXACT title, character for character — it has already been selected by the title engine as the highest-scoring option and is locked: "${lockedTitle}". Do NOT rewrite, shorten, rephrase or "improve" it. Copy it verbatim. This same title is the article's H1 and overall theme, so every section must stay on-theme with it.
 
 - meta_description: This appears verbatim on Google — it must be complete, punchy, and entice the reader to click. STRICT RULES — all must be met simultaneously:
   1. HARD MAXIMUM: 141 characters including spaces. This is an absolute ceiling — never exceed it under any circumstance. Count the characters in your final string before returning it. If your draft is 142 or more characters, rewrite the sentence with shorter words or remove a clause — do NOT truncate mid-word or mid-thought.
@@ -858,7 +814,7 @@ BLUEPRINT RULES:
 - intro_angle: one sentence describing what the intro should establish — the business problem or opportunity
 - sections[].h3_heading: the exact H3 heading, written for SEO. STRICT RULES:
   - Be SPECIFIC to this section's real content. Never a generic label like "Key considerations", "What the process involves", "Practical scenarios", "Common mistakes", "Overview", "Introduction" or "What you need to know". Front-load the meaningful term.
-  - KEYWORD COVERAGE (balanced, no stuffing): across the whole article at least 2 H3 headings must contain the focus keyword "${strategy ? strategy.keyword_model.primary_keyword : ""}" or a close variant, and about half the H3 headings should naturally include a secondary or semantic keyword${strategy ? " drawn from the secondary keywords / entity terms above" : " a reader would search"}. Only where it reads naturally; never repeat the focus keyword in most headings.
+  - KEYWORD COVERAGE (balanced, no stuffing): across the whole article at least 2 H3 headings must contain the focus keyword "${lockedKeyword}" or a close variant, and about half the H3 headings should naturally include a secondary or semantic keyword${strategy ? " drawn from the secondary keywords / entity terms above" : " a reader would search"}. Only where it reads naturally; never repeat the focus keyword in most headings.
   - Phrase it like the sub-question a searcher would actually ask, so it can win featured snippets and AI answers.
   - House style: sentence case, max 8 words / 60 characters, no colons, no dashes.
 - sections[].angle: one sentence describing what that section covers and what the reader should understand after reading it
@@ -891,6 +847,10 @@ BLUEPRINT RULES:
 
   try {
     const parsed = JSON.parse(jsonMatch[0]) as Blueprint;
+    // Force the locked title + focus keyword — never trust the model to echo them
+    // unchanged. The title engine already chose the winner; this is the source of truth.
+    parsed.seo_title = lockedTitle;
+    parsed.focus_keyword = lockedKeyword;
     if (parsed.meta_description && parsed.meta_description.length > 141) {
       const cut = parsed.meta_description.slice(0, 141);
       const lastStop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "), cut.lastIndexOf("."), cut.lastIndexOf("!"), cut.lastIndexOf("?"));
@@ -1161,6 +1121,10 @@ ${linksBlock}`;
 
   try {
     const parsed = JSON.parse(jsonMatch[0]) as BlogContent;
+    // Lock the title + focus keyword to the blueprint's (the title-engine winner)
+    // so the content step can never drift from the selected H1/SEO title/theme.
+    parsed.seo_title = blueprint.seo_title;
+    parsed.focus_keyword = blueprint.focus_keyword;
     if (parsed.meta_description && parsed.meta_description.length > 141) {
       const cut = parsed.meta_description.slice(0, 141);
       const lastStop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "), cut.lastIndexOf("."), cut.lastIndexOf("!"), cut.lastIndexOf("?"));
