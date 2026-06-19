@@ -84,8 +84,13 @@ export async function segmentVideoScript(
   const fullScript = hasContent ? rawScript : "";
   console.log(`[videoScript] ${hasContent ? `${wordCount} words from article` : "standalone — GPT will write script"}`);
 
+  // gpt-4o (not gpt-5.5) on purpose: scene segmentation is a fast, mechanical
+  // summarisation task that runs inside the shared 300s video pipeline alongside
+  // 7 sequential image generations. gpt-5.5's reasoning latency overran the 45s
+  // script timeout ("Request was aborted") and starved the rest of the budget.
   const { choices } = await openai.chat.completions.create({
-    model: "gpt-5.5",
+    model: "gpt-4o",
+    temperature: 0.3,
     messages: [
       {
         role: "system",

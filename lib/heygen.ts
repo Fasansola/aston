@@ -42,7 +42,8 @@ export async function generateVideoScript(
     : "";
 
   const { choices } = await openai.chat.completions.create({
-    model: "gpt-5.5",
+    model: "gpt-4o",
+    temperature: 0.8,
     messages: [
       {
         role: "system",
@@ -195,7 +196,8 @@ export async function generateSegmentedScript(
     : "";
 
   const { choices } = await openai.chat.completions.create({
-    model: "gpt-5.5",
+    model: "gpt-4o",
+    temperature: 0.75,
     response_format: { type: "json_object" },
     messages: [
       {

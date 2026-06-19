@@ -69,8 +69,10 @@ async function fetchMediaPage(page: number) {
 // ── Generate alt text via GPT-4o vision ───────────────────────────────────────
 async function generateAltText(imageUrl: string, imageTitle: string): Promise<string> {
   const openai   = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  // gpt-4o: this is a VISION task (reads an image_url). gpt-5.5 is a text
+  // reasoning model and isn't the right fit / overran the 25s timeout.
   const response = await openai.chat.completions.create({
-    model:      "gpt-5.5",
+    model:      "gpt-4o",
     messages: [
       {
         role:    "system",

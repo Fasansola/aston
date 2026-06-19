@@ -48,8 +48,11 @@ export async function generateVideoPrompt(
     ? `The article targets a ${language}-speaking audience.`
     : "";
 
+  // gpt-4o: short, fast Veo prompt with a 30s timeout — gpt-5.5 reasoning latency
+  // overran it. Mechanical media task, not blog-post content.
   const { choices } = await openai.chat.completions.create({
-    model: "gpt-5.5",
+    model: "gpt-4o",
+    temperature: 0.7,
     messages: [
       {
         role: "system",
