@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
                            ? body.maxPerRun : (current.maxPerRun ?? 1),
       runHour:           typeof body.runHour === "number" && body.runHour >= 0 && body.runHour <= 23
                            ? body.runHour : (current.runHour ?? 8),
-      imageModel:        body.imageModel === "gpt-image-2" ? "gpt-image-2" : (current.imageModel ?? "imagen-4"),
+      imageModel:        body.imageModel === "imagen-4" ? "imagen-4" : (current.imageModel ?? "gpt-image-2"),
     };
 
     await saveSettings(updated);

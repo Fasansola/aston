@@ -1194,14 +1194,20 @@ TOPIC-TO-SCENE GUIDE — use this to pick the right setting for each image:
 - Residency by investment / citizenship → refined airport private terminal, elegant luggage, departures hall with warm light
 - General / mixed → neutral modern international office, floor-to-ceiling windows, city view below
 
-RULES FOR EVERY PROMPT:
-- Each image must visualise a DIFFERENT aspect of the topic — no two prompts should describe the same scene
-- Featured image must show the most striking, instantly recognisable visual for "${content.focus_keyword}"
-- Apply Aston VIP visual style: high-end corporate editorial photography, bright and airy interiors, natural daylight through floor-to-ceiling windows or soft warm studio lighting, neutral whites/warm greys/muted golds, never oversaturated — think Architectural Digest meets Bloomberg editorial
-- Let the architectural setting or object carry the topic — do not add people unless the scene requires a human interaction (e.g. document signing, consultation). When people are included they must be dressed in formal business attire and shown from behind or side-on — no faces
-- Never include: text of any kind, logos, watermarks, flags, digital screens with readable content, clocks, coins, currency symbols, phone or laptop screens
-- End every prompt with: "shot on Canon EOS R5, 85mm f/1.4 lens, shallow depth of field, soft natural light or warm studio lighting, ultra-sharp focus on subject, professional corporate editorial photography, cinematic warm-neutral colour grade, no text overlay, no logos, no watermarks"
-- 2–3 sentences per prompt. Structure each prompt as: (1) the specific scene and subject in detail, (2) lighting quality, atmosphere, and mood, (3) the camera and style suffix above
+RULES FOR EVERY PROMPT (these images are rendered by GPT Image 2, which renders text accurately — so every image must be INFORMATIVE and carry clean, real text):
+- Each image must visualise a DIFFERENT, specific aspect of THIS article — no two prompts describe the same scene. Pick a concrete idea from the section content above (a stage of the process, a jurisdiction, a comparison, a key requirement, a headline figure) and build the image around teaching it.
+- INCLUDE PURPOSEFUL TEXT IN EVERY IMAGE — this is the whole point. Embed one clean, legible text element that conveys the key point, drawn directly from the article. Use ONE of:
+  - a short headline of 3 to 6 words (e.g. "DIFC company formation", "UAE corporate tax at nine percent")
+  - a key figure with its label (e.g. "AED 50,000 minimum capital", "4 to 6 week approval")
+  - a named jurisdiction, regulator or structure (e.g. "VARA licensed", "ADGM foundation")
+  Write the EXACT text to render, in quotes, inside the prompt. The text must be REAL and accurate to this article — never placeholder, lorem ipsum, or invented figures. Spell it correctly.
+- Render the text the way a premium business publication would: clean modern sans-serif, set in the lower third or as a tasteful title band, high contrast and easy to read, integrated into the composition — think a Monocle or Bloomberg Businessweek feature image or a high-end report cover. Never messy, never cluttered, at most one short text element per image.
+- Apply Aston VIP visual style: high-end corporate editorial photography or a clean editorial graphic, bright and airy, natural daylight or soft warm studio lighting, neutral whites / warm greys / muted golds and deep navy, never oversaturated.
+- The featured image is the article's hero — make it the most striking and the most explicit: it should read like the cover image for "${content.focus_keyword}", with that focus keyword (or a tight variant) as its on-image headline.
+- If people appear, formal business attire, shown from behind or side-on — no faces.
+- Avoid tacky clichés: no literal coin piles or cash, no stacked currency, no gauges or arrows-going-up, no fake logos or watermarks.
+- End every prompt with: "shot on Canon EOS R5, 85mm f/1.4 lens, soft natural or warm studio lighting, professional corporate editorial photography, cinematic warm-neutral colour grade, crisp legible typography, sharp focus"
+- 2 to 3 sentences per prompt. Structure each prompt as: (1) the specific informative scene and subject, (2) the EXACT on-image text in quotes and where it sits, (3) the lighting and camera/style suffix above
 
 Return as a single valid JSON object. No markdown, no code fences:
 
@@ -1505,7 +1511,7 @@ export type ImageModel = "imagen-4" | "gpt-image-2";
  * Generate an image and return it as a Buffer.
  * Supports Imagen 4 (Google AI Studio) and GPT-image-1 (OpenAI).
  */
-export async function generateImage(prompt: string, model: ImageModel = "imagen-4"): Promise<Buffer> {
+export async function generateImage(prompt: string, model: ImageModel = "gpt-image-2"): Promise<Buffer> {
   if (model === "gpt-image-2") {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const response = await openai.images.generate({

@@ -64,7 +64,7 @@ async function processOneItem(
   sourceText: string,
   settings: Awaited<ReturnType<typeof getSettings>>,
   strategyInputs?: StrategyContext & { customPrompt?: string },
-  imageModel: ImageModel = "imagen-4"
+  imageModel: ImageModel = "gpt-image-2"
 ) {
   const customInstruction = strategyInputs?.customPrompt?.trim() || undefined;
 
@@ -307,7 +307,7 @@ export async function GET(req: NextRequest) {
             priority_service:    item.priority_service,
             language:            item.language,
             customPrompt:        item.customPrompt,
-          }, settings.imageModel ?? "imagen-4");
+          }, settings.imageModel ?? "gpt-image-2");
           run.topicsCompleted++;
           console.log(`[cron] Item ${item.id} completed — WP post ${result.postId}, QA ${result.qaScore}/100`);
           itemDone = true;

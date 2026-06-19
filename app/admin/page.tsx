@@ -734,9 +734,9 @@ export default function AdminPage() {
                       <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Image Generation</p>
                       <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3.5">
                         <p className="text-xs font-medium text-gray-500 mb-2">Image model</p>
-                        <Select value={settings.imageModel ?? "imagen-4"} onChange={(e) => saveScheduler({ imageModel: e.target.value as "imagen-4" | "gpt-image-2" })} disabled={savingSettings} className="w-full">
-                          <option value="imagen-4">Imagen 4 (Google)</option>
+                        <Select value={settings.imageModel ?? "gpt-image-2"} onChange={(e) => saveScheduler({ imageModel: e.target.value as "imagen-4" | "gpt-image-2" })} disabled={savingSettings} className="w-full">
                           <option value="gpt-image-2">GPT Image 2 (OpenAI)</option>
+                          <option value="imagen-4">Imagen 4 (Google)</option>
                         </Select>
                       </div>
                     </div>

@@ -172,7 +172,7 @@ const DEFAULT_SETTINGS: SchedulerSettings = {
   blockOnQaWarning: false,
   maxPerRun: 1,
   runHour: 8,
-  imageModel: "imagen-4",
+  imageModel: "gpt-image-2",
 };
 
 // ── Storage adapter ───────────────────────────────────────────

@@ -64,9 +64,9 @@ export async function POST(req: NextRequest) {
 
   const settings = await getSettings();
   const imageModel: ImageModel =
-    bodyImageModel === "gpt-image-2" ? "gpt-image-2" :
     bodyImageModel === "imagen-4"    ? "imagen-4"    :
-    settings.imageModel ?? "imagen-4";
+    bodyImageModel === "gpt-image-2" ? "gpt-image-2" :
+    settings.imageModel ?? "gpt-image-2";
 
   const input: GeneratePostInput = {
     hasTopic,
