@@ -36,6 +36,9 @@ const INTRO_SECS    = Number(process.env.PODCAST_INTRO_SECS)    || 6;
 const OUTRO_SECS    = Number(process.env.PODCAST_OUTRO_SECS)    || 10;
 const INTRO_VOLUME  = Number(process.env.PODCAST_INTRO_VOLUME)  || 0.20;
 const OUTRO_VOLUME  = Number(process.env.PODCAST_OUTRO_VOLUME)  || 0.16;
+// Target integrated loudness (LUFS) every voice turn is normalised to. Lower
+// (more negative) = quieter; -14 is the streaming/podcast standard, -12 is louder.
+const VOICE_LUFS    = Number(process.env.PODCAST_VOICE_LUFS)    || -14;
 
 /** Synthesize one dialogue turn via ElevenLabs. */
 async function synthesizeTurn(turn: DialogueTurn, apiKey: string): Promise<Buffer> {
@@ -97,10 +100,18 @@ export async function buildPodcastEpisode(turns: DialogueTurn[]): Promise<Buffer
       turnFiles.push(f);
     }
 
-    // 2. Concat all turns into one uniform speech track (clean — no music here)
+    // 2. Concat all turns into one uniform speech track (clean — no music here).
+    //    Loudness-normalise EVERY turn to the same target first, so the two
+    //    voices sit at equal volume (Rachel/host is inherently louder than
+    //    Adam/expert) and the whole episode is consistently loud. -14 LUFS is
+    //    the streaming/podcast standard; override with PODCAST_VOICE_LUFS.
     const speechFile = join(dir, "speech.mp3");
     const speechInputs = turnFiles.flatMap((f) => ["-i", f]);
-    const speechFilter = turnFiles.map((_, i) => `[${i}:a]`).join("") + `concat=n=${turnFiles.length}:v=0:a=1[out]`;
+    const norm = `loudnorm=I=${VOICE_LUFS}:TP=-1.5:LRA=11`;
+    const speechFilter =
+      turnFiles.map((_, i) => `[${i}:a]${norm}[n${i}]`).join(";") + ";" +
+      turnFiles.map((_, i) => `[n${i}]`).join("") +
+      `concat=n=${turnFiles.length}:v=0:a=1[out]`;
     await ffmpeg(["-y", ...speechInputs, "-filter_complex", speechFilter, "-map", "[out]",
       "-ar", "44100", "-ac", "2", "-b:a", "128k", speechFile]);
 
