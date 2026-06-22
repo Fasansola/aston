@@ -17,7 +17,7 @@ type Turn = { speaker: "host" | "expert"; text: string };
 export default function PodcastTestPage() {
   const [title, setTitle]       = useState("");
   const [notes, setNotes]       = useState("");
-  const [length, setLength]     = useState<15 | 30 | 45 | 60>(15);
+  const [length, setLength]     = useState<3 | 15 | 30 | 45 | 60>(3);
   const [status, setStatus]     = useState<Status>("idle");
   const [progress, setProgress] = useState("");
   const [elapsed, setElapsed]   = useState(0);
@@ -138,8 +138,9 @@ export default function PodcastTestPage() {
           </div>
           <div className="space-y-1.5">
             <label className="block text-xs text-white/40 uppercase tracking-widest">Length</label>
-            <select value={length} onChange={(e) => setLength(Number(e.target.value) as 15 | 30 | 45 | 60)}
+            <select value={length} onChange={(e) => setLength(Number(e.target.value) as 3 | 15 | 30 | 45 | 60)}
               className="w-full bg-white/[0.04] border border-white/[0.09] rounded-xl px-3 py-2.5 text-sm text-white/80 focus:outline-none focus:border-white/20">
+              <option value={3}>3 minutes (test)</option>
               <option value={15}>15 minutes</option>
               <option value={30}>30 minutes</option>
               <option value={45}>45 minutes</option>

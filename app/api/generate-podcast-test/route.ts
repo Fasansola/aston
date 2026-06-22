@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: "A topic or title is required." }), { status: 400 });
   }
 
-  const validLengths: PodcastLengthMins[] = [15, 30, 45, 60];
+  const validLengths: PodcastLengthMins[] = [3, 15, 30, 45, 60];
   const length: PodcastLengthMins = validLengths.includes(body.length as PodcastLengthMins) ? (body.length as PodcastLengthMins) : 15;
   if (!process.env.ELEVENLABS_API_KEY) {
     return new Response(JSON.stringify({ error: "Voice engine not configured. Missing: ELEVENLABS_API_KEY" }), { status: 503 });

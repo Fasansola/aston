@@ -35,17 +35,19 @@ export interface PodcastDialogue {
   turns: DialogueTurn[];    // intro + body + outro, in order
 }
 
-export type PodcastLengthMins = 15 | 30 | 45 | 60;
+export type PodcastLengthMins = 3 | 15 | 30 | 45 | 60;
 
-// Segments per length. Each segment yields ~400–480 spoken words; at ~150 words
-// per minute that lands close to the target duration:
-//   15min ≈ 6×430 ≈ 2,600w ≈ 17min   30min ≈ 10×440 ≈ 4,400w ≈ 29min
-//   45min ≈ 15×450 ≈ 6,750w ≈ 45min  60min ≈ 20×450 ≈ 9,000w ≈ 60min
-const LENGTH_CONFIG: Record<PodcastLengthMins, { segments: number; sourceChars: number; minWords: number }> = {
-  15: { segments: 6,  sourceChars: 16000, minWords: 1500 },
-  30: { segments: 10, sourceChars: 26000, minWords: 3200 },
-  45: { segments: 15, sourceChars: 36000, minWords: 5000 },
-  60: { segments: 20, sourceChars: 48000, minWords: 6800 },
+// Segments per length × words per segment ≈ total words; at ~150 words per
+// minute that lands close to the target duration. 3min is a cheap test length.
+//   3min  ≈ 2×230  ≈ 460w  ≈ 3min    15min ≈ 6×440 ≈ 2,600w ≈ 17min
+//   30min ≈ 10×450 ≈ 4,500w ≈ 30min  45min ≈ 15×450 ≈ 6,750w ≈ 45min
+//   60min ≈ 20×450 ≈ 9,000w ≈ 60min
+const LENGTH_CONFIG: Record<PodcastLengthMins, { segments: number; wordsPerSegment: number; sourceChars: number; minWords: number }> = {
+  3:  { segments: 2,  wordsPerSegment: 230, sourceChars: 8000,  minWords: 350 },
+  15: { segments: 6,  wordsPerSegment: 440, sourceChars: 16000, minWords: 1500 },
+  30: { segments: 10, wordsPerSegment: 450, sourceChars: 26000, minWords: 3200 },
+  45: { segments: 15, wordsPerSegment: 450, sourceChars: 36000, minWords: 5000 },
+  60: { segments: 20, wordsPerSegment: 450, sourceChars: 48000, minWords: 6800 },
 };
 
 const SHOW_NAME = process.env.PODCAST_TITLE || "Aston VIP Insights";
@@ -119,9 +121,9 @@ Return ONE valid JSON object, no markdown:
 /** Step 2 — generate the dialogue for a single sub-topic segment. */
 async function generateSegment(
   openai: OpenAI,
-  ctx: { title: string; focusKeyword?: string; source: string; allSubtopics: string[]; index: number; total: number }
+  ctx: { title: string; focusKeyword?: string; source: string; allSubtopics: string[]; index: number; total: number; wordsTarget: number }
 ): Promise<DialogueTurn[]> {
-  const { title, focusKeyword, source, allSubtopics, index, total } = ctx;
+  const { title, focusKeyword, source, allSubtopics, index, total, wordsTarget } = ctx;
   const isFirst = index === 0;
   const isLast = index === total - 1;
   const subtopic = allSubtopics[index];
@@ -146,7 +148,7 @@ ${position}
 SOURCE MATERIAL (draw real specifics from here):
 ${source}
 
-LENGTH — write 400 to 480 words of dialogue for THIS segment across 4 to 6 back-and-forth exchanges. Expert (Stephan) turns 80–150 words; host (Liz) turns 5–40 words. This is mandatory — do not write a short segment.
+LENGTH — write ${Math.round(wordsTarget * 0.9)} to ${Math.round(wordsTarget * 1.15)} words of dialogue for THIS segment across ${wordsTarget < 300 ? "2 to 3" : "4 to 6"} back-and-forth exchanges. Expert (Stephan) turns carry the substance (up to ~150 words); host (Liz) turns stay short. This is mandatory — do not write a short segment.
 
 Return ONE valid JSON object, no markdown:
 { "turns": [ { "speaker": "host", "text": "..." }, { "speaker": "expert", "text": "..." } ] }`;
@@ -191,6 +193,7 @@ export async function generatePodcastDialogue(
       try {
         segmentTurns[i] = await generateSegment(openai, {
           title, focusKeyword, source, allSubtopics: outline.subtopics, index: i, total: outline.subtopics.length,
+          wordsTarget: cfg.wordsPerSegment,
         });
       } catch (err) {
         console.warn(`[podcastDialogue] segment ${i + 1} failed: ${err instanceof Error ? err.message : String(err)}`);

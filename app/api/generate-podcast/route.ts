@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
   catch { return new Response(JSON.stringify({ error: "Invalid request body." }), { status: 400 }); }
 
   const { postId, title: titleHint, focusKeyword } = body;
-  const validLengths: PodcastLengthMins[] = [15, 30, 45, 60];
+  const validLengths: PodcastLengthMins[] = [3, 15, 30, 45, 60];
   const podcastLength: PodcastLengthMins = validLengths.includes(body.length as PodcastLengthMins) ? (body.length as PodcastLengthMins) : 30;
   if (!postId || typeof postId !== "number") {
     return new Response(JSON.stringify({ error: "postId is required." }), { status: 400 });

@@ -936,7 +936,7 @@ export default function HomePage() {
   const [podcastUrl, setPodcastUrl]         = useState<string | null>(null);
   const [podcastEpisodeId, setPodcastEpisodeId]       = useState<number | null>(null);
   const [podcastAudioMediaId, setPodcastAudioMediaId] = useState<number | null>(null);
-  const [podcastLength, setPodcastLength]   = useState<15 | 30 | 45 | 60>(30);
+  const [podcastLength, setPodcastLength]   = useState<3 | 15 | 30 | 45 | 60>(30);
 
   // Media outputs — selected before generation, triggered automatically after post is published
   const [autoMedia, setAutoMedia] = useState({ video: false, podcast: false, audio: false });
@@ -2537,7 +2537,7 @@ export default function HomePage() {
                       </label>
                       {autoMedia.podcast && (
                         <div className="flex gap-1.5 mt-2.5 ml-6">
-                          {([15, 30, 45, 60] as const).map((mins) => (
+                          {([3, 15, 30, 45, 60] as const).map((mins) => (
                             <button
                               key={mins}
                               type="button"
