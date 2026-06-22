@@ -14,7 +14,8 @@ import { NextRequest } from "next/server";
 import { generatePodcastDialogue, type PodcastLengthMins } from "@/lib/podcastDialogue";
 import { buildPodcastEpisode } from "@/lib/podcastAudio";
 
-export const maxDuration = 300;
+// 800s: longer episodes (45/60 min) generate many segments + voice many turns.
+export const maxDuration = 800;
 
 export async function POST(req: NextRequest) {
   let body: { title?: string; sourceText?: string; length?: number };
