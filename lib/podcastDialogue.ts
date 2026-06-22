@@ -52,6 +52,9 @@ const LENGTH_CONFIG: Record<PodcastLengthMins, { segments: number; wordsPerSegme
 
 const SHOW_NAME = process.env.PODCAST_TITLE || "Aston VIP Insights";
 const MODEL = "gpt-4o";
+// Only add ElevenLabs audio tags ([laughs], [sighs]) when the podcast voice
+// model is v3 (which renders them). On v2 they'd be read aloud literally.
+const EMOTION_TAGS = (process.env.ELEVENLABS_PODCAST_MODEL || "eleven_v3").includes("v3");
 
 // Shared voice/style guidance used by every segment so they sound consistent.
 const STYLE = `You write podcast conversations for "${SHOW_NAME}" by Aston VIP — a high-end international corporate advisory firm (company formation, banking, tax structuring, licensing, residency across the UAE, UK, EU and offshore). The output is read aloud by text-to-speech, so it must sound like a REAL unscripted conversation between two people — not an article split into turns.
@@ -74,7 +77,13 @@ NEVER
 - No formal connectors ("Furthermore", "Moreover", "In conclusion").
 - No reading lists aloud ("First… Second…"). Weave points into the chat.
 - No stage directions, sound effects, speaker labels or markdown. Spoken words only.
-- British English, always write "license" (never "licence"). Never invent figures — stay grounded in the source.`;
+- British English, always write "license" (never "licence"). Never invent figures — stay grounded in the source.${EMOTION_TAGS ? `
+
+EMOTION (audio tags — the voice model renders these as REAL non-verbal sounds)
+- Occasionally add natural cues in square brackets so it feels human: [laughs], [chuckles], [sighs], [exhales], [clears throat].
+- Use SPARINGLY — at most once every 5 or 6 turns, mostly on the host's light reactions or a warm laugh. Never stack them or use one every turn.
+- Place the tag exactly where the sound happens, e.g. "[chuckles] Honestly, that's the part everyone gets wrong."
+- Only these bracketed cues are allowed — no other stage directions.` : ""}`;
 
 interface OutlinePlan {
   episodeTitle: string;

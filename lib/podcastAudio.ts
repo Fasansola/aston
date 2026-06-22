@@ -30,6 +30,11 @@ const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 const HOST_VOICE   = process.env.ELEVENLABS_PODCAST_HOST_VOICE_ID   || "21m00Tcm4TlvDq8ikWAM"; // Rachel — warm interviewer
 const EXPERT_VOICE = process.env.ELEVENLABS_PODCAST_EXPERT_VOICE_ID || "pNInz6obpgDQGcFmaJgB"; // Adam — authoritative
 
+// Eleven v3 supports audio tags ([laughs], [sighs], [exhales]) for natural
+// emotion. Override with ELEVENLABS_PODCAST_MODEL=eleven_multilingual_v2 if the
+// account lacks v3 access (emotion tags are then disabled in the script too).
+const PODCAST_MODEL = process.env.ELEVENLABS_PODCAST_MODEL || "eleven_v3";
+
 // Music plays ONLY at the open and close. Each clip has explicit afade edges
 // so fades are guaranteed — no EOS detection needed. All env-overridable.
 const INTRO_SECS    = Number(process.env.PODCAST_INTRO_SECS)    || 6;
@@ -39,6 +44,10 @@ const OUTRO_VOLUME  = Number(process.env.PODCAST_OUTRO_VOLUME)  || 0.16;
 // Target integrated loudness (LUFS) every voice turn is normalised to. Lower
 // (more negative) = quieter; -14 is the streaming/podcast standard, -12 is louder.
 const VOICE_LUFS    = Number(process.env.PODCAST_VOICE_LUFS)    || -14;
+// The expert (Adam) is a deeper voice and sounds quieter than the host (Liz)
+// at the same measured loudness, so target it a few LUFS hotter. loudnorm's
+// true-peak limiting keeps it from clipping. Tunable via PODCAST_EXPERT_LUFS.
+const EXPERT_LUFS   = Number(process.env.PODCAST_EXPERT_LUFS)   || (VOICE_LUFS + 3);
 
 /** Synthesize one dialogue turn via ElevenLabs. */
 async function synthesizeTurn(turn: DialogueTurn, apiKey: string): Promise<Buffer> {
@@ -48,7 +57,7 @@ async function synthesizeTurn(turn: DialogueTurn, apiKey: string): Promise<Buffe
     headers: { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
     body: JSON.stringify({
       text: turn.text,
-      model_id: "eleven_multilingual_v2",
+      model_id: PODCAST_MODEL,
       // Lower stability = more natural variation/emotion; a touch of style for
       // conversational inflection. Tuned for podcast dialogue.
       voice_settings: { stability: 0.52, similarity_boost: 0.80, style: 0.22, use_speaker_boost: true },
@@ -107,9 +116,11 @@ export async function buildPodcastEpisode(turns: DialogueTurn[]): Promise<Buffer
     //    the streaming/podcast standard; override with PODCAST_VOICE_LUFS.
     const speechFile = join(dir, "speech.mp3");
     const speechInputs = turnFiles.flatMap((f) => ["-i", f]);
-    const norm = `loudnorm=I=${VOICE_LUFS}:TP=-1.5:LRA=11`;
     const speechFilter =
-      turnFiles.map((_, i) => `[${i}:a]${norm}[n${i}]`).join(";") + ";" +
+      turnFiles.map((_, i) => {
+        const target = turns[i]?.speaker === "expert" ? EXPERT_LUFS : VOICE_LUFS;
+        return `[${i}:a]loudnorm=I=${target}:TP=-1.5:LRA=11[n${i}]`;
+      }).join(";") + ";" +
       turnFiles.map((_, i) => `[n${i}]`).join("") +
       `concat=n=${turnFiles.length}:v=0:a=1[out]`;
     await ffmpeg(["-y", ...speechInputs, "-filter_complex", speechFilter, "-map", "[out]",
