@@ -49,6 +49,20 @@ const VOICE_LUFS    = Number(process.env.PODCAST_VOICE_LUFS)    || -14;
 // true-peak limiting keeps it from clipping. Tunable via PODCAST_EXPERT_LUFS.
 const EXPERT_LUFS   = Number(process.env.PODCAST_EXPERT_LUFS)   || (VOICE_LUFS + 3);
 
+// ── TTS pronunciation fixes ───────────────────────────────────
+// Phonetic respellings applied ONLY to the text sent to the voice model, so
+// transcripts and on-screen brand text stay correct. Works on every model
+// (including Eleven v3, which does not support <phoneme> SSML tags).
+// "Aston" was read as "As-TON" (rhyming with "on"); respell so it lands as
+// "As-tin". Tune without code via PODCAST_SAYAS_ASTON.
+const SAYAS_ASTON = process.env.PODCAST_SAYAS_ASTON || "Asstin";
+const PRONUNCIATION: Array<[RegExp, string]> = [
+  [/\bAston\b/gi, SAYAS_ASTON],
+];
+export function applyTtsPronunciation(text: string): string {
+  return PRONUNCIATION.reduce((s, [re, rep]) => s.replace(re, rep), text);
+}
+
 /** Synthesize one dialogue turn via ElevenLabs. */
 async function synthesizeTurn(turn: DialogueTurn, apiKey: string): Promise<Buffer> {
   const voiceId = turn.speaker === "host" ? HOST_VOICE : EXPERT_VOICE;
@@ -56,7 +70,7 @@ async function synthesizeTurn(turn: DialogueTurn, apiKey: string): Promise<Buffe
     method: "POST",
     headers: { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
     body: JSON.stringify({
-      text: turn.text,
+      text: applyTtsPronunciation(turn.text),
       model_id: PODCAST_MODEL,
       // Lower stability = more natural variation/emotion; a touch of style for
       // conversational inflection. Tuned for podcast dialogue.
@@ -214,7 +228,7 @@ export async function generateElevenLabsNarration(
       method: "POST",
       headers: { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
       body: JSON.stringify({
-        text: chunks[i],
+        text: applyTtsPronunciation(chunks[i]),
         model_id: "eleven_turbo_v2_5",
         voice_settings: { stability: 0.65, similarity_boost: 0.75, style: 0.10, use_speaker_boost: true },
       }),
