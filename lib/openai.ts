@@ -14,7 +14,7 @@
 
 import OpenAI from "openai";
 import axios from "axios";
-import { BlogContent, Blueprint, ImagePrompts } from "./wordpress";
+import { BlogContent, Blueprint, ImagePrompts, sanitizeChartBlocks } from "./wordpress";
 import { SelectedLinks, formatLinksForPrompt } from "./links";
 import { SourceBrief, formatBriefForPrompt } from "./source";
 import { StrategyBrief } from "./strategy";
@@ -25,6 +25,9 @@ import { selectOptimalTitle } from "./titleEngine";
 // PRIMARY_MODEL is used for all major generation steps.
 // FALLBACK_MODEL is used automatically if the primary model
 // fails (timeout, rate limit, model unavailable, etc.).
+// Body fields that may contain an aston-chartjs canvas needing data sanitisation.
+const CHART_FIELDS = ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"];
+
 const PRIMARY_MODEL  = "gpt-5.5";
 // gpt-5.3 returns 404 on this account; gpt-5.5 is the only ≥5.3 model available,
 // so the fallback retries the same model on transient errors (not a downgrade).
@@ -482,9 +485,12 @@ Find a section with comparable data — rankings, fee ranges, timelines, approva
   </canvas>
 </div>
 
-Rules:
+Rules (follow EXACTLY — the chart renders from these attributes, malformed data shows a blank chart):
 - Use real, meaningful data — derive values from the article topic (e.g. fee comparisons, jurisdiction rankings, approval timelines, risk levels)
-- labels[] and values[] must have the same number of elements
+- data-chart-values must be PLAIN NUMBERS ONLY — no thousands separators, no percent signs, no currency symbols, no units, no quotes. Write 15000 NOT "15,000", write 9 NOT "9%", write 25000 NOT "AED 25,000". Use a real number, e.g. data-chart-values='[15000, 25000, 50000]'
+- labels[] and values[] MUST have the exact same number of elements
+- labels are short plain strings with NO apostrophes or double quotes inside them (apostrophes break the attribute)
+- Both data-chart-labels and data-chart-values must be valid JSON arrays wrapped in SINGLE quotes, with double quotes inside (exactly as shown in the template)
 - colors[]: use Aston gold palette — one colour per data point (#C9A84C, #B8963E, #8B7536, #5a4a2f, #D4B86A, #E8C96A)
 - data-chart-type: "bar" for side-by-side comparisons, "horizontalBar" for ranked lists, "pie" or "doughnut" for proportions
 - Place the chart directly after the paragraph that introduces the data it visualises`);
@@ -1125,6 +1131,11 @@ ${linksBlock}`;
     // so the content step can never drift from the selected H1/SEO title/theme.
     parsed.seo_title = blueprint.seo_title;
     parsed.focus_keyword = blueprint.focus_keyword;
+    // Repair/remove any malformed Chart.js blocks so charts never render blank.
+    for (const f of CHART_FIELDS) {
+      const rec = parsed as unknown as Record<string, unknown>;
+      if (typeof rec[f] === "string") rec[f] = sanitizeChartBlocks(rec[f] as string);
+    }
     if (parsed.meta_description && parsed.meta_description.length > 141) {
       const cut = parsed.meta_description.slice(0, 141);
       const lastStop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "), cut.lastIndexOf("."), cut.lastIndexOf("!"), cut.lastIndexOf("?"));
@@ -1493,6 +1504,12 @@ The "internal_links_used" and "external_links_used" arrays must include ALL link
   if (safeUpdates.slug && !/^[a-z0-9-]+$/.test(safeUpdates.slug as string)) {
     delete safeUpdates.slug;
     console.warn("[fixBlogContent] GPT returned an invalid slug — keeping previous value");
+  }
+
+  // Repair/remove any malformed Chart.js blocks in rewritten body fields.
+  const safeRec = safeUpdates as unknown as Record<string, unknown>;
+  for (const f of CHART_FIELDS) {
+    if (typeof safeRec[f] === "string") safeRec[f] = sanitizeChartBlocks(safeRec[f] as string);
   }
 
   return { ...previousContent, ...safeUpdates };
