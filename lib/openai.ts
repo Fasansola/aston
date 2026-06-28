@@ -14,7 +14,8 @@
 
 import OpenAI from "openai";
 import axios from "axios";
-import { BlogContent, Blueprint, ImagePrompts, sanitizeChartBlocks } from "./wordpress";
+import { BlogContent, Blueprint, ImagePrompts } from "./wordpress";
+import { sanitizeChartBlocks } from "./chartSanitizer";
 import { SelectedLinks, formatLinksForPrompt } from "./links";
 import { SourceBrief, formatBriefForPrompt } from "./source";
 import { StrategyBrief } from "./strategy";
