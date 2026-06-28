@@ -2,8 +2,11 @@
  * lib/wordpress.ts
  * ─────────────────────────────────────────────────────────────
  * All WordPress REST API interactions live here.
- * Runs on Vercel servers (trusted US/EU IPs) — never blocked
- * by SiteGround's Anti-Bot system.
+ *
+ * SiteGround's anti-bot system (sgcaptcha) INTERMITTENTLY intercepts
+ * requests from Vercel's cloud IPs. It returns an HTML captcha page instead
+ * of JSON — it's transient and clears after a few seconds. All WP-write
+ * functions retry internally with backoff when they detect this response.
  */
 
 import axios from "axios";
@@ -237,83 +240,112 @@ export async function createWordPressPost(
   const categoryIds = pickCategories(content.focus_keyword, content.secondary_keywords ?? []);
   console.log(`[wordpress] Auto-assigned categories: [${categoryIds.join(", ")}] for keyword "${content.focus_keyword}"`);
 
+  const postBody = {
+    // ── Standard WordPress fields ──────────────────────
+    title:           postTitle,
+    content: assembled.main_content,
+    status,
+    ...(imageIds?.featuredImg ? { featured_media: imageIds.featuredImg } : {}),
+    slug: content.slug,
+    excerpt: content.excerpt,
+    ...(categoryIds.length > 0 && { categories: categoryIds }),
+    // Polylang Pro: set language via REST API directly
+    ...(langCode && { lang: langCode }),
+
+    // ── SEO and Yoast ──────────────────────────────────
+    meta: {
+      _yoast_wpseo_focuskw:                content.focus_keyword,
+      _yoast_wpseo_title:                  seoTitle,
+      _yoast_wpseo_metadesc:               content.meta_description,
+      "_yoast_wpseo_opengraph-title":       seoTitle,
+      "_yoast_wpseo_opengraph-description": content.meta_description,
+      "_yoast_wpseo_twitter-title":         seoTitle,
+      "_yoast_wpseo_twitter-description":   content.meta_description,
+    },
+
+    // ── ACF custom fields ──────────────────────────────
+    // Image fields are omitted when imageIds is null (images are attached
+    // later via updateWordPressPostImages). Passing 0 causes a 400 error
+    // because ACF image fields require a valid attachment ID or nothing.
+    acf: {
+      Key_takeaways:    content.key_takeaways,
+      Keypoint_One:     content.keypoint_one,
+      ...(imageIds?.keypointOneImg ? { keypoint_one_img: imageIds.keypointOneImg } : {}),
+      more_content_1:   assembled.more_content_1,
+      more_content_2:   content.more_content_2,
+      quote_1:          content.quote_1,
+      more_content_3:   assembled.more_content_3,
+      Keypoint_Two:     content.keypoint_two,
+      ...(imageIds?.keypointTwoImg ? { Keypoint_Two_Img: imageIds.keypointTwoImg } : {}),
+      more_content_4:   assembled.more_content_4,
+      quote_2:          content.quote_2,
+      read_mins:        parseInt(content.read_mins, 10) || 7,
+      ...(imageIds?.postSplitImg ? { post_split_img: imageIds.postSplitImg } : {}),
+      Final_Points:     content.final_points,
+      more_content_5:   content.more_content_5,
+      more_content_6:   content.more_content_6,
+    },
+  };
+
+  // SiteGround's anti-bot (sgcaptcha) intermittently intercepts requests from
+  // cloud IPs (Vercel) and returns an HTML captcha page instead of JSON. It's
+  // transient — waiting a few seconds and retrying usually clears it. We retry
+  // internally (with backoff) so the WDK retries don't all hit the same block
+  // in quick succession.
+  const SG_MAX_RETRIES = 5;
+  const isSgCaptcha = (data: unknown): boolean =>
+    typeof data === "string" && data.includes("sgcaptcha");
+
   let response;
-  try {
-    response = await axios.post(
-      `${WP_URL}/wp-json/wp/v2/posts`,
-      {
-        // ── Standard WordPress fields ──────────────────────
-        title:           postTitle,
-        content: assembled.main_content,
-        status,
-        ...(imageIds?.featuredImg ? { featured_media: imageIds.featuredImg } : {}),
-        slug: content.slug,
-        excerpt: content.excerpt,
-        ...(categoryIds.length > 0 && { categories: categoryIds }),
-        // Polylang Pro: set language via REST API directly
-        ...(langCode && { lang: langCode }),
-
-        // ── SEO and Yoast ──────────────────────────────────
-        meta: {
-          _yoast_wpseo_focuskw:                content.focus_keyword,
-          _yoast_wpseo_title:                  seoTitle,
-          _yoast_wpseo_metadesc:               content.meta_description,
-          "_yoast_wpseo_opengraph-title":       seoTitle,
-          "_yoast_wpseo_opengraph-description": content.meta_description,
-          "_yoast_wpseo_twitter-title":         seoTitle,
-          "_yoast_wpseo_twitter-description":   content.meta_description,
-        },
-
-        // ── ACF custom fields ──────────────────────────────
-        // Image fields are omitted when imageIds is null (images are attached
-        // later via updateWordPressPostImages). Passing 0 causes a 400 error
-        // because ACF image fields require a valid attachment ID or nothing.
-        acf: {
-          Key_takeaways:    content.key_takeaways,
-          Keypoint_One:     content.keypoint_one,
-          ...(imageIds?.keypointOneImg ? { keypoint_one_img: imageIds.keypointOneImg } : {}),
-          more_content_1:   assembled.more_content_1,
-          more_content_2:   content.more_content_2,
-          quote_1:          content.quote_1,
-          more_content_3:   assembled.more_content_3,
-          Keypoint_Two:     content.keypoint_two,
-          ...(imageIds?.keypointTwoImg ? { Keypoint_Two_Img: imageIds.keypointTwoImg } : {}),
-          more_content_4:   assembled.more_content_4,
-          quote_2:          content.quote_2,
-          read_mins:        parseInt(content.read_mins, 10) || 7,
-          ...(imageIds?.postSplitImg ? { post_split_img: imageIds.postSplitImg } : {}),
-          Final_Points:     content.final_points,
-          more_content_5:   content.more_content_5,
-          more_content_6:   content.more_content_6,
-        },
-      },
-      { headers: BASE_HEADERS, timeout: 45_000 }
-    );
-  } catch (err: unknown) {
-    if (axios.isAxiosError(err)) {
-      const detail = JSON.stringify(err.response?.data ?? err.message);
-      throw new Error(
-        `WP post creation failed (${err.response?.status}): ${detail}`
+  for (let attempt = 1; attempt <= SG_MAX_RETRIES; attempt++) {
+    try {
+      response = await axios.post(
+        `${WP_URL}/wp-json/wp/v2/posts`,
+        postBody,
+        { headers: BASE_HEADERS, timeout: 45_000 }
       );
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        // SiteGround captcha can also appear as a non-2xx response with HTML body
+        if (isSgCaptcha(err.response?.data) && attempt < SG_MAX_RETRIES) {
+          const wait = attempt * 5_000;
+          console.warn(`[wordpress] SiteGround captcha on attempt ${attempt}/${SG_MAX_RETRIES} — retrying in ${wait / 1000}s`);
+          await new Promise((r) => setTimeout(r, wait));
+          continue;
+        }
+        const detail = JSON.stringify(err.response?.data ?? err.message);
+        throw new Error(
+          `WP post creation failed (${err.response?.status}): ${detail}`
+        );
+      }
+      throw err;
     }
-    throw err;
+
+    // Check if the 2xx response is actually a captcha page (SiteGround returns 200/202 with HTML)
+    if (isSgCaptcha(response.data) && attempt < SG_MAX_RETRIES) {
+      const wait = attempt * 5_000;
+      console.warn(`[wordpress] SiteGround captcha on attempt ${attempt}/${SG_MAX_RETRIES} — retrying in ${wait / 1000}s`);
+      await new Promise((r) => setTimeout(r, wait));
+      continue;
+    }
+
+    break; // got a real response
   }
 
-  // Validate: axios returns a string (not parsed JSON) when WordPress responds
-  // with HTML (e.g. a redirect page, WAF block, or plugin error). A string has
-  // String.prototype.link which is a function — WDK's serializer rejects it,
-  // causing spurious retries and duplicate posts.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rawData: any = response.data;
+  const rawData: any = response!.data;
   if (typeof rawData !== "object" || rawData === null || typeof rawData.id !== "number") {
     const preview =
       typeof rawData === "string"
         ? String(rawData).slice(0, 600)
         : JSON.stringify(rawData).slice(0, 600);
+    const hint = isSgCaptcha(rawData)
+      ? " (SiteGround anti-bot is blocking Vercel — exclude /wp-json/ in SiteGround Site Tools → Security)"
+      : "";
     throw new Error(
-      `WP post creation returned unexpected response (HTTP ${response.status}, no numeric post id). ` +
-      `Content-Type: ${String(response.headers?.["content-type"] ?? "unknown")}. ` +
-      `Body: ${preview}`
+      `WP post creation returned unexpected response (HTTP ${response!.status}, no numeric post id). ` +
+      `Content-Type: ${String(response!.headers?.["content-type"] ?? "unknown")}. ` +
+      `Body: ${preview}${hint}`
     );
   }
   const postId: number = rawData.id;
@@ -375,22 +407,36 @@ export async function createWordPressPost(
  * link in the YouTube description points to a live page, not a draft.
  */
 export async function publishWordPressPost(postId: number): Promise<{ link: string }> {
+  const isSgCaptcha = (d: unknown) => typeof d === "string" && d.includes("sgcaptcha");
   let response;
-  try {
-    response = await axios.post(
-      `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
-      { status: "publish" },
-      { headers: BASE_HEADERS, timeout: 20_000 }
-    );
-  } catch (err: unknown) {
-    if (axios.isAxiosError(err)) {
-      const detail = JSON.stringify(err.response?.data ?? err.message);
-      throw new Error(`WP post publish failed (${err.response?.status}): ${detail}`);
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      response = await axios.post(
+        `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
+        { status: "publish" },
+        { headers: BASE_HEADERS, timeout: 20_000 }
+      );
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err) && isSgCaptcha(err.response?.data) && attempt < 5) {
+        console.warn(`[wordpress] SiteGround captcha on publishPost attempt ${attempt} — retrying in ${attempt * 5}s`);
+        await new Promise((r) => setTimeout(r, attempt * 5_000));
+        continue;
+      }
+      if (axios.isAxiosError(err)) {
+        const detail = JSON.stringify(err.response?.data ?? err.message);
+        throw new Error(`WP post publish failed (${err.response?.status}): ${detail}`);
+      }
+      throw err;
     }
-    throw err;
+    if (isSgCaptcha(response.data) && attempt < 5) {
+      console.warn(`[wordpress] SiteGround captcha on publishPost attempt ${attempt} — retrying in ${attempt * 5}s`);
+      await new Promise((r) => setTimeout(r, attempt * 5_000));
+      continue;
+    }
+    break;
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data: any = response.data;
+  const data: any = response!.data;
   const link: string = typeof data?.link === "string" ? data.link : `${WP_URL}/?p=${postId}`;
   console.log(`[wordpress] Post ${postId} published — ${link}`);
   return { link };
