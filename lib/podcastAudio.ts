@@ -158,15 +158,23 @@ export async function buildPodcastEpisode(turns: DialogueTurn[]): Promise<Buffer
           const musicFile = join(dir, "music.mp3");
           await writeFile(musicFile, Buffer.from(await musicRes.arrayBuffer()));
 
-          // Probe the speech duration so we know where to place the outro music.
-          const probeResult = await new Promise<string>((resolve, reject) => {
-            const ffprobePath = ffmpegPath!.replace(/ffmpeg$/, "ffprobe");
-            execFileAsync(ffprobePath, [
-              "-v", "error", "-show_entries", "format=duration",
-              "-of", "default=noprint_wrappers=1:nokey=1", speechFile,
-            ]).then((r) => resolve(r.stdout.trim())).catch(reject);
-          });
-          const speechDuration = parseFloat(probeResult) || 300;
+          // Get the speech duration using ffmpeg (not ffprobe, which ffmpeg-static
+          // doesn't ship). ffmpeg prints "time=HH:MM:SS.ss" in its stderr when
+          // transcoding to null — we parse the last occurrence.
+          let speechDuration = 300; // fallback
+          try {
+            const { stderr } = await execFileAsync(ffmpegPath!, [
+              "-i", speechFile, "-f", "null", "-",
+            ], { maxBuffer: 1024 * 1024 });
+            const timeMatch = stderr.match(/time=(\d+):(\d+):([\d.]+)/g);
+            if (timeMatch) {
+              const last = timeMatch[timeMatch.length - 1];
+              const [, h, m, s] = last.match(/time=(\d+):(\d+):([\d.]+)/)!;
+              speechDuration = parseInt(h) * 3600 + parseInt(m) * 60 + parseFloat(s);
+            }
+          } catch {
+            console.warn("[podcastAudio] could not probe speech duration — using fallback 300s");
+          }
 
           // Outro music starts this many seconds before the speech ends, so it
           // fades in under the final words rather than starting after silence.
