@@ -102,29 +102,48 @@ ARTICLE ANGLE: ${(strategy.article_angle ?? "").slice(0, 300)}` : "";
     ? `\nWrite every candidate title in ${language}. No English.`
     : "";
 
-  const system = `You are a senior SEO strategist for Aston VIP, an international corporate advisory firm. You pick the single best-performing blog title using a disciplined, data-driven process — never the first obvious phrasing an AI reaches for.`;
+  const system = `You are a senior editor at a top business publication (think Financial Times, Bloomberg, The Economist). You write blog titles that are sharp, natural, and genuinely interesting to a business reader — not keyword-stuffed SEO filler. Every title you write must pass this test: could a smart human editor have written this? If it sounds like an AI crammed keywords together, it fails.`;
 
   const user = `TOPIC: "${topic}"
 ${customPrompt ? `EXTRA CONTEXT: ${customPrompt}\n` : ""}${intentBlock}${langBlock}
 
 Follow this process exactly:
-1. Work out what the user is ACTUALLY searching for — the real intents behind this topic, not the literal words. For "Dubai Foundation" the real searches include asset protection, succession planning, family wealth protection, foundation vs trust, wealth transfer — not just "foundation setup requirements".
-2. Use the commercial keywords and AI-search keywords above.
-3. Generate 20 DISTINCT candidate titles spanning those real intents.
+1. Work out what the reader is ACTUALLY searching for — the real questions and concerns behind this topic. For "Dubai Foundation" the reader is really asking about asset protection, succession planning, family wealth, foundation vs trust — not "foundation setup requirements".
+2. Use the commercial keywords and AI-search keywords above as context, NOT as words to stuff into the title.
+3. Generate 20 DISTINCT candidate titles. Each must read like a NATURAL, HUMAN-WRITTEN headline — something a senior editor would approve for publication.
 4. Score EACH candidate 1–100 on four dimensions:
-   - intent: how well it matches genuine search intent
-   - commercial: commercial / buyer value
-   - ctr: click-through appeal in a search result
-   - ai: discoverability by AI answer engines (ChatGPT, Perplexity, Google AI)
+   - intent: how well it answers what the reader is genuinely searching for
+   - commercial: commercial value for a reader ready to take action
+   - ctr: would a real person click this in search results? (natural, specific, intriguing)
+   - ai: would AI answer engines cite an article with this title?
 5. Select the highest-scoring title on the formula: intent 40%, commercial 30%, ctr 20%, ai 10%.
 
-HARD RULES for EVERY candidate title:
-- 50 to 60 characters including spaces.
-- Sentence case. No dashes (hyphen/en/em), no colons, no pipes, no question marks.
-- Must contain the primary keyword OR the dominant searchable phrase of its intent, phrased naturally.
-- One single clear focus. Never join two distinct topics with "and"/"&".
-- No ambiguous or double-meaning words (e.g. never "bank checks" — write "banking" or "bank account").
-- AVOID generic words: "requirements", "overview", "introduction", "explained", "guide". Only use one if the search intent genuinely makes it the strongest option.
+THE #1 RULE — NATURALNESS:
+Every title MUST sound like something a knowledgeable human would actually write or say. Read it aloud — if it sounds awkward, robotic, or like a list of keywords strung together, REJECT it and write a better one.
+
+GOOD titles (natural, specific, a reader would click):
+- "Why most Dubai free zone companies fail at banking"
+- "What your DIFC company structure actually costs in 2026"
+- "The hidden risk in UAE holding company setups"
+- "How VARA licensing really works for crypto firms"
+- "Golden Visa through business ownership in Dubai"
+- "What banks look for when you apply from a free zone"
+- "Offshore structures that actually survive due diligence"
+
+BAD titles (keyword-stuffed, robotic, no human would write these):
+- "IFZA company formation with expert support in Dubai" ← reads like an ad
+- "MICA CASP license best EU countries costs and requirements" ← keyword salad
+- "Czech SPI license setup for full PI conversion in 2026" ← jargon dump
+- "Dubai free zone company setup costs and bank checks" ← two topics jammed together
+- "UAE trade license formation process complete overview" ← generic filler
+- "Best free zones in Dubai for tech startups in 2026" ← bland listicle tone
+
+FORMATTING RULES:
+- 50 to 60 characters including spaces
+- Sentence case (capitalise first word and proper nouns only)
+- No dashes, colons, pipes, or question marks
+- The primary keyword should appear naturally — not forced or front-loaded
+- One clear focus per title, never two topics joined by "and"
 
 Return ONE valid JSON object, no markdown, no code fences:
 {
