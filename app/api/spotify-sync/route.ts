@@ -31,6 +31,28 @@ function normalise(title: string): string {
   return (title ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
 }
 
+// Stop words excluded from similarity scoring — they add noise without meaning.
+const STOP = new Set(["the","a","an","in","on","of","for","to","and","or","with","how","is","are","your","its","it","this","that","by","from","at","as","be","do","does","was","were","been","can","has","have","had","not","but","so","if","no","up","out","into","what","who","why","when","where","which"]);
+
+/**
+ * Word-overlap similarity: what fraction of meaningful words in the shorter
+ * title appear in the longer one. Returns 0–1. Ignores stop words and year
+ * numbers so "best free zones in dubai for tech startups in 2026" matches
+ * "choosing the right dubai free zone for your tech startup".
+ */
+function titleSimilarity(a: string, b: string): number {
+  const wordsA = normalise(a).split(" ").filter(w => !STOP.has(w) && !/^\d{4}$/.test(w));
+  const wordsB = normalise(b).split(" ").filter(w => !STOP.has(w) && !/^\d{4}$/.test(w));
+  if (wordsA.length === 0 || wordsB.length === 0) return 0;
+  // Compare against the shorter set so a short Spotify title can match a longer WP title
+  const [shorter, longer] = wordsA.length <= wordsB.length ? [wordsA, wordsB] : [wordsB, wordsA];
+  const longerSet = new Set(longer);
+  const matched = shorter.filter(w => longerSet.has(w)).length;
+  return matched / shorter.length;
+}
+
+const MATCH_THRESHOLD = 0.55;
+
 interface WpPost {
   id: number;
   title: { rendered: string };
@@ -83,20 +105,30 @@ async function handler() {
     return NextResponse.json({ message: "All recent posts already have Spotify embeds (or no posts found)", synced: 0 });
   }
 
-  // 3. Build a lookup map: normalised Spotify title → episode
-  const spotifyMap = new Map<string, typeof spotifyEpisodes[0]>();
-  for (const ep of spotifyEpisodes) {
-    spotifyMap.set(normalise(ep.name), ep);
-  }
+  // 3. For each Spotify episode, find the best-matching WP post by word overlap.
+  //    We iterate Spotify episodes (small set) and score against all unsynced WP
+  //    posts, picking the highest above the threshold. A WP post can only match
+  //    once (first Spotify episode wins) to prevent duplicates.
+  const results: Array<{ postId: number; title: string; spotifyUrl: string; similarity: number }> = [];
+  const spotifyTitles = spotifyEpisodes.map(ep => normalise(ep.name));
+  const matchedPostIds = new Set<number>();
+  const debugMatches: Array<{ spotify: string; wp: string; score: number }> = [];
 
-  // 4. Match blog post titles to Spotify episode titles and patch
-  const results: Array<{ postId: number; title: string; spotifyUrl: string }> = [];
-  const spotifyTitles = [...spotifyMap.keys()];
-  const unmatchedWp: string[] = [];
-  for (const post of unsynced) {
-    const wpTitle = normalise(post.title.rendered.replace(/<[^>]+>/g, ""));
-    const match = spotifyMap.get(wpTitle);
-    if (!match) { unmatchedWp.push(wpTitle.slice(0, 60)); continue; }
+  for (const ep of spotifyEpisodes) {
+    let bestPost: WpPost | null = null;
+    let bestScore = 0;
+    for (const post of unsynced) {
+      if (matchedPostIds.has(post.id)) continue;
+      const wpTitle = post.title.rendered.replace(/<[^>]+>/g, "");
+      const score = titleSimilarity(ep.name, wpTitle);
+      if (score > bestScore) { bestScore = score; bestPost = post; }
+    }
+    if (!bestPost || bestScore < MATCH_THRESHOLD) {
+      debugMatches.push({ spotify: normalise(ep.name).slice(0, 60), wp: bestPost ? normalise(bestPost.title.rendered.replace(/<[^>]+>/g, "")).slice(0, 60) : "(none)", score: Math.round(bestScore * 100) });
+      continue;
+    }
+    matchedPostIds.add(bestPost.id);
+    const post = bestPost;
 
     const embedHtml = spotifyEmbedHtml(match.id);
     const embedUrl  = spotifyEpisodeUrl(match.id);
@@ -115,8 +147,8 @@ async function handler() {
         }),
         signal: AbortSignal.timeout(15_000),
       });
-      console.log(`[spotify-sync] Embedded Spotify in blog post ${post.id} "${post.title.rendered}" → ${embedUrl}`);
-      results.push({ postId: post.id, title: post.title.rendered, spotifyUrl: embedUrl });
+      console.log(`[spotify-sync] Embedded Spotify in blog post ${post.id} "${post.title.rendered}" → ${embedUrl} (similarity ${Math.round(bestScore * 100)}%)`);
+      results.push({ postId: post.id, title: post.title.rendered, spotifyUrl: embedUrl, similarity: Math.round(bestScore * 100) });
     } catch (err) {
       console.warn(`[spotify-sync] Failed to patch post ${post.id}: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -130,10 +162,9 @@ async function handler() {
     total_spotify: spotifyEpisodes.length,
     total_unsynced_posts: unsynced.length,
     results,
-    // Debug: show what titles are being compared so mismatches are obvious
     debug: {
       spotify_titles: spotifyTitles,
-      sample_wp_titles: unmatchedWp.slice(0, 10),
+      matches: debugMatches,
     },
   });
 }
