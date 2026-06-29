@@ -35,12 +35,17 @@ const EXPERT_VOICE = process.env.ELEVENLABS_PODCAST_EXPERT_VOICE_ID || "pNInz6ob
 // account lacks v3 access (emotion tags are then disabled in the script too).
 const PODCAST_MODEL = process.env.ELEVENLABS_PODCAST_MODEL || "eleven_v3";
 
-// Music plays ONLY at the open and close. Each clip has explicit afade edges
-// so fades are guaranteed — no EOS detection needed. All env-overridable.
-const INTRO_SECS    = Number(process.env.PODCAST_INTRO_SECS)    || 6;
-const OUTRO_SECS    = Number(process.env.PODCAST_OUTRO_SECS)    || 10;
-const INTRO_VOLUME  = Number(process.env.PODCAST_INTRO_VOLUME)  || 0.20;
-const OUTRO_VOLUME  = Number(process.env.PODCAST_OUTRO_VOLUME)  || 0.16;
+// Music timing — all env-overridable.
+// INTRO: music plays ALONE for INTRO_LEAD seconds, then speech starts while
+// music continues fading out over INTRO_OVERLAP seconds into the speech.
+const INTRO_LEAD     = Number(process.env.PODCAST_INTRO_LEAD)     || 5;   // seconds of music before speech
+const INTRO_OVERLAP  = Number(process.env.PODCAST_INTRO_OVERLAP)  || 10;  // seconds music continues into speech
+const INTRO_VOLUME   = Number(process.env.PODCAST_INTRO_VOLUME)   || 0.20;
+// OUTRO: music fades in OUTRO_OVERLAP seconds before the speech ends, then
+// continues for OUTRO_TAIL seconds after the speech is done.
+const OUTRO_OVERLAP  = Number(process.env.PODCAST_OUTRO_OVERLAP)  || 7;   // seconds music starts before speech ends
+const OUTRO_TAIL     = Number(process.env.PODCAST_OUTRO_TAIL)     || 8;   // seconds music plays after speech ends
+const OUTRO_VOLUME   = Number(process.env.PODCAST_OUTRO_VOLUME)   || 0.16;
 // Target integrated loudness (LUFS) every voice turn is normalised to. Lower
 // (more negative) = quieter; -14 is the streaming/podcast standard, -12 is louder.
 const VOICE_LUFS    = Number(process.env.PODCAST_VOICE_LUFS)    || -14;
@@ -140,15 +145,17 @@ export async function buildPodcastEpisode(turns: DialogueTurn[]): Promise<Buffer
     await ffmpeg(["-y", ...speechInputs, "-filter_complex", speechFilter, "-map", "[out]",
       "-ar", "44100", "-ac", "2", "-b:a", "128k", speechFile]);
 
-    // 3. Overlay music: fade out under the speech at the start, fade back in
-    //    under the speech at the end. Uses adelay + amix so the music and speech
-    //    overlap smoothly — no hard cuts.
+    // 3. Overlay music on a shared timeline with the speech.
     //
-    //    Timeline:
-    //      0s ─── music plays at INTRO_VOLUME, fades out over INTRO_SECS ───┐
-    //             speech starts at 0s (under the fading music)               │
-    //             ...entire conversation...                                  │
-    //      end ── music fades in over OUTRO_SECS at OUTRO_VOLUME ── fades out
+    //    INTRO timeline:
+    //      0s ─── music starts (alone) ──── INTRO_LEAD (5s) ──── speech starts
+    //             music continues fading out over INTRO_OVERLAP (10s) into speech
+    //      Total intro music = INTRO_LEAD + INTRO_OVERLAP = 15s
+    //
+    //    OUTRO timeline:
+    //      ...speech playing... ── music fades in OUTRO_OVERLAP (7s) before speech ends
+    //      speech ends ── music continues for OUTRO_TAIL (8s) ── fades out
+    //      Total outro music = OUTRO_OVERLAP + OUTRO_TAIL = 15s
     //
     const musicUrl = process.env.BACKGROUND_MUSIC_URL;
     if (musicUrl) {
@@ -175,10 +182,17 @@ export async function buildPodcastEpisode(turns: DialogueTurn[]): Promise<Buffer
           } catch {
             console.warn("[podcastAudio] could not probe speech duration — using fallback 300s");
           }
+          console.log(`[podcastAudio] speech duration: ${speechDuration.toFixed(1)}s, intro: ${INTRO_LEAD}+${INTRO_OVERLAP}s, outro: ${OUTRO_OVERLAP}+${OUTRO_TAIL}s`);
 
-          // Outro music starts this many seconds before the speech ends, so it
-          // fades in under the final words rather than starting after silence.
-          const outroStartSec = Math.max(0, speechDuration - OUTRO_SECS);
+          const introTotalSecs = INTRO_LEAD + INTRO_OVERLAP;
+          const outroTotalSecs = OUTRO_OVERLAP + OUTRO_TAIL;
+          // On the master timeline, speech starts after INTRO_LEAD seconds of
+          // solo music, so speech position = INTRO_LEAD.
+          const speechDelayMs = Math.round(INTRO_LEAD * 1000);
+          // Outro music starts OUTRO_OVERLAP seconds before the speech ends on
+          // the master timeline. Speech ends at INTRO_LEAD + speechDuration.
+          const speechEndOnTimeline = INTRO_LEAD + speechDuration;
+          const outroStartMs = Math.round(Math.max(0, speechEndOnTimeline - OUTRO_OVERLAP) * 1000);
 
           const episodeFile = join(dir, "episode.mp3");
           await ffmpeg([
@@ -187,22 +201,27 @@ export async function buildPodcastEpisode(turns: DialogueTurn[]): Promise<Buffer
             "-stream_loop", "-1", "-i", musicFile, // 1: intro music
             "-stream_loop", "-1", "-i", musicFile, // 2: outro music
             "-filter_complex",
-            // Intro: trim to INTRO_SECS, fade in quickly, fade out gradually
-            // over the full duration so it smoothly disappears under the speech.
-            `[1:a]atrim=0:${INTRO_SECS},asetpts=PTS-STARTPTS,` +
+            // Intro music: plays from 0s for introTotalSecs. Fades in over 2s,
+            // then starts fading out at INTRO_LEAD (when speech kicks in) over
+            // INTRO_OVERLAP seconds so it smoothly disappears under the conversation.
+            `[1:a]atrim=0:${introTotalSecs},asetpts=PTS-STARTPTS,` +
             `aformat=sample_rates=44100:channel_layouts=stereo,` +
             `volume=${INTRO_VOLUME},` +
-            `afade=t=in:st=0:d=1.5,afade=t=out:st=0:d=${INTRO_SECS}[intro];` +
-            // Outro: trim to OUTRO_SECS, delay to start near the end of speech,
-            // fade in gradually, then fade out at the very end.
-            `[2:a]atrim=0:${OUTRO_SECS},asetpts=PTS-STARTPTS,` +
+            `afade=t=in:st=0:d=2,` +
+            `afade=t=out:st=${INTRO_LEAD}:d=${INTRO_OVERLAP}[intro];` +
+            // Speech: delayed by INTRO_LEAD so music plays alone first.
+            `[0:a]aformat=sample_rates=44100:channel_layouts=stereo,` +
+            `adelay=${speechDelayMs}|${speechDelayMs}[sp];` +
+            // Outro music: plays for outroTotalSecs. Fades in over 4s, then
+            // fades out over the last 4s. Delayed to start OUTRO_OVERLAP before
+            // the speech ends on the master timeline.
+            `[2:a]atrim=0:${outroTotalSecs},asetpts=PTS-STARTPTS,` +
             `aformat=sample_rates=44100:channel_layouts=stereo,` +
             `volume=${OUTRO_VOLUME},` +
-            `afade=t=in:st=0:d=${Math.min(4, OUTRO_SECS)},` +
-            `afade=t=out:st=${Math.max(0, OUTRO_SECS - 4)}:d=4,` +
-            `adelay=${Math.round(outroStartSec * 1000)}|${Math.round(outroStartSec * 1000)}[outro];` +
-            // Mix all three together (overlay, not concat).
-            `[0:a]aformat=sample_rates=44100:channel_layouts=stereo[sp];` +
+            `afade=t=in:st=0:d=4,` +
+            `afade=t=out:st=${Math.max(0, outroTotalSecs - 4)}:d=4,` +
+            `adelay=${outroStartMs}|${outroStartMs}[outro];` +
+            // Mix all three on the shared timeline.
             `[sp][intro][outro]amix=inputs=3:duration=longest:dropout_transition=0,` +
             // Final loudnorm so the mixed result hits podcast-standard loudness.
             `loudnorm=I=${VOICE_LUFS}:TP=-1.5:LRA=11[out]`,
