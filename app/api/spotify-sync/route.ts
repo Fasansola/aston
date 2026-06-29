@@ -130,8 +130,8 @@ async function handler() {
     matchedPostIds.add(bestPost.id);
     const post = bestPost;
 
-    const embedHtml = spotifyEmbedHtml(match.id);
-    const embedUrl  = spotifyEpisodeUrl(match.id);
+    const embedHtml = spotifyEmbedHtml(ep.id);
+    const embedUrl  = spotifyEpisodeUrl(ep.id);
     try {
       await fetch(`${WP_URL}/wp-json/wp/v2/posts/${post.id}`, {
         method: "POST",
