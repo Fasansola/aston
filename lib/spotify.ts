@@ -56,29 +56,32 @@ export interface SpotifyEpisode {
  * episodes, newest first. Non-fatal — returns [] on error so the sync never
  * crashes the caller.
  */
-export async function getShowEpisodes(limit = 50): Promise<SpotifyEpisode[]> {
+export async function getShowEpisodes(limit = 50): Promise<{ episodes: SpotifyEpisode[]; error?: string }> {
   const showId = process.env.SPOTIFY_SHOW_ID;
   if (!showId) {
-    console.warn("[spotify] SPOTIFY_SHOW_ID not set — skipping episode lookup");
-    return [];
+    return { episodes: [], error: "SPOTIFY_SHOW_ID not set" };
   }
   try {
     const token = await getAccessToken();
     const url = `${API_BASE}/shows/${showId}/episodes?limit=${limit}&offset=0&market=US`;
+    console.log(`[spotify] Fetching episodes: ${url}`);
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
       const err = await res.text().catch(() => res.statusText);
-      console.warn(`[spotify] Episode fetch failed (${res.status}): ${err.slice(0, 200)}`);
-      return [];
+      const msg = `Spotify API returned ${res.status}: ${err.slice(0, 300)}`;
+      console.warn(`[spotify] ${msg}`);
+      return { episodes: [], error: msg };
     }
     const data = await res.json() as { items?: SpotifyEpisode[] };
-    return data.items ?? [];
+    console.log(`[spotify] Got ${data.items?.length ?? 0} episodes`);
+    return { episodes: data.items ?? [] };
   } catch (err) {
-    console.warn(`[spotify] getShowEpisodes failed: ${err instanceof Error ? err.message : String(err)}`);
-    return [];
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[spotify] getShowEpisodes failed: ${msg}`);
+    return { episodes: [], error: msg };
   }
 }
 

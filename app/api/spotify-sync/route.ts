@@ -43,9 +43,16 @@ async function handler() {
   }
 
   // 1. Fetch latest Spotify episodes
-  const spotifyEpisodes = await getShowEpisodes(50);
+  const { episodes: spotifyEpisodes, error: spotifyError } = await getShowEpisodes(50);
   if (spotifyEpisodes.length === 0) {
-    return NextResponse.json({ message: "No Spotify episodes found", synced: 0 });
+    return NextResponse.json({
+      message: "No Spotify episodes found",
+      synced: 0,
+      error: spotifyError ?? null,
+      showId: process.env.SPOTIFY_SHOW_ID ?? "(not set)",
+      clientIdSet: !!process.env.SPOTIFY_CLIENT_ID,
+      clientSecretSet: !!process.env.SPOTIFY_CLIENT_SECRET,
+    });
   }
   console.log(`[spotify-sync] ${spotifyEpisodes.length} Spotify episodes fetched`);
 
