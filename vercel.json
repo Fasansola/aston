@@ -8,6 +8,6 @@
     { "path": "/api/cron",             "schedule": "0 8 * * *"  },
     { "path": "/api/cron-performance", "schedule": "0 3 * * 1"  },
     { "path": "/api/cron-publish",     "schedule": "0 9 * * *"  },
-    { "path": "/api/spotify-sync",     "schedule": "0 */4 * * *" }
+    { "path": "/api/spotify-sync",     "schedule": "0 * * * *" }
   ]
 }
