@@ -91,7 +91,7 @@ export async function getShowEpisodes(limit = 50): Promise<{ episodes: SpotifyEp
  * an HTML iframe in an ACF field.
  */
 export function spotifyEmbedHtml(episodeId: string): string {
-  return `<iframe style="border-radius:12px" src="https://open.spotify.com/embed/episode/${episodeId}?utm_source=generator&theme=0" width="100%" height="152" frameBorder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>`;
+  return `<iframe style="border-radius:12px" src="https://open.spotify.com/embed/episode/${episodeId}?utm_source=generator&theme=0" width="100%" height="352" frameBorder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>`;
 }
 
 export function spotifyEpisodeUrl(episodeId: string): string {
