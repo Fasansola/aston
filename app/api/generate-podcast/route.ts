@@ -37,7 +37,7 @@ function stripHtml(html: string): string {
 async function createPodcastEpisode(
   cptRestBase: string,
   audioField: string,
-  episode: { title: string; description: string; audioUrl: string }
+  episode: { title: string; description: string; audioUrl: string; sourcePostId: number }
 ): Promise<{ id: number; link: string }> {
   const res = await fetch(`${process.env.WP_URL}/wp-json/wp/v2/${cptRestBase}`, {
     method: "POST",
@@ -46,7 +46,10 @@ async function createPodcastEpisode(
       title: episode.title,
       content: episode.description,
       status: "publish",
-      acf: { [audioField]: episode.audioUrl },
+      acf: {
+        [audioField]: episode.audioUrl,
+        source_post_id: episode.sourcePostId,
+      },
     }),
     signal: AbortSignal.timeout(20_000),
   });
@@ -135,6 +138,7 @@ export async function POST(req: NextRequest) {
           title: dialogue.episodeTitle,
           description,
           audioUrl: url,
+          sourcePostId: postId,
         });
 
         // Return the CPT episode id + audio media id so deleting the source post

@@ -3,20 +3,26 @@
  * ─────────────────────────────────────────────────────────────
  * GET or POST /api/spotify-sync
  *
- * Embeds the Spotify podcast player directly into blog posts that had a
- * podcast generated from them. Runs every 4 hours via Vercel cron.
+ * Embeds the Spotify podcast player into the blog posts that had podcasts
+ * generated from them. Runs every 4 hours via Vercel cron.
  *
- * Logic:
+ * Flow (no fuzzy title matching — uses the explicit link stored at
+ * generation time, same pattern as YouTube video embedding):
+ *
  *   1. Fetch latest Spotify episodes for the show (SPOTIFY_SHOW_ID)
- *   2. Fetch recent WordPress blog posts (wp/v2/posts)
- *   3. Match by normalised title — the podcast episode title is derived from
- *      the blog post title, so they correspond after normalisation
- *   4. For each matched post that doesn't already have a spotify_embed_url,
- *      patch the post's ACF with the Spotify embed iframe
+ *   2. Fetch podcast CPT entries that have a source_post_id (the blog post
+ *      the podcast was generated from — stored at generation time)
+ *   3. Match CPT entries to Spotify episodes by normalised title. The CPT
+ *      title IS the podcast episode title (both come from episodeTitle), so
+ *      this is a near-exact match — not the fragile blog-post-to-Spotify
+ *      title matching the old approach used.
+ *   4. For each match, patch the SOURCE BLOG POST (via source_post_id)
+ *      with the Spotify embed iframe.
  *
  * Env:
  *   SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_SHOW_ID
  *   WP_URL, WP_USERNAME, WP_APP_PASSWORD
+ *   PODCAST_CPT_REST_BASE (default "podcast")
  */
 
 import { NextResponse } from "next/server";
@@ -24,36 +30,15 @@ import { getShowEpisodes, spotifyEmbedHtml, spotifyEpisodeUrl } from "@/lib/spot
 
 export const maxDuration = 60;
 
-const WP_URL  = process.env.WP_URL!;
-const WP_AUTH = Buffer.from(`${process.env.WP_USERNAME}:${process.env.WP_APP_PASSWORD}`).toString("base64");
+const WP_URL   = process.env.WP_URL!;
+const WP_AUTH  = Buffer.from(`${process.env.WP_USERNAME}:${process.env.WP_APP_PASSWORD}`).toString("base64");
+const CPT_BASE = process.env.PODCAST_CPT_REST_BASE || "podcast";
 
 function normalise(title: string): string {
   return (title ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
 }
 
-// Stop words excluded from similarity scoring — they add noise without meaning.
-const STOP = new Set(["the","a","an","in","on","of","for","to","and","or","with","how","is","are","your","its","it","this","that","by","from","at","as","be","do","does","was","were","been","can","has","have","had","not","but","so","if","no","up","out","into","what","who","why","when","where","which"]);
-
-/**
- * Word-overlap similarity: what fraction of meaningful words in the shorter
- * title appear in the longer one. Returns 0–1. Ignores stop words and year
- * numbers so "best free zones in dubai for tech startups in 2026" matches
- * "choosing the right dubai free zone for your tech startup".
- */
-function titleSimilarity(a: string, b: string): number {
-  const wordsA = normalise(a).split(" ").filter(w => !STOP.has(w) && !/^\d{4}$/.test(w));
-  const wordsB = normalise(b).split(" ").filter(w => !STOP.has(w) && !/^\d{4}$/.test(w));
-  if (wordsA.length === 0 || wordsB.length === 0) return 0;
-  // Compare against the shorter set so a short Spotify title can match a longer WP title
-  const [shorter, longer] = wordsA.length <= wordsB.length ? [wordsA, wordsB] : [wordsB, wordsA];
-  const longerSet = new Set(longer);
-  const matched = shorter.filter(w => longerSet.has(w)).length;
-  return matched / shorter.length;
-}
-
-const MATCH_THRESHOLD = 0.55;
-
-interface WpPost {
+interface WpCptPost {
   id: number;
   title: { rendered: string };
   acf?: Record<string, unknown>;
@@ -72,73 +57,89 @@ async function handler() {
       synced: 0,
       error: spotifyError ?? null,
       showId: process.env.SPOTIFY_SHOW_ID ?? "(not set)",
-      clientIdSet: !!process.env.SPOTIFY_CLIENT_ID,
-      clientSecretSet: !!process.env.SPOTIFY_CLIENT_SECRET,
     });
   }
   console.log(`[spotify-sync] ${spotifyEpisodes.length} Spotify episodes fetched`);
 
-  // 2. Fetch recent WordPress blog posts (regular posts, not the podcast CPT).
-  //    We check the last 100 posts — any older and they'll already have been synced
-  //    on a previous run or predate the podcast feature.
-  let wpPosts: WpPost[] = [];
+  // 2. Fetch podcast CPT entries (these have the explicit source_post_id link).
+  let cptPosts: WpCptPost[] = [];
   try {
     const res = await fetch(
-      `${WP_URL}/wp-json/wp/v2/posts?per_page=100&orderby=date&order=desc`,
+      `${WP_URL}/wp-json/wp/v2/${CPT_BASE}?per_page=100&orderby=date&order=desc`,
       { headers: { Authorization: `Basic ${WP_AUTH}` }, signal: AbortSignal.timeout(20_000) }
     );
     if (res.ok) {
-      wpPosts = (await res.json()) as WpPost[];
+      cptPosts = (await res.json()) as WpCptPost[];
     }
   } catch (err) {
-    console.warn(`[spotify-sync] WP fetch failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`[spotify-sync] WP CPT fetch failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // Filter to posts that don't already have a Spotify embed
-  const unsynced = wpPosts.filter((p) => {
-    const embed = p.acf?.spotify_embed_url;
-    return !embed || (typeof embed === "string" && embed.trim().length === 0);
+  // Filter to CPT entries that have a source_post_id (the linked blog post)
+  const linked = cptPosts.filter((p) => {
+    const spid = p.acf?.source_post_id;
+    return typeof spid === "number" && spid > 0;
   });
-  console.log(`[spotify-sync] ${wpPosts.length} blog posts fetched, ${unsynced.length} without Spotify embed`);
+  console.log(`[spotify-sync] ${cptPosts.length} podcast CPT entries, ${linked.length} with source_post_id`);
 
-  if (unsynced.length === 0) {
-    return NextResponse.json({ message: "All recent posts already have Spotify embeds (or no posts found)", synced: 0 });
+  if (linked.length === 0) {
+    return NextResponse.json({
+      message: "No podcast CPT entries with source_post_id found. Generate a new podcast to create the link.",
+      synced: 0,
+      total_spotify: spotifyEpisodes.length,
+      total_cpt: cptPosts.length,
+    });
   }
 
-  // 3. For each Spotify episode, find the best-matching WP post by word overlap.
-  //    We iterate Spotify episodes (small set) and score against all unsynced WP
-  //    posts, picking the highest above the threshold. A WP post can only match
-  //    once (first Spotify episode wins) to prevent duplicates.
-  const results: Array<{ postId: number; title: string; spotifyUrl: string; similarity: number }> = [];
-  const spotifyTitles = spotifyEpisodes.map(ep => normalise(ep.name));
-  const matchedPostIds = new Set<number>();
-  const debugMatches: Array<{ spotify: string; wp: string; score: number }> = [];
-
+  // 3. Build Spotify title → episode map (the CPT title IS the episode title)
+  const spotifyMap = new Map<string, typeof spotifyEpisodes[0]>();
   for (const ep of spotifyEpisodes) {
-    let bestPost: WpPost | null = null;
-    let bestScore = 0;
-    for (const post of unsynced) {
-      if (matchedPostIds.has(post.id)) continue;
-      const wpTitle = post.title.rendered.replace(/<[^>]+>/g, "");
-      const score = titleSimilarity(ep.name, wpTitle);
-      if (score > bestScore) { bestScore = score; bestPost = post; }
-    }
-    if (!bestPost || bestScore < MATCH_THRESHOLD) {
-      debugMatches.push({ spotify: normalise(ep.name).slice(0, 60), wp: bestPost ? normalise(bestPost.title.rendered.replace(/<[^>]+>/g, "")).slice(0, 60) : "(none)", score: Math.round(bestScore * 100) });
+    spotifyMap.set(normalise(ep.name), ep);
+  }
+
+  // 4. For each linked CPT entry, check if the source blog post already has
+  //    a Spotify embed. If not, match the CPT title to Spotify and patch.
+  const results: Array<{ blogPostId: number; cptId: number; title: string; spotifyUrl: string }> = [];
+  const skipped: Array<{ cptId: number; title: string; reason: string }> = [];
+
+  for (const cpt of linked) {
+    const sourcePostId = cpt.acf!.source_post_id as number;
+    const cptTitle = normalise(cpt.title.rendered.replace(/<[^>]+>/g, ""));
+
+    // Check if blog post already has a Spotify embed
+    try {
+      const postRes = await fetch(
+        `${WP_URL}/wp-json/wp/v2/posts/${sourcePostId}?_fields=id,acf`,
+        { headers: { Authorization: `Basic ${WP_AUTH}` }, signal: AbortSignal.timeout(10_000) }
+      );
+      if (!postRes.ok) {
+        skipped.push({ cptId: cpt.id, title: cptTitle, reason: `blog post ${sourcePostId} not found (${postRes.status})` });
+        continue;
+      }
+      const postData = await postRes.json() as { acf?: Record<string, unknown> };
+      const existing = postData.acf?.spotify_embed_url;
+      if (existing && typeof existing === "string" && existing.trim().length > 0) {
+        continue; // already synced
+      }
+    } catch {
+      skipped.push({ cptId: cpt.id, title: cptTitle, reason: "failed to check blog post" });
       continue;
     }
-    matchedPostIds.add(bestPost.id);
-    const post = bestPost;
 
-    const embedHtml = spotifyEmbedHtml(ep.id);
-    const embedUrl  = spotifyEpisodeUrl(ep.id);
+    // Match CPT title to Spotify episode
+    const spotifyMatch = spotifyMap.get(cptTitle);
+    if (!spotifyMatch) {
+      skipped.push({ cptId: cpt.id, title: cptTitle, reason: "no Spotify episode with matching title yet" });
+      continue;
+    }
+
+    // Patch the source blog post with the Spotify embed
+    const embedHtml = spotifyEmbedHtml(spotifyMatch.id);
+    const embedUrl  = spotifyEpisodeUrl(spotifyMatch.id);
     try {
-      await fetch(`${WP_URL}/wp-json/wp/v2/posts/${post.id}`, {
+      await fetch(`${WP_URL}/wp-json/wp/v2/posts/${sourcePostId}`, {
         method: "POST",
-        headers: {
-          Authorization: `Basic ${WP_AUTH}`,
-          "Content-Type": "application/json",
-        },
+        headers: { Authorization: `Basic ${WP_AUTH}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           acf: {
             spotify_embed_url: embedUrl,
@@ -147,25 +148,24 @@ async function handler() {
         }),
         signal: AbortSignal.timeout(15_000),
       });
-      console.log(`[spotify-sync] Embedded Spotify in blog post ${post.id} "${post.title.rendered}" → ${embedUrl} (similarity ${Math.round(bestScore * 100)}%)`);
-      results.push({ postId: post.id, title: post.title.rendered, spotifyUrl: embedUrl, similarity: Math.round(bestScore * 100) });
+      console.log(`[spotify-sync] Embedded Spotify in blog post ${sourcePostId} (from CPT ${cpt.id}) → ${embedUrl}`);
+      results.push({ blogPostId: sourcePostId, cptId: cpt.id, title: cpt.title.rendered, spotifyUrl: embedUrl });
     } catch (err) {
-      console.warn(`[spotify-sync] Failed to patch post ${post.id}: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`[spotify-sync] Failed to patch blog post ${sourcePostId}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   return NextResponse.json({
     message: results.length > 0
       ? `Embedded Spotify player in ${results.length} blog post(s)`
-      : "No new matches found (episodes may not be on Spotify yet, or titles don't match)",
+      : "No new matches — episodes may not be on Spotify yet",
     synced: results.length,
     total_spotify: spotifyEpisodes.length,
-    total_unsynced_posts: unsynced.length,
+    total_linked_cpt: linked.length,
     results,
-    debug: {
-      spotify_titles: spotifyTitles,
-      matches: debugMatches,
-    },
+    skipped: skipped.length > 0 ? skipped : undefined,
+    spotify_titles: spotifyEpisodes.map(e => normalise(e.name)),
+    cpt_titles: linked.map(c => normalise(c.title.rendered.replace(/<[^>]+>/g, ""))),
   });
 }
 
