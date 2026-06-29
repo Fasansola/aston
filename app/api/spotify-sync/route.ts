@@ -26,7 +26,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { getShowEpisodes, spotifyEmbedHtml, spotifyEpisodeUrl } from "@/lib/spotify";
+import { getShowEpisodes, spotifyEpisodeUrl } from "@/lib/spotify";
 
 export const maxDuration = 60;
 
@@ -143,8 +143,7 @@ async function handler() {
         body: JSON.stringify({
           acf: {
             spotify_embed_url: embedUrl,
-            spotify_embed_html: embedHtml,
-          },
+                      },
         }),
         signal: AbortSignal.timeout(15_000),
       });
