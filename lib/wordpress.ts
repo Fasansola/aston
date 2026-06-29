@@ -28,6 +28,81 @@ const BASE_HEADERS = {
   "User-Agent": "AstonBlogTool/1.0 (Vercel; +https://aston.ae)",
 };
 
+// ── SiteGround captcha retry helper ──────────────────────────
+// SiteGround's anti-bot system intermittently intercepts requests from
+// Vercel IPs and returns an HTML captcha page instead of a JSON response.
+// It's transient (clears in seconds); retrying with backoff almost always
+// succeeds without any manual intervention.
+//
+// Every WordPress write function should use this helper so that a captcha
+// hit on ANY write — media upload, post creation, image attach, field patch —
+// is handled consistently rather than throwing and wasting expensive
+// upstream AI work (image generation, ElevenLabs synthesis, Remotion renders).
+function isSgCaptcha(data: unknown): boolean {
+  return typeof data === "string" && data.includes("sgcaptcha");
+}
+
+const MAX_SG_RETRIES = 5;
+
+export async function axiosWithSgRetry<T>(
+  label: string,
+  attempt: () => Promise<import("axios").AxiosResponse<T>>
+): Promise<import("axios").AxiosResponse<T>> {
+  for (let i = 1; i <= MAX_SG_RETRIES; i++) {
+    let res: import("axios").AxiosResponse<T>;
+    try {
+      res = await attempt();
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err) && isSgCaptcha(err.response?.data) && i < MAX_SG_RETRIES) {
+        const wait = i * 5_000;
+        console.warn(`[wordpress] SiteGround captcha on ${label} attempt ${i}/${MAX_SG_RETRIES} — retrying in ${wait / 1000}s`);
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
+      throw err;
+    }
+    if (isSgCaptcha(res.data) && i < MAX_SG_RETRIES) {
+      const wait = i * 5_000;
+      console.warn(`[wordpress] SiteGround captcha on ${label} attempt ${i}/${MAX_SG_RETRIES} — retrying in ${wait / 1000}s`);
+      await new Promise((r) => setTimeout(r, wait));
+      continue;
+    }
+    return res;
+  }
+  throw new Error(`${label} failed after ${MAX_SG_RETRIES} retries (persistent SiteGround captcha block)`);
+}
+
+// fetch-based variant for routes that use raw fetch instead of axios
+export async function fetchWithSgRetry(
+  label: string,
+  attempt: () => Promise<Response>
+): Promise<Response> {
+  for (let i = 1; i <= MAX_SG_RETRIES; i++) {
+    let res: Response;
+    try {
+      res = await attempt();
+    } catch (err: unknown) {
+      if (i < MAX_SG_RETRIES) {
+        const wait = i * 5_000;
+        console.warn(`[wordpress] Network error on ${label} attempt ${i}/${MAX_SG_RETRIES} — retrying in ${wait / 1000}s`);
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
+      throw err;
+    }
+    // Clone to allow re-reading body if it turns out to be a captcha page
+    const text = await res.clone().text();
+    if (isSgCaptcha(text) && i < MAX_SG_RETRIES) {
+      const wait = i * 5_000;
+      console.warn(`[wordpress] SiteGround captcha on ${label} attempt ${i}/${MAX_SG_RETRIES} — retrying in ${wait / 1000}s`);
+      await new Promise((r) => setTimeout(r, wait));
+      continue;
+    }
+    return res;
+  }
+  throw new Error(`${label} failed after ${MAX_SG_RETRIES} retries (persistent SiteGround captcha block)`);
+}
+
 
 // ── Language normalisation ────────────────────────────────────
 // Polylang uses 2-letter ISO slugs. The tool accepts full names or codes.
@@ -91,40 +166,36 @@ export async function uploadImageToWordPress(
     contentType: "image/png",
   });
 
-  let response;
-  try {
-    response = await axios.post(`${WP_URL}/wp-json/wp/v2/media`, form, {
+  const response = await axiosWithSgRetry("uploadImageToWordPress", () =>
+    axios.post(`${WP_URL}/wp-json/wp/v2/media`, form, {
       headers: {
         Authorization: `Basic ${WP_AUTH}`,
         "User-Agent": "AstonBlogTool/1.0 (Vercel; +https://aston.ae)",
         ...form.getHeaders(),
       },
       timeout: 60_000,
-    });
-  } catch (err: unknown) {
+    })
+  ).catch((err: unknown) => {
     if (axios.isAxiosError(err)) {
       const detail = JSON.stringify(err.response?.data ?? err.message);
-      throw new Error(
-        `WP media upload failed (${err.response?.status}): ${detail}`
-      );
+      throw new Error(`WP image upload failed (${err.response?.status}): ${detail}`);
     }
     throw err;
-  }
+  });
 
   const mediaId = response.data?.id;
   const mediaUrl = response.data?.source_url ?? "";
   if (!mediaId) {
-    throw new Error(
-      `WP media upload: no ID returned. Response: ${JSON.stringify(response.data)}`
-    );
+    throw new Error(`WP media upload: no ID returned. Response: ${JSON.stringify(response.data)}`);
   }
 
-  // Set alt text for SEO and accessibility
-  await axios.post(
-    `${WP_URL}/wp-json/wp/v2/media/${mediaId}`,
-    { alt_text: altText },
-    { headers: BASE_HEADERS, timeout: 20_000 }
-  );
+  // Set alt text — also retried in case of captcha
+  await axiosWithSgRetry("uploadImageToWordPress/alt-text", () =>
+    axios.post(`${WP_URL}/wp-json/wp/v2/media/${mediaId}`, { alt_text: altText }, { headers: BASE_HEADERS, timeout: 20_000 })
+  ).catch(() => {
+    // Non-fatal — image is uploaded; alt text is a best-effort SEO enhancement
+    console.warn(`[wordpress] Alt-text update for media ${mediaId} failed (non-fatal)`);
+  });
 
   return { id: mediaId, url: mediaUrl };
 }
@@ -141,23 +212,22 @@ export async function uploadMediaToWordPress(
   const form = new FormData();
   form.append("file", buffer, { filename, contentType: mimeType });
 
-  let response;
-  try {
-    response = await axios.post(`${WP_URL}/wp-json/wp/v2/media`, form, {
+  const response = await axiosWithSgRetry("uploadMediaToWordPress", () =>
+    axios.post(`${WP_URL}/wp-json/wp/v2/media`, form, {
       headers: {
         Authorization: `Basic ${WP_AUTH}`,
         "User-Agent": "AstonBlogTool/1.0 (Vercel; +https://aston.ae)",
         ...form.getHeaders(),
       },
       timeout: 60_000,
-    });
-  } catch (err: unknown) {
+    })
+  ).catch((err: unknown) => {
     if (axios.isAxiosError(err)) {
       const detail = JSON.stringify(err.response?.data ?? err.message);
       throw new Error(`WP media upload failed (${err.response?.status}): ${detail}`);
     }
     throw err;
-  }
+  });
 
   const mediaId  = response.data?.id;
   const mediaUrl = response.data?.source_url ?? "";
@@ -455,17 +525,19 @@ export async function updateWordPressPostImages(
     featuredImg: number;
   }
 ): Promise<void> {
-  await axios.post(
-    `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
-    {
-      featured_media: imageIds.featuredImg,
-      acf: {
-        keypoint_one_img: imageIds.keypointOneImg,
-        Keypoint_Two_Img: imageIds.keypointTwoImg,
-        post_split_img:   imageIds.postSplitImg,
+  await axiosWithSgRetry("updateWordPressPostImages", () =>
+    axios.post(
+      `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
+      {
+        featured_media: imageIds.featuredImg,
+        acf: {
+          keypoint_one_img: imageIds.keypointOneImg,
+          Keypoint_Two_Img: imageIds.keypointTwoImg,
+          post_split_img:   imageIds.postSplitImg,
+        },
       },
-    },
-    { headers: BASE_HEADERS, timeout: 20_000 }
+      { headers: BASE_HEADERS, timeout: 20_000 }
+    )
   );
 }
 
@@ -677,10 +749,12 @@ export async function patchWordPressContentField(
   acfFieldName: string,
   newValue: string
 ): Promise<void> {
-  await axios.post(
-    `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
-    { acf: { [acfFieldName]: newValue } },
-    { headers: BASE_HEADERS, timeout: 15_000 }
+  await axiosWithSgRetry("patchWordPressContentField", () =>
+    axios.post(
+      `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
+      { acf: { [acfFieldName]: newValue } },
+      { headers: BASE_HEADERS, timeout: 15_000 }
+    )
   );
 }
 

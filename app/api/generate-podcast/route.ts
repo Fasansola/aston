@@ -16,7 +16,7 @@
 import { NextRequest } from "next/server";
 import { generatePodcastDialogue, type PodcastLengthMins } from "@/lib/podcastDialogue";
 import { buildPodcastEpisode } from "@/lib/podcastAudio";
-import { uploadMediaToWordPress } from "@/lib/wordpress";
+import { uploadMediaToWordPress, fetchWithSgRetry } from "@/lib/wordpress";
 import { getPodcastConfig } from "@/lib/podcast";
 
 export const maxDuration = 800;
@@ -39,29 +39,30 @@ async function createPodcastEpisode(
   audioField: string,
   episode: { title: string; description: string; audioUrl: string; sourcePostId: number }
 ): Promise<{ id: number; link: string }> {
-  const res = await fetch(`${process.env.WP_URL}/wp-json/wp/v2/${cptRestBase}`, {
-    method: "POST",
-    headers: { Authorization: `Basic ${WP_AUTH}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      title: episode.title,
-      content: episode.description,
-      status: "publish",
-      acf: {
-        [audioField]: episode.audioUrl,
-        source_post_id: episode.sourcePostId,
-      },
-    }),
-    signal: AbortSignal.timeout(20_000),
+  const body = JSON.stringify({
+    title: episode.title,
+    content: episode.description,
+    status: "publish",
+    acf: {
+      [audioField]: episode.audioUrl,
+      source_post_id: episode.sourcePostId,
+    },
   });
+  const res = await fetchWithSgRetry("createPodcastEpisode", () =>
+    fetch(`${process.env.WP_URL}/wp-json/wp/v2/${cptRestBase}`, {
+      method: "POST",
+      headers: { Authorization: `Basic ${WP_AUTH}`, "Content-Type": "application/json" },
+      body,
+      signal: AbortSignal.timeout(20_000),
+    })
+  );
   if (!res.ok) {
     const err = await res.text().catch(() => res.statusText);
     throw new Error(`Could not create podcast episode (${res.status}): ${err.slice(0, 200)}`);
   }
   const ct = res.headers.get("content-type") ?? "";
   if (!ct.includes("application/json")) {
-    const body = await res.text();
-    const hint = body.includes("sgcaptcha") ? " (SiteGround anti-bot is blocking Vercel — exclude /wp-json/ in SiteGround Site Tools → Security → Anti-Bot AI Protection)" : "";
-    throw new Error(`Could not create podcast episode — WordPress returned non-JSON (${ct})${hint}`);
+    throw new Error(`Could not create podcast episode — WordPress returned non-JSON (${ct})`);
   }
   const created = await res.json();
   return { id: created.id, link: created.link };

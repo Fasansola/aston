@@ -20,6 +20,7 @@ import OpenAI from "openai";
 import { google } from "googleapis";
 import { Readable } from "stream";
 import axios from "axios";
+import { axiosWithSgRetry } from "./wordpress";
 
 const WP_URL      = process.env.WP_URL!;
 const WP_USERNAME = process.env.WP_USERNAME!;
@@ -350,10 +351,12 @@ export async function updatePostVideoUrl(
     ? `https://www.youtube.com/embed/${videoId}`
     : youtubeUrl; // fall back to whatever we were given if parsing fails
 
-  await axios.post(
-    `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
-    { acf: { video_url: embedUrl } },
-    { headers: BASE_HEADERS, timeout: 15_000 }
+  await axiosWithSgRetry("updatePostVideoUrl", () =>
+    axios.post(
+      `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
+      { acf: { video_url: embedUrl } },
+      { headers: BASE_HEADERS, timeout: 15_000 }
+    )
   );
 }
 
@@ -361,11 +364,12 @@ export async function updatePostAudioUrl(
   postId: number,
   audioUrl: string
 ): Promise<void> {
-  // ACF Text field — stores the direct MP3 URL
-  await axios.post(
-    `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
-    { acf: { audio_url: audioUrl } },
-    { headers: BASE_HEADERS, timeout: 15_000 }
+  await axiosWithSgRetry("updatePostAudioUrl", () =>
+    axios.post(
+      `${WP_URL}/wp-json/wp/v2/posts/${postId}`,
+      { acf: { audio_url: audioUrl } },
+      { headers: BASE_HEADERS, timeout: 15_000 }
+    )
   );
 }
 
