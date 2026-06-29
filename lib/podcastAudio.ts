@@ -140,7 +140,16 @@ export async function buildPodcastEpisode(turns: DialogueTurn[]): Promise<Buffer
     await ffmpeg(["-y", ...speechInputs, "-filter_complex", speechFilter, "-map", "[out]",
       "-ar", "44100", "-ac", "2", "-b:a", "128k", speechFile]);
 
-    // 3. Crossfade a music intro in and a music outro out (best-effort)
+    // 3. Overlay music: fade out under the speech at the start, fade back in
+    //    under the speech at the end. Uses adelay + amix so the music and speech
+    //    overlap smoothly — no hard cuts.
+    //
+    //    Timeline:
+    //      0s ─── music plays at INTRO_VOLUME, fades out over INTRO_SECS ───┐
+    //             speech starts at 0s (under the fading music)               │
+    //             ...entire conversation...                                  │
+    //      end ── music fades in over OUTRO_SECS at OUTRO_VOLUME ── fades out
+    //
     const musicUrl = process.env.BACKGROUND_MUSIC_URL;
     if (musicUrl) {
       try {
@@ -149,25 +158,46 @@ export async function buildPodcastEpisode(turns: DialogueTurn[]): Promise<Buffer
           const musicFile = join(dir, "music.mp3");
           await writeFile(musicFile, Buffer.from(await musicRes.arrayBuffer()));
 
+          // Probe the speech duration so we know where to place the outro music.
+          const probeResult = await new Promise<string>((resolve, reject) => {
+            const ffprobePath = ffmpegPath!.replace(/ffmpeg$/, "ffprobe");
+            execFileAsync(ffprobePath, [
+              "-v", "error", "-show_entries", "format=duration",
+              "-of", "default=noprint_wrappers=1:nokey=1", speechFile,
+            ]).then((r) => resolve(r.stdout.trim())).catch(reject);
+          });
+          const speechDuration = parseFloat(probeResult) || 300;
+
+          // Outro music starts this many seconds before the speech ends, so it
+          // fades in under the final words rather than starting after silence.
+          const outroStartSec = Math.max(0, speechDuration - OUTRO_SECS);
+
           const episodeFile = join(dir, "episode.mp3");
-          const introFadeOut = Math.max(0.1, INTRO_SECS - 2);
-          const outroFadeOut = Math.max(0.1, OUTRO_SECS - 3);
           await ffmpeg([
             "-y",
             "-i", speechFile,                      // 0: speech
-            "-stream_loop", "-1", "-i", musicFile, // 1: intro
-            "-stream_loop", "-1", "-i", musicFile, // 2: outro
+            "-stream_loop", "-1", "-i", musicFile, // 1: intro music
+            "-stream_loop", "-1", "-i", musicFile, // 2: outro music
             "-filter_complex",
+            // Intro: trim to INTRO_SECS, fade in quickly, fade out gradually
+            // over the full duration so it smoothly disappears under the speech.
             `[1:a]atrim=0:${INTRO_SECS},asetpts=PTS-STARTPTS,` +
             `aformat=sample_rates=44100:channel_layouts=stereo,` +
             `volume=${INTRO_VOLUME},` +
-            `afade=t=in:st=0:d=0.8,afade=t=out:st=${introFadeOut}:d=2[intro];` +
+            `afade=t=in:st=0:d=1.5,afade=t=out:st=0:d=${INTRO_SECS}[intro];` +
+            // Outro: trim to OUTRO_SECS, delay to start near the end of speech,
+            // fade in gradually, then fade out at the very end.
             `[2:a]atrim=0:${OUTRO_SECS},asetpts=PTS-STARTPTS,` +
             `aformat=sample_rates=44100:channel_layouts=stereo,` +
             `volume=${OUTRO_VOLUME},` +
-            `afade=t=in:st=0:d=1.5,afade=t=out:st=${outroFadeOut}:d=3[outro];` +
+            `afade=t=in:st=0:d=${Math.min(4, OUTRO_SECS)},` +
+            `afade=t=out:st=${Math.max(0, OUTRO_SECS - 4)}:d=4,` +
+            `adelay=${Math.round(outroStartSec * 1000)}|${Math.round(outroStartSec * 1000)}[outro];` +
+            // Mix all three together (overlay, not concat).
             `[0:a]aformat=sample_rates=44100:channel_layouts=stereo[sp];` +
-            `[intro][sp][outro]concat=n=3:v=0:a=1[out]`,
+            `[sp][intro][outro]amix=inputs=3:duration=longest:dropout_transition=0,` +
+            // Final loudnorm so the mixed result hits podcast-standard loudness.
+            `loudnorm=I=${VOICE_LUFS}:TP=-1.5:LRA=11[out]`,
             "-map", "[out]", "-ar", "44100", "-ac", "2", "-b:a", "128k", episodeFile,
           ]);
           return await readFile(episodeFile);
