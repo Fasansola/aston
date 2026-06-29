@@ -133,9 +133,8 @@ async function handler() {
       continue;
     }
 
-    // Patch the source blog post with the Spotify embed
-    const embedHtml = spotifyEmbedHtml(spotifyMatch.id);
-    const embedUrl  = spotifyEpisodeUrl(spotifyMatch.id);
+    // Patch the source blog post with the Spotify URL
+    const embedUrl = spotifyEpisodeUrl(spotifyMatch.id);
     try {
       await fetch(`${WP_URL}/wp-json/wp/v2/posts/${sourcePostId}`, {
         method: "POST",
