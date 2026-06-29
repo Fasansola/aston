@@ -91,10 +91,12 @@ async function handler() {
 
   // 4. Match blog post titles to Spotify episode titles and patch
   const results: Array<{ postId: number; title: string; spotifyUrl: string }> = [];
+  const spotifyTitles = [...spotifyMap.keys()];
+  const unmatchedWp: string[] = [];
   for (const post of unsynced) {
     const wpTitle = normalise(post.title.rendered.replace(/<[^>]+>/g, ""));
     const match = spotifyMap.get(wpTitle);
-    if (!match) continue;
+    if (!match) { unmatchedWp.push(wpTitle.slice(0, 60)); continue; }
 
     const embedHtml = spotifyEmbedHtml(match.id);
     const embedUrl  = spotifyEpisodeUrl(match.id);
@@ -128,6 +130,11 @@ async function handler() {
     total_spotify: spotifyEpisodes.length,
     total_unsynced_posts: unsynced.length,
     results,
+    // Debug: show what titles are being compared so mismatches are obvious
+    debug: {
+      spotify_titles: spotifyTitles,
+      sample_wp_titles: unmatchedWp.slice(0, 10),
+    },
   });
 }
 
