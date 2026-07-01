@@ -35,7 +35,13 @@ const WP_AUTH  = Buffer.from(`${process.env.WP_USERNAME}:${process.env.WP_APP_PA
 const CPT_BASE = process.env.PODCAST_CPT_REST_BASE || "podcast";
 
 function normalise(title: string): string {
-  return (title ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+  return (title ?? "")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&[a-z]+;/g, " ")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 interface WpCptPost {
