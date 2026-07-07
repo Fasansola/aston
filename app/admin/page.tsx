@@ -205,6 +205,45 @@ function Label({ children, required }: { children: React.ReactNode; required?: b
   );
 }
 
+/**
+ * The dashboard "How it works" strip — makes the content pipeline visible:
+ * Ideas → Queue → Drafts → Publish schedule → Live. Each stage shows a live
+ * count and jumps to the tab where that stage is managed.
+ */
+function PipelineStage({ count, label, hint, active, onClick, last }: {
+  count: number; label: string; hint: string; active?: boolean; onClick: () => void; last?: boolean;
+}) {
+  return (
+    <>
+      <button onClick={onClick}
+        className={`flex-1 min-w-[120px] text-left rounded-xl px-4 py-3.5 border transition-all hover:-translate-y-px ${
+          active
+            ? "bg-gold/10 border-gold/35 hover:border-gold/60"
+            : "bg-white/[0.03] border-white/[0.06] hover:border-white/15"
+        }`}>
+        <p className={`font-display text-2xl tabular-nums ${count > 0 ? "text-white/90" : "text-white/30"}`}>{count}</p>
+        <p className="text-xs font-semibold text-white/70 mt-1">{label}</p>
+        <p className="text-[10px] text-white/35 mt-0.5 leading-snug">{hint}</p>
+      </button>
+      {!last && (
+        <svg className="w-4 h-4 text-gold/50 shrink-0 hidden sm:block" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12l-7.5 7.5M21 12H3" />
+        </svg>
+      )}
+    </>
+  );
+}
+
+/** "in 6h 12m" style countdown to the next daily run (08:00 UTC). */
+function untilNextRun(runHour: number): { when: Date; human: string } {
+  const now = new Date();
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), runHour, 0, 0));
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+  const mins = Math.max(1, Math.round((next.getTime() - now.getTime()) / 60_000));
+  const human = mins < 60 ? `in ${mins} min` : `in ${Math.floor(mins / 60)}h ${mins % 60}m`;
+  return { when: next, human };
+}
+
 function fmt(iso: string | null) {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -573,8 +612,8 @@ export default function AdminPage() {
   // ── Nav config ─────────────────────────────────────────────────
   const navItems: { id: Tab; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: "dashboard",    label: "Dashboard",    icon: I.dashboard },
-    { id: "queue",        label: "Gen Queue",    icon: I.queue,   badge: stats?.queued },
-    { id: "publish_queue",label: "Publish Queue",icon: I.publish, badge: publishQueueStats?.queued || undefined },
+    { id: "queue",        label: "Generate",     icon: I.queue,   badge: stats?.queued },
+    { id: "publish_queue",label: "Publish",      icon: I.publish, badge: publishQueueStats?.queued || undefined },
     { id: "topics",       label: "Topics",       icon: I.topics,  badge: topics.filter(x => x.status !== "archived").length || undefined },
     { id: "links",        label: "Links",        icon: I.links,   badge: links.filter(x => x.status === "active").length || undefined },
     { id: "performance",  label: "Performance",  icon: I.perf,    badge: perfRecords.length || undefined },
@@ -660,18 +699,80 @@ export default function AdminPage() {
           {tab === "dashboard" && (
             <>
               <div className="flex items-center justify-between">
-                <h1 className="font-display text-2xl text-white/95 tracking-tight">Dashboard</h1>
+                <div>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Dashboard</h1>
+                  <p className="text-sm text-white/45 mt-0.5">What the scheduler is doing, and what happens next</p>
+                </div>
               </div>
 
+              {/* ── Plain-English status: what happens next ── */}
+              {settings && stats && (() => {
+                const { human } = untilNextRun(8);
+                const remaining = Math.max(0, settings.blogsPerDay - stats.completedToday);
+                const willWrite = Math.min(settings.maxPerRun ?? 1, remaining, stats.queued);
+                const dueEarlier = items.filter(i => i.status === "queued" && i.scheduledFor && new Date(i.scheduledFor) > new Date()).length;
+                return (
+                  <div className={`rounded-2xl border px-5 py-4 ${settings.enabled ? "border-gold/25 bg-gold/[0.06]" : "border-white/[0.08] bg-white/[0.03]"}`}>
+                    <div className="flex items-start gap-3">
+                      <span className={`mt-1 w-2 h-2 rounded-full shrink-0 ${settings.enabled ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" : "bg-white/25"}`} />
+                      <div>
+                        <p className="text-sm text-white/85 leading-relaxed">
+                          {settings.enabled ? (
+                            stats.queued === 0 && dueEarlier === 0
+                              ? <>The scheduler is <strong className="text-emerald-300">on</strong>, but the queue is empty — nothing will generate until you add a topic in <button className="text-gold underline underline-offset-2 hover:text-gold-bright" onClick={() => setTab("queue")}>Generate</button>.</>
+                              : <>Next automatic run <strong className="text-gold-bright">{human}</strong> (08:00 UTC): it will write <strong className="text-white">{willWrite === 0 ? "no posts (daily target reached)" : `${willWrite} post${willWrite === 1 ? "" : "s"}`}</strong>{willWrite > 0 && <> from the <strong className="text-white">{stats.queued}</strong> waiting topic{stats.queued === 1 ? "" : "s"}</>} and save {willWrite === 1 ? "it" : "them"} as WordPress draft{willWrite === 1 ? "" : "s"}. {stats.completedToday} of {settings.blogsPerDay} daily posts done so far.</>
+                          ) : (
+                            <>The scheduler is <strong className="text-white/70">paused</strong> — nothing generates automatically. Topics with a set time still generate. Flip the toggle below to resume daily runs.</>
+                          )}
+                        </p>
+                        {dueEarlier > 0 && (
+                          <p className="text-xs text-gold/80 mt-1.5">⏱ {dueEarlier} topic{dueEarlier === 1 ? " has" : "s have"} a set generation time and will run independently of the daily schedule.</p>
+                        )}
+                        {stats.failed > 0 && (
+                          <p className="text-xs text-red-300 mt-1.5">⚠ {stats.failed} topic{stats.failed === 1 ? "" : "s"} failed — open <button className="underline underline-offset-2 hover:text-red-200" onClick={() => setTab("queue")}>Generate</button> to retry or remove {stats.failed === 1 ? "it" : "them"}.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── The content pipeline, made visible ── */}
               {stats && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-4">
-                  <StatCard label="All time" value={stats.total} sub="posts in queue" />
-                  <StatCard label="Waiting" value={stats.queued} color="text-blue-300" sub="to generate" />
-                  <StatCard label="Generating" value={stats.processing} color="text-amber-300" sub="right now" />
-                  <StatCard label="Published" value={stats.completed} color="text-emerald-300" sub="all time" />
+                <Card>
+                  <CardHeader title="How your content flows" subtitle="Each stage is a tab — click one to manage it" />
+                  <div className="px-5 py-5 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 overflow-x-auto">
+                    <PipelineStage
+                      count={topics.filter(t => t.status !== "archived" && t.status !== "queued").length}
+                      label="Topic ideas" hint="Plan and approve ideas"
+                      onClick={() => setTab("topics")} />
+                    <PipelineStage
+                      count={stats.queued}
+                      label="Waiting to write" hint={stats.processing > 0 ? `${stats.processing} writing right now` : "Picked up by the daily run"}
+                      active={stats.processing > 0}
+                      onClick={() => setTab("queue")} />
+                    <PipelineStage
+                      count={stats.completed}
+                      label="Drafts created" hint="Review & edit in WordPress"
+                      onClick={() => setTab("queue")} />
+                    <PipelineStage
+                      count={publishQueueStats?.queued ?? 0}
+                      label="Publish schedule" hint="Drafts queued to go live"
+                      onClick={() => setTab("publish_queue")} />
+                    <PipelineStage
+                      count={publishQueueStats?.published ?? 0}
+                      label="Live" hint="Published on aston.ae"
+                      onClick={() => setTab("publish_queue")} last />
+                  </div>
+                </Card>
+              )}
+
+              {stats && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <StatCard label="Done today" value={stats.completedToday} color="text-gold" sub={settings ? `of ${settings.blogsPerDay} daily target` : "posts generated"} />
+                  <StatCard label="Writing now" value={stats.processing} color="text-amber-300" sub="in progress" />
                   <StatCard label="Failed" value={stats.failed} color="text-red-400" sub="need attention" />
                   <StatCard label="Paused" value={stats.paused} color="text-white/35" sub="on hold" />
-                  <StatCard label="Done today" value={stats.completedToday} color="text-gold" sub="this run" />
                 </div>
               )}
 
@@ -682,7 +783,7 @@ export default function AdminPage() {
                   <div className="p-6 space-y-6">
                     <div className={`flex items-center justify-between rounded-2xl px-5 py-4 ${settings.enabled ? "bg-emerald-500/10 border border-emerald-500/25" : "bg-white/[0.03] border border-white/[0.06]"}`}>
                       <div>
-                        <p className={`text-sm font-semibold ${settings.enabled ? "text-emerald-800" : "text-white/70"}`}>
+                        <p className={`text-sm font-semibold ${settings.enabled ? "text-emerald-300" : "text-white/70"}`}>
                           {settings.enabled ? "Scheduler is running" : "Scheduler is paused"}
                         </p>
                         <p className={`text-xs mt-0.5 ${settings.enabled ? "text-emerald-300" : "text-white/35"}`}>
@@ -693,7 +794,10 @@ export default function AdminPage() {
                     </div>
 
                     <div>
-                      <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-3">Daily Schedule</p>
+                      <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-1.5">Daily Schedule</p>
+                      <p className="text-xs text-white/45 mb-3 leading-relaxed">
+                        In plain terms: every day at 08:00 UTC the scheduler writes <strong className="text-white/70">{settings.maxPerRun ?? 1} post{(settings.maxPerRun ?? 1) === 1 ? "" : "s"}</strong>, and stops once <strong className="text-white/70">{settings.blogsPerDay} post{settings.blogsPerDay === 1 ? "" : "s"}</strong> have been written that day. Topics with a set time ignore this and run at their own moment.
+                      </p>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
                           <p className="text-xs font-medium text-white/45 mb-1">Run time</p>
@@ -822,7 +926,10 @@ export default function AdminPage() {
           {tab === "queue" && (
             <>
               <div className="flex items-center justify-between">
-                <h1 className="font-display text-2xl text-white/95 tracking-tight">Generation Queue</h1>
+                <div>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Generate</h1>
+                  <p className="text-sm text-white/45 mt-0.5">Topics waiting to be written. The daily run works through this list top-priority first — or give a topic an exact time.</p>
+                </div>
               </div>
 
               <Card>
@@ -1011,8 +1118,8 @@ export default function AdminPage() {
             <>
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Publish Queue</h1>
-                  <p className="text-sm text-white/45 mt-0.5">Articles are dispatched to external platforms by the hourly cron, or you can publish immediately.</p>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Publish</h1>
+                  <p className="text-sm text-white/45 mt-0.5">Finished drafts scheduled to go live. Each publishes automatically at its set time (checked hourly) — or push one live now.</p>
                 </div>
                 <Btn variant="secondary" onClick={() => { setPqLoading(true); fetchPublishQueue().finally(() => setPqLoading(false)); }} disabled={pqLoading}>
                   {pqLoading ? <Spinner /> : I.refresh} Refresh
@@ -1132,7 +1239,10 @@ export default function AdminPage() {
           {tab === "topics" && (
             <>
               <div className="flex items-center justify-between">
-                <h1 className="font-display text-2xl text-white/95 tracking-tight">Topic Plans</h1>
+                <div>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Topic ideas</h1>
+                  <p className="text-sm text-white/45 mt-0.5">Your idea bank. Nothing here generates — approve an idea and push it to Generate when it&apos;s ready.</p>
+                </div>
               </div>
 
               <Card>
@@ -1284,7 +1394,10 @@ export default function AdminPage() {
           {tab === "links" && (
             <>
               <div className="flex items-center justify-between">
-                <h1 className="font-display text-2xl text-white/95 tracking-tight">Link Manager</h1>
+                <div>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Links</h1>
+                  <p className="text-sm text-white/45 mt-0.5">The approved links every generated article can weave in — internal aston.ae pages and trusted external sources.</p>
+                </div>
                 <div className="flex items-center gap-3">
                   {wpSyncResult && (
                     <p className={`text-xs font-medium ${wpSyncResult.ok ? "text-emerald-300" : "text-red-400"}`}>{wpSyncResult.msg}</p>
@@ -1465,7 +1578,10 @@ export default function AdminPage() {
           {tab === "performance" && (
             <>
               <div className="flex items-center justify-between">
-                <h1 className="font-display text-2xl text-white/95 tracking-tight">Performance</h1>
+                <div>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Performance</h1>
+                  <p className="text-sm text-white/45 mt-0.5">How published posts are doing in Google Search — synced weekly.</p>
+                </div>
               </div>
 
               <Card>
