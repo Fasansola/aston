@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getSettings,
   getNextEligibleItem,
+  getQueueItem,
   updateQueueItem,
   completedTodayCount,
   addRunLog,
@@ -275,11 +276,73 @@ async function processOneItem(
   throw new Error("Unexpected state after QA retry loop");
 }
 
+/**
+ * Targeted mode — GET /api/cron?itemId=…
+ * Invoked by the scheduleGeneration workflow when a time-scheduled queue item
+ * becomes due. Runs the exact same pipeline + retries as a daily run, but for
+ * ONE item, bypassing the enabled/daily-quota gates: the user scheduled this
+ * item explicitly, so it generates even if the daily scheduler is paused.
+ * Refuses items that are not "queued" (409) so the daily backstop and this
+ * path can never double-generate.
+ */
+async function processTargetedItem(itemId: string) {
+  const item = await getQueueItem(itemId);
+  if (!item) {
+    return NextResponse.json({ error: `Queue item ${itemId} not found` }, { status: 404 });
+  }
+  if (item.status !== "queued") {
+    console.log(`[cron:targeted] Item ${itemId} is "${item.status}" — nothing to do`);
+    return NextResponse.json({ skipped: true, reason: `item_${item.status}` }, { status: 409 });
+  }
+
+  const settings = await getSettings();
+  const runId = `run_scheduled_${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  console.log(`[cron:targeted] Run ${runId} — generating item ${itemId} ("${item.topic}")`);
+  await addRunLog({
+    runId,
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+    topicsAttempted: 1,
+    topicsCompleted: 0,
+    topicsFailed: 0,
+    status: "running",
+  });
+  await updateQueueItem(item.id, { status: "processing" });
+
+  const MAX_TECH_RETRIES = 3;
+  let lastError = "Unknown error";
+  for (let attempt = 1; attempt <= MAX_TECH_RETRIES; attempt++) {
+    try {
+      const result = await processOneItem(item.id, item.topic, item.mode, item.sourceText, settings, {
+        audience:            item.audience,
+        primary_country:     item.primary_country,
+        secondary_countries: item.secondary_countries,
+        priority_service:    item.priority_service,
+        language:            item.language,
+        customPrompt:        item.customPrompt,
+      }, settings.imageModel ?? "gpt-image-2");
+      await updateRunLog(runId, { completedAt: new Date().toISOString(), topicsCompleted: 1, status: "completed" });
+      console.log(`[cron:targeted] Item ${item.id} completed — WP post ${result.postId}, QA ${result.qaScore}/100`);
+      return NextResponse.json({ runId, itemId: item.id, postId: result.postId, qaScore: result.qaScore });
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : "Unknown error";
+      console.warn(`[cron:targeted] Item ${item.id} attempt ${attempt}/${MAX_TECH_RETRIES} failed: ${lastError}`);
+    }
+  }
+
+  await updateQueueItem(item.id, { status: "failed", retryCount: (item.retryCount ?? 0) + 1, lastError });
+  await updateRunLog(runId, { completedAt: new Date().toISOString(), topicsFailed: 1, status: "failed" });
+  return NextResponse.json({ error: lastError, itemId: item.id }, { status: 500 });
+}
+
 export async function GET(req: NextRequest) {
   if (!authOk(req)) {
     console.warn("[cron] Unauthorized request");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const targetItemId = req.nextUrl.searchParams.get("itemId");
+  if (targetItemId) return processTargetedItem(targetItemId);
 
   const runId = `run_${new Date().toISOString().replace(/[:.]/g, "-")}`;
   console.log(`[cron] Run ${runId} started`);

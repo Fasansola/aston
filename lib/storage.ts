@@ -45,6 +45,11 @@ export interface QueueItem {
   priority_service?: string;
   language?: string;
   customPrompt?: string;
+  // Optional exact generation time (ISO). Set when the user picks a delay at
+  // enqueue time ("in 5 min", "in 3 hours"…). A durable workflow sleeps until
+  // this moment and triggers generation; the daily cron also honours it and
+  // acts as a backstop, never picking the item up early.
+  scheduledFor?: string | null;
 }
 
 export type ImageModel = "imagen-4" | "gpt-image-2";
@@ -272,6 +277,7 @@ export async function addQueueItem(
     priority_service?: string;
     language?: string;
     customPrompt?: string;
+    scheduledFor?: string | null;
   }
 ): Promise<QueueItem> {
   const item: QueueItem = {
@@ -321,14 +327,23 @@ export async function deleteQueueItem(id: string): Promise<boolean> {
 /** Return next item eligible for processing — highest priority, then oldest. */
 export async function getNextEligibleItem(): Promise<QueueItem | null> {
   const queue = await getQueue();
+  const now = new Date().toISOString();
   return (
     queue
-      .filter((i) => i.status === "queued")
+      // Never pick up a time-scheduled item before it is due. (ISO strings
+      // compare lexicographically.) Once due, the cron acts as a backstop in
+      // case the item's scheduling workflow never fired.
+      .filter((i) => i.status === "queued" && (!i.scheduledFor || i.scheduledFor <= now))
       .sort((a, b) => {
         if (b.priority !== a.priority) return b.priority - a.priority;
         return a.createdAt.localeCompare(b.createdAt);
       })[0] ?? null
   );
+}
+
+export async function getQueueItem(id: string): Promise<QueueItem | null> {
+  const queue = await getQueue();
+  return queue.find((i) => i.id === id) ?? null;
 }
 
 // ── Scheduler settings ────────────────────────────────────────

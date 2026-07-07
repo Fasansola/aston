@@ -15,6 +15,7 @@ interface QueueItem {
   retryCount: number; lastError: string | null;
   wpPostId: number | null; wpEditUrl: string | null; wpPostUrl: string | null;
   qaScore: number | null; qaWarnings: string[];
+  scheduledFor?: string | null;
 }
 interface QueueStats {
   total: number; queued: number; processing: number;
@@ -259,6 +260,7 @@ export default function AdminPage() {
   const [newTopic, setNewTopic]   = useState("");
   const [newMode, setNewMode]     = useState<GenerationMode>("topic_only");
   const [newPriority, setNewPriority] = useState(3);
+  const [newDelay, setNewDelay] = useState("");   // "" = next scheduled run; otherwise minutes
   const [adding, setAdding]       = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [showStrategyInputs, setShowStrategyInputs] = useState(false);
@@ -400,12 +402,13 @@ export default function AdminPage() {
           priority_service: newPriorityService.trim() || undefined,
           language: newLanguage.trim() || undefined,
           customPrompt: newCustomPrompt.trim() || undefined,
+          delayMinutes: newDelay ? Number(newDelay) : undefined,
         }),
       });
-      setNewTopic(""); setNewPriority(3);
+      setNewTopic(""); setNewPriority(3); setNewDelay("");
       setNewAudience(""); setNewPrimaryCountry(""); setNewSecondaryCountries(""); setNewPriorityService(""); setNewLanguage(""); setNewCustomPrompt("");
       await fetchDashboard();
-      showToast("Topic added to queue");
+      showToast(newDelay ? `Topic queued — generates in ${Number(newDelay) < 60 ? `${newDelay} min` : `${Number(newDelay) / 60}h`}` : "Topic added to queue");
     } finally { setAdding(false); }
   }
 
@@ -865,6 +868,19 @@ export default function AdminPage() {
                         <option value={1}>1 — Low</option>
                       </Select>
                     </div>
+                    <div>
+                      <Label>Generate</Label>
+                      <Select value={newDelay} onChange={(e) => setNewDelay(e.target.value)} className="w-44">
+                        <option value="">Next scheduled run</option>
+                        <option value="5">In 5 minutes</option>
+                        <option value="30">In 30 minutes</option>
+                        <option value="60">In 1 hour</option>
+                        <option value="180">In 3 hours</option>
+                        <option value="300">In 5 hours</option>
+                        <option value="720">In 12 hours</option>
+                        <option value="1440">In 24 hours</option>
+                      </Select>
+                    </div>
                     <Btn variant="primary" onClick={addQueueItem} disabled={adding || (!newTopic.trim() && newCustomPrompt.trim().length < 10) || !newAudience.trim()}>
                       {adding ? <><Spinner /> Adding…</> : <>{I.plus} Add to queue</>}
                     </Btn>
@@ -929,6 +945,11 @@ export default function AdminPage() {
                               <p className="font-semibold text-white/90 truncate text-sm" title={item.topic}>{item.topic}</p>
                               {item.lastError && <p className="text-xs text-red-400 mt-0.5 truncate" title={item.lastError}>{item.lastError}</p>}
                               {item.status === "completed" && item.completedAt && <p className="text-xs text-white/35 mt-0.5">Done {fmt(item.completedAt)}</p>}
+                              {item.status === "queued" && item.scheduledFor && (
+                                <p className={`text-xs mt-0.5 ${new Date(item.scheduledFor) > new Date() ? "text-gold/80" : "text-white/35"}`}>
+                                  ⏱ Generates {fmt(item.scheduledFor)}
+                                </p>
+                              )}
                             </td>
                             <td className="px-5 py-4 text-xs text-white/45 whitespace-nowrap capitalize">{item.mode.replace(/_/g, " ")}</td>
                             <td className="px-5 py-4 text-center">

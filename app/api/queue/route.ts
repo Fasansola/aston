@@ -16,6 +16,11 @@ import {
   completedTodayCount,
 } from "@/lib/storage";
 import { GenerationMode } from "@/lib/source";
+import { start } from "workflow/api";
+import { scheduleGenerationWorkflow } from "@/lib/workflows/scheduleGeneration";
+
+// Allowed enqueue delays (minutes): 5m, 30m, 1h, 3h, 5h, 12h, 24h
+const ALLOWED_DELAYS = [5, 30, 60, 180, 300, 720, 1440];
 
 function authOk(req: NextRequest): boolean {
   return req.cookies.get("__aston_session")?.value === process.env.API_SECRET;
@@ -74,6 +79,7 @@ export async function POST(req: NextRequest) {
       priority_service = "",
       language = "",
       customPrompt = "",
+      delayMinutes,
     }: {
       topic: string;
       mode: GenerationMode;
@@ -85,6 +91,7 @@ export async function POST(req: NextRequest) {
       priority_service: string;
       language: string;
       customPrompt: string;
+      delayMinutes?: number;
     } = body;
 
     const hasTopic = !!topic?.trim();
@@ -102,6 +109,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (delayMinutes !== undefined && !ALLOWED_DELAYS.includes(delayMinutes)) {
+      return NextResponse.json(
+        { error: `delayMinutes must be one of: ${ALLOWED_DELAYS.join(", ")}` },
+        { status: 400 }
+      );
+    }
+    const scheduledFor = delayMinutes !== undefined
+      ? new Date(Date.now() + delayMinutes * 60_000).toISOString()
+      : undefined;
+
     const item = await addQueueItem(topic.trim(), mode, sourceText, priority, {
       audience:            audience || undefined,
       primary_country:     primary_country || undefined,
@@ -109,8 +126,23 @@ export async function POST(req: NextRequest) {
       priority_service:    priority_service || undefined,
       language:            language || undefined,
       customPrompt:        customPrompt.trim() || undefined,
+      scheduledFor,
     });
-    console.log(`[queue:POST] Added item ${item.id}: "${item.topic}" (mode: ${mode}, priority: ${priority})`);
+
+    // Time-scheduled items get their own durable timer: sleep until due, then
+    // generate — independent of the daily cron hour. If the workflow cannot
+    // start, the item still generates via the daily cron once due (backstop),
+    // so enqueueing never fails on this.
+    if (scheduledFor) {
+      try {
+        const run = await start(scheduleGenerationWorkflow, [{ itemId: item.id, topic: item.topic, scheduledFor }]);
+        console.log(`[queue:POST] Scheduled item ${item.id} for ${scheduledFor} (+${delayMinutes}m, run ${run.runId})`);
+      } catch (err) {
+        console.error(`[queue:POST] Could not start scheduling workflow for ${item.id} — item will generate via the daily cron backstop: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    console.log(`[queue:POST] Added item ${item.id}: "${item.topic}" (mode: ${mode}, priority: ${priority}${scheduledFor ? `, due ${scheduledFor}` : ""})`);
     return NextResponse.json({ item }, { status: 201 });
   } catch (err) {
     console.error("[queue:POST] Error:", err);
