@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import StudioNav from "../components/StudioNav";
 
 const SAMPLE_TOPICS = [
   { label: "UAE Free Zone",      title: "How to Set Up a Business in a UAE Free Zone" },
@@ -155,47 +156,46 @@ export default function VideoPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
-      <div className="max-w-2xl mx-auto px-6 py-12 space-y-8">
+    <div className="min-h-screen text-white">
+      <div className="studio-bg" />
+      <StudioNav />
+
+      <div className="relative z-10 max-w-2xl mx-auto px-6 py-12 space-y-8">
 
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight">Video Generator</h1>
-            <p className="text-sm text-white/35 mt-0.5">
-              Narrated slideshow · Remotion Lambda · AWS us-east-1
-            </p>
-          </div>
-          <a href="/" className="text-xs text-white/30 hover:text-white/60 transition-colors">← Back to tool</a>
-        </div>
+        <header className="rise-in">
+          <p className="label-caps mb-2.5">Video · Remotion Lambda</p>
+          <h1 className="font-display text-4xl text-white/95 tracking-tight">
+            Video <span className="text-gold">studio</span>
+          </h1>
+          <p className="text-sm text-white/40 mt-3 leading-relaxed max-w-md">
+            A narrated, scene-by-scene slideshow rendered in the cloud — script, imagery and voiceover generated from a single title.
+          </p>
+        </header>
 
         {/* Input */}
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <label className="block text-xs text-white/40 uppercase tracking-widest">Video Topic / Title</label>
+        <div className="panel p-6 rise-in" style={{ animationDelay: "60ms" }}>
+          <div className="space-y-2">
+            <label className="label-caps">Video Topic / Title</label>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleGenerate()}
               placeholder="e.g. How to Set Up a Business in a UAE Free Zone"
-              className="w-full bg-white/[0.04] border border-white/[0.09] rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-white/20 transition-colors"
+              className="input-studio"
             />
           </div>
         </div>
 
         {/* Sample topics */}
         {status === "idle" && (
-          <div className="space-y-2">
-            <p className="text-xs text-white/25 uppercase tracking-widest">Quick topics</p>
-            <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-3 rise-in" style={{ animationDelay: "120ms" }}>
+            <p className="label-caps">Quick topics</p>
+            <div className="grid grid-cols-2 gap-2.5">
               {SAMPLE_TOPICS.map((s) => (
-                <button
-                  key={s.label}
-                  onClick={() => setTitle(s.title)}
-                  className="text-left px-3 py-2.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.06] hover:border-white/[0.12] transition-all duration-150 group"
-                >
-                  <p className="text-xs font-medium text-white/60 group-hover:text-white/80 transition-colors">{s.label}</p>
-                  <p className="text-[10px] text-white/25 mt-0.5 line-clamp-2 leading-relaxed">{s.title}</p>
+                <button key={s.label} onClick={() => setTitle(s.title)} className="option-card group">
+                  <p className="text-xs font-medium text-white/65 group-hover:text-gold-bright transition-colors">{s.label}</p>
+                  <p className="text-[11px] text-white/28 mt-1 line-clamp-2 leading-relaxed">{s.title}</p>
                 </button>
               ))}
             </div>
@@ -204,48 +204,42 @@ export default function VideoPage() {
 
         {/* Generating — asset preparation phase */}
         {status === "generating" && (
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-5 py-5 space-y-3">
+          <div className="panel px-6 py-6 space-y-4 rise-in">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-white/60">{progress}</p>
-              <p className="text-xs text-white/30 tabular-nums">{elapsed}s</p>
+              <p className="text-sm text-white/70">{progress}</p>
+              <p className="text-xs text-gold/70 tabular-nums font-medium">{elapsed}s</p>
             </div>
-            <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
-              <div
-                className="h-full bg-[#C9A84C] rounded-full transition-all duration-1000 ease-linear"
-                style={{ width: `${Math.min((elapsed / 150) * 90, 90)}%` }}
-              />
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${Math.min((elapsed / 150) * 90, 90)}%` }} />
             </div>
-            <p className="text-[10px] text-white/20">Segmenting script · generating 7 scene images (Imagen 4) · preparing narration audio (~2–3 min)</p>
+            <p className="text-[11px] text-white/25">Segmenting script · generating 7 scene images (Imagen 4) · preparing narration audio (~2–3 min)</p>
           </div>
         )}
 
         {/* Rendering — Remotion Lambda phase */}
         {status === "rendering" && (
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-5 py-5 space-y-3">
+          <div className="panel px-6 py-6 space-y-4 rise-in">
             <div className="flex items-center gap-3">
-              <svg className="w-4 h-4 text-[#C9A84C] animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
+              <svg className="w-4 h-4 text-gold animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeDasharray="31.4" strokeDashoffset="10" />
               </svg>
-              <p className="text-sm text-white/60">{progress || "Remotion Lambda is rendering your video…"}</p>
+              <p className="text-sm text-white/70">{progress || "Remotion Lambda is rendering your video…"}</p>
             </div>
-            <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
-              <div
-                className="h-full bg-[#C9A84C] rounded-full transition-all duration-500"
-                style={{ width: `${renderPct > 0 ? renderPct : 10}%` }}
-              />
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${renderPct > 0 ? renderPct : 10}%` }} />
             </div>
             {renderId && (
-              <p className="text-[10px] text-white/20 font-mono">Render ID: {renderId}</p>
+              <p className="text-[10px] text-white/25 font-mono">Render ID: {renderId}</p>
             )}
-            <p className="text-[10px] text-white/20">Checking every 10s · typically completes in 2–4 min</p>
+            <p className="text-[11px] text-white/25">Checking every 10s · typically completes in 2–4 min</p>
           </div>
         )}
 
         {/* Error */}
         {status === "error" && (
-          <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-4 space-y-3">
-            <p className="text-sm text-red-400">{error}</p>
-            <button onClick={handleReset} className="text-xs text-white/40 hover:text-white/70 transition-colors">
+          <div className="rounded-2xl border border-red-500/25 bg-red-500/[0.06] px-5 py-5 space-y-3 rise-in">
+            <p className="text-sm text-red-300">{error}</p>
+            <button onClick={handleReset} className="btn-quiet !px-3 !py-1.5 text-xs">
               Try again
             </button>
           </div>
@@ -253,41 +247,37 @@ export default function VideoPage() {
 
         {/* Ready — video player */}
         {status === "ready" && videoUrl && (
-          <div className="space-y-4">
+          <div className="space-y-4 rise-in">
             <video
               src={videoUrl}
               controls
               autoPlay
-              className="w-full rounded-xl aspect-video bg-black border border-white/[0.06]"
+              className="w-full rounded-2xl aspect-video bg-black border border-white/[0.08] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.8)]"
             />
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                <p className="text-xs text-white/50">Video ready · rendered on AWS Lambda</p>
+                <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
+                <p className="text-xs text-white/55">Video ready · rendered on AWS Lambda</p>
               </div>
               <div className="flex items-center gap-4">
                 <a href={videoUrl} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-white/40 hover:text-white/70 transition-colors">
+                  className="text-xs font-medium text-gold hover:text-gold-bright transition-colors">
                   Open direct URL ↗
                 </a>
-                <button onClick={handleReset} className="text-xs text-white/30 hover:text-white/60 transition-colors">
+                <button onClick={handleReset} className="text-xs text-white/35 hover:text-white/70 transition-colors">
                   Generate another
                 </button>
               </div>
             </div>
             {renderId && (
-              <p className="text-[10px] text-white/20 font-mono">Render ID: {renderId}</p>
+              <p className="text-[10px] text-white/25 font-mono">Render ID: {renderId}</p>
             )}
           </div>
         )}
 
         {/* Generate / Reset button */}
         {(status === "idle" || status === "ready" || status === "error") && (
-          <button
-            onClick={handleGenerate}
-            disabled={!title.trim()}
-            className="w-full flex items-center justify-center gap-2 bg-[#C9A84C] hover:bg-[#D4B86A] disabled:opacity-40 disabled:cursor-not-allowed text-black font-semibold text-sm py-3 rounded-xl transition-colors duration-200"
-          >
+          <button onClick={handleGenerate} disabled={!title.trim()} className="btn-gold w-full">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
             </svg>
@@ -297,9 +287,9 @@ export default function VideoPage() {
 
         {/* What to expect */}
         {status === "idle" && (
-          <div className="rounded-xl border border-white/[0.05] bg-white/[0.015] px-4 py-4 space-y-3">
-            <p className="text-[10px] text-white/25 uppercase tracking-widest">What gets generated</p>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+          <div className="panel px-5 py-5 space-y-3 rise-in" style={{ animationDelay: "180ms" }}>
+            <p className="label-caps">What gets generated</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
               {[
                 ["7 scenes",          "script segmented by topic"],
                 ["7 images",          "purpose-generated per scene (Imagen 4)"],
@@ -311,10 +301,10 @@ export default function VideoPage() {
                 ["CTA end screen",    "aston.ae · 12 seconds"],
               ].map(([label, desc]) => (
                 <div key={label} className="flex items-start gap-2">
-                  <div className="w-1 h-1 rounded-full bg-[#C9A84C] mt-1.5 shrink-0" />
+                  <div className="w-1 h-1 rounded-full bg-gold mt-1.5 shrink-0" />
                   <div>
-                    <span className="text-xs text-white/50">{label}</span>
-                    <span className="text-[11px] text-white/25 ml-1.5">{desc}</span>
+                    <span className="text-xs text-white/55">{label}</span>
+                    <span className="text-[11px] text-white/28 ml-1.5">{desc}</span>
                   </div>
                 </div>
               ))}

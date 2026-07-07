@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import StudioNav from "../components/StudioNav";
 
 type ResultItem = {
   id: number;
@@ -113,27 +114,28 @@ export default function AltTextBackfillPage() {
   const progress = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0;
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
-      <div className="max-w-2xl mx-auto px-6 py-12 space-y-8">
+    <div className="min-h-screen text-white">
+      <div className="studio-bg" />
+      <StudioNav />
+
+      <div className="relative z-10 max-w-2xl mx-auto px-6 py-12 space-y-8">
 
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight">Alt Text Backfill</h1>
-            <p className="text-sm text-white/35 mt-0.5">
-              Adds SEO-optimised alt text to all WordPress media missing it
-            </p>
-          </div>
-          <a href="/" className="text-xs text-white/30 hover:text-white/60 transition-colors">
-            ← Back to tool
-          </a>
-        </div>
+        <header className="rise-in">
+          <p className="label-caps mb-2.5">Media · WordPress</p>
+          <h1 className="font-display text-4xl text-white/95 tracking-tight">
+            Alt-text <span className="text-gold">backfill</span>
+          </h1>
+          <p className="text-sm text-white/40 mt-3 leading-relaxed max-w-md">
+            Writes SEO-optimised alt text for every WordPress image that is missing it — safe to stop and restart at any time.
+          </p>
+        </header>
 
         {/* Info card */}
         {stage === "idle" && (
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-5 py-5 space-y-3">
-            <p className="text-xs text-white/50 font-medium uppercase tracking-widest">What this does</p>
-            <ul className="space-y-2">
+          <div className="panel px-6 py-6 space-y-3.5 rise-in" style={{ animationDelay: "60ms" }}>
+            <p className="label-caps">What this does</p>
+            <ul className="space-y-2.5">
               {[
                 "Scans your WordPress media library page by page",
                 "Finds every image with no alt text set",
@@ -143,8 +145,8 @@ export default function AltTextBackfillPage() {
                 "Safe to stop and restart — already-updated images are not touched again",
               ].map((item, i) => (
                 <li key={i} className="flex items-start gap-2.5">
-                  <span className="text-emerald-400/70 text-xs mt-0.5">✓</span>
-                  <p className="text-sm text-white/50">{item}</p>
+                  <span className="text-gold/80 text-xs mt-0.5">✓</span>
+                  <p className="text-sm text-white/55">{item}</p>
                 </li>
               ))}
             </ul>
@@ -153,37 +155,34 @@ export default function AltTextBackfillPage() {
 
         {/* Progress */}
         {(stage === "running" || stage === "done") && (
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-5 py-5 space-y-4">
+          <div className="panel px-6 py-6 space-y-5 rise-in">
 
             {/* Stats row */}
             <div className="grid grid-cols-4 gap-3">
               {[
                 { label: "Updated",     value: stats.updated,     colour: "text-emerald-400" },
-                { label: "Skipped",     value: stats.skipped,     colour: "text-white/30"    },
+                { label: "Skipped",     value: stats.skipped,     colour: "text-white/35"    },
                 { label: "Unsupported", value: stats.unsupported, colour: "text-amber-400"   },
                 { label: "Errors",      value: stats.errors,      colour: "text-red-400"     },
               ].map(s => (
-                <div key={s.label} className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-3 text-center">
-                  <p className={`text-xl font-semibold tabular-nums ${s.colour}`}>{s.value}</p>
-                  <p className="text-[10px] text-white/30 mt-0.5 uppercase tracking-widest">{s.label}</p>
+                <div key={s.label} className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-3.5 text-center">
+                  <p className={`font-display text-2xl tabular-nums ${s.colour}`}>{s.value}</p>
+                  <p className="text-[10px] text-white/30 mt-1 uppercase tracking-[0.14em]">{s.label}</p>
                 </div>
               ))}
             </div>
 
             {/* Progress bar */}
             {totalPages > 0 && (
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-[10px] text-white/30">
+              <div className="space-y-2">
+                <div className="flex justify-between text-[11px] text-white/35">
                   <span>Page {currentPage} of {totalPages}</span>
                   <span>{totalMedia > 0 ? `${totalMedia} total media` : ""}</span>
                 </div>
-                <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#C9A84C] rounded-full transition-all duration-500 ease-out"
-                    style={{ width: `${stage === "done" ? 100 : progress}%` }}
-                  />
+                <div className="progress-track">
+                  <div className="progress-fill" style={{ width: `${stage === "done" ? 100 : progress}%` }} />
                 </div>
-                <p className="text-[10px] text-white/20 text-right">{stage === "done" ? "Complete" : `${progress}%`}</p>
+                <p className="text-[11px] text-gold/60 text-right font-medium">{stage === "done" ? "Complete" : `${progress}%`}</p>
               </div>
             )}
 
@@ -198,18 +197,15 @@ export default function AltTextBackfillPage() {
 
         {/* Error */}
         {stage === "error" && error && (
-          <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3">
-            <p className="text-sm text-red-400">{error}</p>
+          <div className="rounded-2xl border border-red-500/25 bg-red-500/[0.06] px-5 py-4 rise-in">
+            <p className="text-sm text-red-300">{error}</p>
           </div>
         )}
 
         {/* Buttons */}
         <div className="flex gap-3">
           {(stage === "idle" || stage === "done" || stage === "error") && (
-            <button
-              onClick={handleStart}
-              className="flex-1 flex items-center justify-center gap-2 bg-[#C9A84C] hover:bg-[#D4B86A] text-black font-semibold text-sm py-3 rounded-xl transition-colors"
-            >
+            <button onClick={handleStart} className="btn-gold flex-1">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
               </svg>
@@ -217,10 +213,7 @@ export default function AltTextBackfillPage() {
             </button>
           )}
           {stage === "running" && (
-            <button
-              onClick={handleStop}
-              className="flex-1 flex items-center justify-center gap-2 bg-white/[0.06] hover:bg-white/[0.10] text-white/70 font-semibold text-sm py-3 rounded-xl transition-colors border border-white/10"
-            >
+            <button onClick={handleStop} className="btn-quiet flex-1 !py-3">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z" />
               </svg>
@@ -231,9 +224,9 @@ export default function AltTextBackfillPage() {
 
         {/* Live log — updated images only */}
         {log.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs text-white/30 uppercase tracking-widest">Updated images</p>
-            <div className="rounded-xl border border-white/[0.07] overflow-hidden divide-y divide-white/[0.04]">
+          <div className="space-y-3">
+            <p className="label-caps">Updated images</p>
+            <div className="panel overflow-hidden divide-y divide-white/[0.04] !rounded-2xl">
               {log.slice(0, 100).map((item) => (
                 <div key={item.id} className="flex items-start gap-3 px-4 py-3">
                   <span className={`text-xs mt-0.5 shrink-0 ${item.status === "ok" ? "text-emerald-400" : "text-red-400"}`}>
@@ -241,17 +234,17 @@ export default function AltTextBackfillPage() {
                   </span>
                   <div className="min-w-0 flex-1">
                     {item.status === "ok" ? (
-                      <p className="text-xs text-white/60 leading-relaxed">{item.altText}</p>
+                      <p className="text-xs text-white/65 leading-relaxed">{item.altText}</p>
                     ) : (
-                      <p className="text-xs text-red-400/70 leading-relaxed">{item.error}</p>
+                      <p className="text-xs text-red-300/75 leading-relaxed">{item.error}</p>
                     )}
-                    <p className="text-[10px] text-white/20 mt-0.5 truncate">{item.url}</p>
+                    <p className="text-[10px] text-white/22 mt-0.5 truncate">{item.url}</p>
                   </div>
-                  <span className="text-[10px] text-white/20 shrink-0">ID {item.id}</span>
+                  <span className="text-[10px] text-white/25 shrink-0 tabular-nums">ID {item.id}</span>
                 </div>
               ))}
               {log.length > 100 && (
-                <div className="px-4 py-2 text-[10px] text-white/25 text-center">
+                <div className="px-4 py-2 text-[10px] text-white/28 text-center">
                   Showing latest 100 — {log.length} total
                 </div>
               )}

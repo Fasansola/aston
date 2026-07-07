@@ -68,37 +68,37 @@ interface PublishQueueStats {
 // ── Status maps ────────────────────────────────────────────────
 
 const Q_STATUS: Record<QueueStatus, { dot: string; badge: string; label: string }> = {
-  queued:     { dot: "bg-blue-400",            badge: "bg-blue-50 text-blue-700 ring-blue-600/20",     label: "Queued" },
-  processing: { dot: "bg-amber-400 animate-pulse", badge: "bg-amber-50 text-amber-700 ring-amber-600/20", label: "Processing" },
-  completed:  { dot: "bg-emerald-500",         badge: "bg-emerald-50 text-emerald-700 ring-emerald-600/20", label: "Completed" },
-  failed:     { dot: "bg-red-500",             badge: "bg-red-50 text-red-700 ring-red-600/20",        label: "Failed" },
-  paused:     { dot: "bg-gray-300",            badge: "bg-gray-100 text-gray-600 ring-gray-500/20",    label: "Paused" },
+  queued:     { dot: "bg-blue-400",            badge: "bg-blue-500/10 text-blue-300 ring-blue-500/25",     label: "Queued" },
+  processing: { dot: "bg-amber-400 animate-pulse", badge: "bg-amber-500/10 text-amber-300 ring-amber-500/25", label: "Processing" },
+  completed:  { dot: "bg-emerald-500",         badge: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25", label: "Completed" },
+  failed:     { dot: "bg-red-500",             badge: "bg-red-500/10 text-red-300 ring-red-500/25",        label: "Failed" },
+  paused:     { dot: "bg-white/15",            badge: "bg-white/[0.07] text-white/55 ring-white/15",    label: "Paused" },
 };
 const RUN_STATUS: Record<RunLog["status"], string> = {
-  running:               "bg-amber-50 text-amber-700 ring-amber-600/20",
-  completed:             "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
-  completed_with_errors: "bg-orange-50 text-orange-700 ring-orange-600/20",
-  failed:                "bg-red-50 text-red-700 ring-red-600/20",
+  running:               "bg-amber-500/10 text-amber-300 ring-amber-500/25",
+  completed:             "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25",
+  completed_with_errors: "bg-orange-500/10 text-orange-300 ring-orange-500/25",
+  failed:                "bg-red-500/10 text-red-300 ring-red-500/25",
 };
 const TOPIC_STATUS: Record<TopicPlanStatus, { badge: string; label: string }> = {
-  idea:     { badge: "bg-gray-100 text-gray-600 ring-gray-500/20",      label: "Idea" },
-  planned:  { badge: "bg-blue-50 text-blue-700 ring-blue-600/20",       label: "Planned" },
-  approved: { badge: "bg-violet-50 text-violet-700 ring-violet-600/20", label: "Approved" },
-  queued:   { badge: "bg-emerald-50 text-emerald-700 ring-emerald-600/20", label: "Queued" },
-  archived: { badge: "bg-gray-50 text-gray-400 ring-gray-500/20",       label: "Archived" },
+  idea:     { badge: "bg-white/[0.07] text-white/55 ring-white/15",      label: "Idea" },
+  planned:  { badge: "bg-blue-500/10 text-blue-300 ring-blue-500/25",       label: "Planned" },
+  approved: { badge: "bg-violet-500/10 text-violet-300 ring-violet-500/25", label: "Approved" },
+  queued:   { badge: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25", label: "Queued" },
+  archived: { badge: "bg-white/[0.03] text-white/35 ring-white/15",       label: "Archived" },
 };
 const PQ_STATUS: Record<PublishQueueStatus, { dot: string; badge: string; label: string; bar: string }> = {
-  queued:     { dot: "bg-blue-500",            badge: "bg-blue-50 text-blue-700 ring-blue-600/20",      label: "Scheduled",  bar: "bg-blue-500" },
-  processing: { dot: "bg-amber-400 animate-pulse", badge: "bg-amber-50 text-amber-700 ring-amber-600/20", label: "Publishing", bar: "bg-amber-400" },
-  published:  { dot: "bg-emerald-500",         badge: "bg-emerald-50 text-emerald-700 ring-emerald-600/20", label: "Published",  bar: "bg-emerald-500" },
-  failed:     { dot: "bg-red-500",             badge: "bg-red-50 text-red-700 ring-red-600/20",         label: "Failed",     bar: "bg-red-500" },
-  paused:     { dot: "bg-gray-300",            badge: "bg-gray-100 text-gray-600 ring-gray-500/20",     label: "Paused",     bar: "bg-gray-300" },
+  queued:     { dot: "bg-blue-500",            badge: "bg-blue-500/10 text-blue-300 ring-blue-500/25",      label: "Scheduled",  bar: "bg-blue-500" },
+  processing: { dot: "bg-amber-400 animate-pulse", badge: "bg-amber-500/10 text-amber-300 ring-amber-500/25", label: "Publishing", bar: "bg-amber-400" },
+  published:  { dot: "bg-emerald-500",         badge: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25", label: "Published",  bar: "bg-emerald-500" },
+  failed:     { dot: "bg-red-500",             badge: "bg-red-500/10 text-red-300 ring-red-500/25",         label: "Failed",     bar: "bg-red-500" },
+  paused:     { dot: "bg-white/15",            badge: "bg-white/[0.07] text-white/55 ring-white/15",     label: "Paused",     bar: "bg-white/15" },
 };
 const PERF_STATUS: Record<PerformanceClass, { badge: string; label: string }> = {
-  high:    { badge: "bg-emerald-50 text-emerald-700 ring-emerald-600/20", label: "High" },
-  medium:  { badge: "bg-amber-50 text-amber-700 ring-amber-600/20",       label: "Medium" },
-  low:     { badge: "bg-red-50 text-red-700 ring-red-600/20",             label: "Low" },
-  unknown: { badge: "bg-gray-100 text-gray-500 ring-gray-500/20",         label: "—" },
+  high:    { badge: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25", label: "High" },
+  medium:  { badge: "bg-amber-500/10 text-amber-300 ring-amber-500/25",       label: "Medium" },
+  low:     { badge: "bg-red-500/10 text-red-300 ring-red-500/25",             label: "Low" },
+  unknown: { badge: "bg-white/[0.07] text-white/45 ring-white/15",         label: "—" },
 };
 
 // ── Shared components ──────────────────────────────────────────
@@ -114,7 +114,7 @@ function Badge({ className, children }: { className: string; children: React.Rea
 function Toggle({ checked, onChange, disabled = false }: { checked: boolean; onChange: () => void; disabled?: boolean }) {
   return (
     <button role="switch" aria-checked={checked} onClick={onChange} disabled={disabled}
-      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 ${checked ? "bg-indigo-600" : "bg-gray-200"}`}>
+      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gold/50 disabled:opacity-50 ${checked ? "bg-gold" : "bg-white/15"}`}>
       <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ${checked ? "translate-x-5" : "translate-x-0"}`} />
     </button>
   );
@@ -123,14 +123,14 @@ function Toggle({ checked, onChange, disabled = false }: { checked: boolean; onC
 function Input({ className = "", ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input {...props}
-      className={`block w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition ${className}`} />
+      className={`block w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-gold/55 focus:outline-none focus:ring-2 focus:ring-gold/15 transition ${className}`} />
   );
 }
 
 function Select({ className = "", children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement> & { children: React.ReactNode }) {
   return (
     <select {...props}
-      className={`block rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition ${className}`}>
+      className={`block rounded-lg border border-white/10 bg-ink-2 px-3 py-2.5 text-sm text-white/85 focus:border-gold/55 focus:outline-none focus:ring-2 focus:ring-gold/15 transition ${className}`}>
       {children}
     </select>
   );
@@ -138,14 +138,14 @@ function Select({ className = "", children, ...props }: React.SelectHTMLAttribut
 
 function Btn({ variant = "primary", size = "md", className = "", disabled, children, onClick, type = "button" }:
   { variant?: "primary"|"secondary"|"danger"|"ghost"|"success"; size?: "sm"|"md"|"lg"; className?: string; disabled?: boolean; children: React.ReactNode; onClick?: () => void; type?: "button"|"submit"|"reset" }) {
-  const base = "inline-flex items-center justify-center font-medium rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed select-none";
+  const base = "inline-flex items-center justify-center font-medium rounded-lg transition-all focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed select-none";
   const sizes = { sm: "px-3 py-1.5 text-xs gap-1.5", md: "px-4 py-2.5 text-sm gap-2", lg: "px-5 py-3 text-sm gap-2" };
   const variants = {
-    primary:   "bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800 shadow-sm focus:ring-indigo-500",
-    secondary: "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 active:bg-gray-100 shadow-sm focus:ring-gray-400",
-    danger:    "bg-white text-red-600 border border-red-200 hover:bg-red-50 active:bg-red-100 shadow-sm focus:ring-red-400",
-    ghost:     "text-gray-500 hover:text-gray-800 hover:bg-gray-100 active:bg-gray-200 focus:ring-gray-400",
-    success:   "bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800 shadow-sm focus:ring-emerald-500",
+    primary:   "bg-gradient-to-b from-[#dcbd72] to-[#b6923a] text-black hover:brightness-110 shadow-[0_6px_18px_-8px_rgba(201,168,76,0.6)] focus:ring-gold/40",
+    secondary: "bg-white/[0.05] text-white/75 border border-white/10 hover:bg-white/[0.09] hover:text-white focus:ring-white/20",
+    danger:    "bg-red-500/10 text-red-300 border border-red-500/25 hover:bg-red-500/20 focus:ring-red-400/40",
+    ghost:     "text-white/45 hover:text-white/85 hover:bg-white/[0.06] focus:ring-white/20",
+    success:   "bg-emerald-600 text-white hover:bg-emerald-500 shadow-[0_6px_18px_-8px_rgba(16,185,129,0.5)] focus:ring-emerald-500/40",
   };
   return (
     <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${sizes[size]} ${variants[variant]} ${className}`}>
@@ -156,7 +156,7 @@ function Btn({ variant = "primary", size = "md", className = "", disabled, child
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`bg-white rounded-2xl border border-gray-200 shadow-sm ${className}`}>
+    <div className={`panel !rounded-2xl ${className}`}>
       {children}
     </div>
   );
@@ -164,10 +164,10 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 
 function CardHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
+    <div className="flex items-start justify-between px-6 py-5 border-b border-white/[0.06]">
       <div>
-        <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-        {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+        <h2 className="font-display text-base text-white/90">{title}</h2>
+        {subtitle && <p className="text-xs text-white/40 mt-0.5">{subtitle}</p>}
       </div>
       {action && <div className="flex-shrink-0 ml-4">{action}</div>}
     </div>
@@ -177,27 +177,27 @@ function CardHeader({ title, subtitle, action }: { title: string; subtitle?: str
 function EmptyState({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-      <div className="mb-4 text-gray-200">{icon}</div>
-      <p className="text-sm font-semibold text-gray-700">{title}</p>
-      <p className="mt-1.5 text-xs text-gray-400 max-w-xs leading-relaxed">{body}</p>
+      <div className="mb-4 text-white/15">{icon}</div>
+      <p className="text-sm font-semibold text-white/70">{title}</p>
+      <p className="mt-1.5 text-xs text-white/35 max-w-xs leading-relaxed">{body}</p>
     </div>
   );
 }
 
-function StatCard({ label, value, color = "text-gray-900", sub }: { label: string; value: string | number; color?: string; sub?: string }) {
+function StatCard({ label, value, color = "text-white/90", sub }: { label: string; value: string | number; color?: string; sub?: string }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 text-center">
-      <p className={`text-3xl font-bold tabular-nums tracking-tight ${color}`}>{value}</p>
-      <p className="text-xs font-semibold text-gray-600 mt-1.5">{label}</p>
-      {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
+    <div className="panel !rounded-2xl p-5 text-center">
+      <p className={`font-display text-3xl tabular-nums tracking-tight ${color}`}>{value}</p>
+      <p className="text-xs font-medium text-white/50 mt-1.5">{label}</p>
+      {sub && <p className="text-[10px] text-white/30 mt-0.5">{sub}</p>}
     </div>
   );
 }
 
 function Label({ children, required }: { children: React.ReactNode; required?: boolean }) {
   return (
-    <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-      {children}{required && <span className="text-red-500 ml-0.5">*</span>}
+    <label className="label-caps mb-1.5">
+      {children}{required && <span className="text-red-400 ml-0.5">*</span>}
     </label>
   );
 }
@@ -526,23 +526,23 @@ export default function AdminPage() {
 
   // ── Loading / Login ────────────────────────────────────────────
   if (isAuthed === null) return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse" />
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="studio-bg" />
+      <div className="w-2 h-2 rounded-full bg-gold animate-pulse" />
     </div>
   );
 
   if (!isAuthed) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="w-full max-w-sm px-4">
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="studio-bg" />
+        <div className="relative z-10 w-full max-w-sm px-4 rise-in">
           <div className="mb-8 text-center">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-600 text-white mb-5 shadow-lg shadow-indigo-200">
-              <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-b from-[#dcbd72] via-gold to-[#a8873a] text-black mb-5 shadow-[0_10px_30px_-8px_rgba(201,168,76,0.55)]">
+              <span className="font-display font-semibold text-2xl leading-none">A</span>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Blog Scheduler</h1>
-            <p className="text-sm text-gray-500 mt-1">Aston.ae — internal tool</p>
+            <h1 className="font-display text-2xl text-white/95 tracking-tight">Scheduler</h1>
+            <p className="text-sm text-white/40 mt-1.5">Aston Content Studio</p>
           </div>
           <Card className="p-8 space-y-4">
             <form onSubmit={handleLogin} className="space-y-4">
@@ -552,7 +552,7 @@ export default function AdminPage() {
                   placeholder="Enter password" autoFocus />
               </div>
               {authError && (
-                <div className="flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-xs text-red-700 border border-red-100">
+                <div className="flex items-center gap-2 rounded-xl bg-red-500/10 px-3 py-2.5 text-xs text-red-300 border border-red-500/25">
                   <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
                   {authError}
                 </div>
@@ -576,31 +576,30 @@ export default function AdminPage() {
   ];
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
+    <div className="flex h-screen overflow-hidden">
+      <div className="studio-bg" />
 
       {/* ── Sidebar ─────────────────────────────────────────────── */}
-      <aside className="w-60 flex-shrink-0 bg-gray-950 flex flex-col">
+      <aside className="relative z-10 w-60 flex-shrink-0 bg-ink-1/90 backdrop-blur border-r border-white/[0.06] flex flex-col">
         {/* Brand */}
         <div className="px-5 py-5 border-b border-white/[0.06]">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-indigo-500 flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-900/50">
-              <svg className="w-[18px] h-[18px] text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+          <a href="/" className="flex items-center gap-3 group">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-b from-[#dcbd72] via-gold to-[#a8873a] flex items-center justify-center flex-shrink-0 shadow-[0_6px_18px_-6px_rgba(201,168,76,0.55)]">
+              <span className="font-display text-black font-semibold text-base leading-none">A</span>
             </div>
             <div>
-              <p className="text-sm font-semibold text-white leading-tight">Blog Scheduler</p>
-              <p className="text-[10px] text-gray-500 mt-0.5">Aston.ae</p>
+              <p className="text-sm font-semibold text-white leading-tight">Scheduler</p>
+              <p className="text-[9px] text-gold/70 tracking-[0.24em] uppercase mt-0.5">Content Studio</p>
             </div>
-          </div>
+          </a>
         </div>
 
         {/* Scheduler toggle */}
         {settings && (
           <div className="px-4 py-3 border-b border-white/[0.06]">
             <button onClick={() => saveScheduler({ enabled: !settings.enabled })} disabled={savingSettings}
-              className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-medium transition-all ${settings.enabled ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15" : "bg-white/[0.04] text-gray-400 hover:bg-white/[0.07]"}`}>
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${settings.enabled ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" : "bg-gray-600"}`} />
+              className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-medium transition-all ${settings.enabled ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15" : "bg-white/[0.04] text-white/35 hover:bg-white/[0.07]"}`}>
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${settings.enabled ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" : "bg-white/40"}`} />
               <span className="flex-1 text-left">
                 <span className="block font-semibold text-[11px]">{settings.enabled ? "Scheduler active" : "Scheduler paused"}</span>
                 <span className="block text-[10px] opacity-60 mt-0.5">{settings.enabled ? "Runs daily 08:00 UTC" : "Click to enable"}</span>
@@ -613,11 +612,11 @@ export default function AdminPage() {
         <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
           {navItems.map((item) => (
             <button key={item.id} onClick={() => setTab(item.id)}
-              className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all ${tab === item.id ? "bg-indigo-600 text-white shadow-lg shadow-indigo-900/30" : "text-gray-400 hover:bg-white/[0.06] hover:text-white"}`}>
+              className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all ${tab === item.id ? "bg-gradient-to-b from-[#dcbd72] to-[#b6923a] text-black shadow-[0_6px_18px_-8px_rgba(201,168,76,0.6)]" : "text-white/35 hover:bg-white/[0.06] hover:text-white"}`}>
               <span className="flex-shrink-0">{item.icon}</span>
               <span className="flex-1 text-left font-medium text-[13px]">{item.label}</span>
               {item.badge !== undefined && item.badge > 0 && (
-                <span className={`text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none tabular-nums ${tab === item.id ? "bg-white/25 text-white" : "bg-white/10 text-gray-300"}`}>
+                <span className={`text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none tabular-nums ${tab === item.id ? "bg-black/20 text-black" : "bg-white/10 text-white/30"}`}>
                   {item.badge}
                 </span>
               )}
@@ -628,12 +627,12 @@ export default function AdminPage() {
         {/* Bottom */}
         <div className="px-3 py-3 border-t border-white/[0.06] space-y-0.5">
           <button onClick={() => fetchAll()} disabled={loading}
-            className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-gray-400 hover:bg-white/[0.06] hover:text-white transition-all disabled:opacity-40">
+            className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/35 hover:bg-white/[0.06] hover:text-white transition-all disabled:opacity-40">
             {loading ? <Spinner /> : I.refresh}
             <span className="font-medium text-[13px]">{loading ? "Refreshing…" : "Refresh data"}</span>
           </button>
           <button onClick={() => { fetch("/api/auth", { method: "DELETE" }).finally(() => setIsAuthed(false)); }}
-            className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-gray-400 hover:bg-white/[0.06] hover:text-white transition-all">
+            className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/35 hover:bg-white/[0.06] hover:text-white transition-all">
             {I.signout}
             <span className="font-medium text-[13px]">Sign out</span>
           </button>
@@ -641,10 +640,10 @@ export default function AdminPage() {
       </aside>
 
       {/* ── Main ────────────────────────────────────────────────── */}
-      <main className="flex-1 overflow-auto">
+      <main className="relative z-10 flex-1 overflow-auto">
         {/* Toast */}
         {toast && (
-          <div className={`fixed top-5 right-5 z-50 flex items-center gap-2.5 rounded-2xl px-4 py-3.5 text-sm font-medium shadow-xl border transition-all ${toast.ok ? "bg-white text-gray-800 border-gray-100 shadow-gray-200/80" : "bg-red-50 text-red-700 border-red-100"}`}>
+          <div className={`fixed top-5 right-5 z-50 flex items-center gap-2.5 rounded-2xl px-4 py-3.5 text-sm font-medium shadow-xl border transition-all ${toast.ok ? "bg-ink-2 text-white/80 border-white/[0.06] shadow-black/50" : "bg-red-500/10 text-red-300 border-red-500/25"}`}>
             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${toast.ok ? "bg-emerald-400" : "bg-red-400"}`} />
             {toast.msg}
           </div>
@@ -656,32 +655,32 @@ export default function AdminPage() {
           {tab === "dashboard" && (
             <>
               <div className="flex items-center justify-between">
-                <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
+                <h1 className="font-display text-2xl text-white/95 tracking-tight">Dashboard</h1>
               </div>
 
               {stats && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-4">
                   <StatCard label="All time" value={stats.total} sub="posts in queue" />
-                  <StatCard label="Waiting" value={stats.queued} color="text-blue-600" sub="to generate" />
-                  <StatCard label="Generating" value={stats.processing} color="text-amber-600" sub="right now" />
-                  <StatCard label="Published" value={stats.completed} color="text-emerald-600" sub="all time" />
-                  <StatCard label="Failed" value={stats.failed} color="text-red-500" sub="need attention" />
-                  <StatCard label="Paused" value={stats.paused} color="text-gray-400" sub="on hold" />
-                  <StatCard label="Done today" value={stats.completedToday} color="text-indigo-600" sub="this run" />
+                  <StatCard label="Waiting" value={stats.queued} color="text-blue-300" sub="to generate" />
+                  <StatCard label="Generating" value={stats.processing} color="text-amber-300" sub="right now" />
+                  <StatCard label="Published" value={stats.completed} color="text-emerald-300" sub="all time" />
+                  <StatCard label="Failed" value={stats.failed} color="text-red-400" sub="need attention" />
+                  <StatCard label="Paused" value={stats.paused} color="text-white/35" sub="on hold" />
+                  <StatCard label="Done today" value={stats.completedToday} color="text-gold" sub="this run" />
                 </div>
               )}
 
               {settings && (
                 <Card>
                   <CardHeader title="Scheduler Settings" subtitle="Control when and how posts are generated"
-                    action={savingSettings ? <div className="flex items-center gap-2 text-xs text-gray-400"><Spinner /> Saving</div> : undefined} />
+                    action={savingSettings ? <div className="flex items-center gap-2 text-xs text-white/35"><Spinner /> Saving</div> : undefined} />
                   <div className="p-6 space-y-6">
-                    <div className={`flex items-center justify-between rounded-2xl px-5 py-4 ${settings.enabled ? "bg-emerald-50 border border-emerald-100" : "bg-gray-50 border border-gray-100"}`}>
+                    <div className={`flex items-center justify-between rounded-2xl px-5 py-4 ${settings.enabled ? "bg-emerald-500/10 border border-emerald-500/25" : "bg-white/[0.03] border border-white/[0.06]"}`}>
                       <div>
-                        <p className={`text-sm font-semibold ${settings.enabled ? "text-emerald-800" : "text-gray-700"}`}>
+                        <p className={`text-sm font-semibold ${settings.enabled ? "text-emerald-800" : "text-white/70"}`}>
                           {settings.enabled ? "Scheduler is running" : "Scheduler is paused"}
                         </p>
-                        <p className={`text-xs mt-0.5 ${settings.enabled ? "text-emerald-600" : "text-gray-400"}`}>
+                        <p className={`text-xs mt-0.5 ${settings.enabled ? "text-emerald-300" : "text-white/35"}`}>
                           {settings.enabled ? "Generates posts daily at 08:00 UTC" : "Enable to start generating posts automatically"}
                         </p>
                       </div>
@@ -689,21 +688,21 @@ export default function AdminPage() {
                     </div>
 
                     <div>
-                      <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Daily Schedule</p>
+                      <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-3">Daily Schedule</p>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3.5">
-                          <p className="text-xs font-medium text-gray-500 mb-1">Run time</p>
-                          <p className="text-sm font-bold text-gray-800">08:00 UTC</p>
-                          <p className="text-[10px] text-gray-400 mt-0.5">Fixed in vercel.json</p>
+                        <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                          <p className="text-xs font-medium text-white/45 mb-1">Run time</p>
+                          <p className="text-sm font-bold text-white/80">08:00 UTC</p>
+                          <p className="text-[10px] text-white/35 mt-0.5">Fixed in vercel.json</p>
                         </div>
-                        <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3.5">
-                          <p className="text-xs font-medium text-gray-500 mb-2">Posts per day</p>
+                        <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                          <p className="text-xs font-medium text-white/45 mb-2">Posts per day</p>
                           <Select value={settings.blogsPerDay} onChange={(e) => saveScheduler({ blogsPerDay: Number(e.target.value) })} disabled={savingSettings} className="w-full">
                             {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n} {n === 1 ? "post" : "posts"}</option>)}
                           </Select>
                         </div>
-                        <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3.5">
-                          <p className="text-xs font-medium text-gray-500 mb-2">Posts per run</p>
+                        <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                          <p className="text-xs font-medium text-white/45 mb-2">Posts per run</p>
                           <Select value={settings.maxPerRun} onChange={(e) => saveScheduler({ maxPerRun: Number(e.target.value) })} disabled={savingSettings} className="w-full">
                             {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} {n === 1 ? "post" : "posts"}</option>)}
                           </Select>
@@ -712,17 +711,17 @@ export default function AdminPage() {
                     </div>
 
                     <div>
-                      <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Quality Controls</p>
+                      <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-3">Quality Controls</p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="flex items-center justify-between rounded-xl bg-gray-50 border border-gray-100 px-4 py-3.5">
+                        <div className="flex items-center justify-between rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
                           <div>
-                            <p className="text-sm font-medium text-gray-700">Block on QA warning</p>
-                            <p className="text-xs text-gray-400 mt-0.5">Only publish posts that pass all checks</p>
+                            <p className="text-sm font-medium text-white/70">Block on QA warning</p>
+                            <p className="text-xs text-white/35 mt-0.5">Only publish posts that pass all checks</p>
                           </div>
                           <Toggle checked={settings.blockOnQaWarning} onChange={() => saveScheduler({ blockOnQaWarning: !settings.blockOnQaWarning })} disabled={savingSettings} />
                         </div>
-                        <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3.5">
-                          <p className="text-xs font-medium text-gray-500 mb-2">Auto-retries on failure</p>
+                        <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                          <p className="text-xs font-medium text-white/45 mb-2">Auto-retries on failure</p>
                           <Select value={settings.maxRetries} onChange={(e) => saveScheduler({ maxRetries: Number(e.target.value) })} disabled={savingSettings} className="w-full">
                             {[0,1,2,3,4,5].map(n => <option key={n} value={n}>{n === 0 ? "No retries" : `${n} ${n === 1 ? "retry" : "retries"}`}</option>)}
                           </Select>
@@ -731,9 +730,9 @@ export default function AdminPage() {
                     </div>
 
                     <div>
-                      <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Image Generation</p>
-                      <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3.5">
-                        <p className="text-xs font-medium text-gray-500 mb-2">Image model</p>
+                      <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-3">Image Generation</p>
+                      <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                        <p className="text-xs font-medium text-white/45 mb-2">Image model</p>
                         <Select value={settings.imageModel ?? "gpt-image-2"} onChange={(e) => saveScheduler({ imageModel: e.target.value as "imagen-4" | "gpt-image-2" })} disabled={savingSettings} className="w-full">
                           <option value="gpt-image-2">GPT Image 2 (OpenAI)</option>
                           <option value="imagen-4">Imagen 4 (Google)</option>
@@ -750,21 +749,21 @@ export default function AdminPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="bg-gray-50/80 text-[11px] font-bold text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                        <tr className="bg-white/[0.03]/80 text-[11px] font-bold text-white/35 uppercase tracking-wide border-b border-white/[0.06]">
                           {["Run ID","Started","Completed","Tried","Done","Failed","Status"].map(h => (
                             <th key={h} className={`px-5 py-3 ${["Tried","Done","Failed","Status"].includes(h) ? "text-center" : "text-left"}`}>{h}</th>
                           ))}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-50">
+                      <tbody className="divide-y divide-white/[0.05]">
                         {[...runs].reverse().map((r) => (
-                          <tr key={r.runId} className="hover:bg-gray-50/60 transition-colors">
-                            <td className="px-5 py-3.5 font-mono text-xs text-gray-400">{r.runId.slice(4, 22)}</td>
-                            <td className="px-5 py-3.5 text-xs text-gray-500 whitespace-nowrap">{fmt(r.startedAt)}</td>
-                            <td className="px-5 py-3.5 text-xs text-gray-500 whitespace-nowrap">{fmt(r.completedAt)}</td>
+                          <tr key={r.runId} className="hover:bg-white/[0.03]/60 transition-colors">
+                            <td className="px-5 py-3.5 font-mono text-xs text-white/35">{r.runId.slice(4, 22)}</td>
+                            <td className="px-5 py-3.5 text-xs text-white/45 whitespace-nowrap">{fmt(r.startedAt)}</td>
+                            <td className="px-5 py-3.5 text-xs text-white/45 whitespace-nowrap">{fmt(r.completedAt)}</td>
                             <td className="px-5 py-3.5 text-center text-sm tabular-nums">{r.topicsAttempted}</td>
-                            <td className="px-5 py-3.5 text-center text-sm font-semibold text-emerald-600 tabular-nums">{r.topicsCompleted}</td>
-                            <td className="px-5 py-3.5 text-center text-sm font-semibold text-red-500 tabular-nums">{r.topicsFailed}</td>
+                            <td className="px-5 py-3.5 text-center text-sm font-semibold text-emerald-300 tabular-nums">{r.topicsCompleted}</td>
+                            <td className="px-5 py-3.5 text-center text-sm font-semibold text-red-400 tabular-nums">{r.topicsFailed}</td>
                             <td className="px-5 py-3.5 text-center"><Badge className={RUN_STATUS[r.status]}>{r.status.replace(/_/g, " ")}</Badge></td>
                           </tr>
                         ))}
@@ -780,25 +779,25 @@ export default function AdminPage() {
           {tab === "queue" && (
             <>
               <div className="flex items-center justify-between">
-                <h1 className="text-xl font-bold text-gray-900">Generation Queue</h1>
+                <h1 className="font-display text-2xl text-white/95 tracking-tight">Generation Queue</h1>
               </div>
 
               <Card>
                 <CardHeader title="Add to Queue" subtitle="Topics are picked up by the scheduler, or processed manually." />
                 <div className="p-6 space-y-4">
                   <div>
-                    <Label>Custom prompt <span className="text-gray-400 font-normal">(optional if topic set — AI will derive title)</span></Label>
+                    <Label>Custom prompt <span className="text-white/35 font-normal">(optional if topic set — AI will derive title)</span></Label>
                     <textarea
                       value={newCustomPrompt}
                       onChange={(e) => setNewCustomPrompt(e.target.value)}
                       placeholder="e.g. I need a post about the German crypto market, what is legal and what is not, and how Aston VIP can help"
                       rows={2}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 resize-none"
+                      className="w-full border border-white/10 rounded-lg px-3 py-2 text-sm text-white/90 placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold/55 resize-none"
                     />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <Label>Topic title <span className="text-gray-400 font-normal">(optional if custom prompt set)</span></Label>
+                      <Label>Topic title <span className="text-white/35 font-normal">(optional if custom prompt set)</span></Label>
                       <Input value={newTopic} onChange={(e) => setNewTopic(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addQueueItem()} placeholder="e.g. How to open a company in DIFC" />
                     </div>
                     <div>
@@ -832,13 +831,13 @@ export default function AdminPage() {
                   </div>
                   <div>
                     <button type="button" onClick={() => setShowStrategyInputs(v => !v)}
-                      className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-semibold transition-colors">
+                      className="flex items-center gap-1.5 text-xs text-gold hover:text-gold-bright font-semibold transition-colors">
                       <span className={`transition-transform ${showStrategyInputs ? "rotate-90" : ""}`}>{I.chevron}</span>
                       Additional strategy inputs (optional)
                     </button>
                     {showStrategyInputs && (
-                      <div className="mt-3 p-4 bg-indigo-50/60 rounded-xl border border-indigo-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        <p className="col-span-full text-xs text-gray-500">These optional fields shape jurisdiction focus, service emphasis, and output language.</p>
+                      <div className="mt-3 p-4 bg-gold/[0.07] rounded-xl border border-gold/25 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <p className="col-span-full text-xs text-white/45">These optional fields shape jurisdiction focus, service emphasis, and output language.</p>
                         <div>
                           <Label>Primary country</Label>
                           <Input value={newPrimaryCountry} onChange={(e) => setNewPrimaryCountry(e.target.value)} placeholder="e.g. UAE" />
@@ -872,7 +871,7 @@ export default function AdminPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="bg-gray-50/80 text-[11px] font-bold text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                        <tr className="bg-white/[0.03]/80 text-[11px] font-bold text-white/35 uppercase tracking-wide border-b border-white/[0.06]">
                           <th className="px-5 py-3 text-left">Topic</th>
                           <th className="px-5 py-3 text-left">Mode</th>
                           <th className="px-5 py-3 text-center">Priority</th>
@@ -883,15 +882,15 @@ export default function AdminPage() {
                           <th className="px-5 py-3 text-center">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-50">
+                      <tbody className="divide-y divide-white/[0.05]">
                         {items.map((item) => (
-                          <tr key={item.id} className="hover:bg-gray-50/60 transition-colors">
+                          <tr key={item.id} className="hover:bg-white/[0.03]/60 transition-colors">
                             <td className="px-5 py-4 max-w-[240px]">
-                              <p className="font-semibold text-gray-900 truncate text-sm" title={item.topic}>{item.topic}</p>
-                              {item.lastError && <p className="text-xs text-red-500 mt-0.5 truncate" title={item.lastError}>{item.lastError}</p>}
-                              {item.status === "completed" && item.completedAt && <p className="text-xs text-gray-400 mt-0.5">Done {fmt(item.completedAt)}</p>}
+                              <p className="font-semibold text-white/90 truncate text-sm" title={item.topic}>{item.topic}</p>
+                              {item.lastError && <p className="text-xs text-red-400 mt-0.5 truncate" title={item.lastError}>{item.lastError}</p>}
+                              {item.status === "completed" && item.completedAt && <p className="text-xs text-white/35 mt-0.5">Done {fmt(item.completedAt)}</p>}
                             </td>
-                            <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap capitalize">{item.mode.replace(/_/g, " ")}</td>
+                            <td className="px-5 py-4 text-xs text-white/45 whitespace-nowrap capitalize">{item.mode.replace(/_/g, " ")}</td>
                             <td className="px-5 py-4 text-center">
                               <Select value={item.priority} onChange={(e) => patchQueue(item.id, { priority: Number(e.target.value) })} disabled={item.status === "completed" || item.status === "processing"} className="w-14 text-center disabled:opacity-40">
                                 {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
@@ -903,21 +902,21 @@ export default function AdminPage() {
                                 <Badge className={Q_STATUS[item.status].badge}>{Q_STATUS[item.status].label}</Badge>
                               </span>
                             </td>
-                            <td className="px-5 py-4 text-xs text-gray-400 whitespace-nowrap">{fmt(item.createdAt)}</td>
+                            <td className="px-5 py-4 text-xs text-white/35 whitespace-nowrap">{fmt(item.createdAt)}</td>
                             <td className="px-5 py-4 text-center">
                               {item.qaScore != null ? (
-                                <span className={`text-xs font-bold tabular-nums ${item.qaScore >= 80 ? "text-emerald-600" : item.qaScore >= 60 ? "text-amber-600" : "text-red-500"}`}>
-                                  {item.qaScore}<span className="font-normal text-gray-300">/100</span>
+                                <span className={`text-xs font-bold tabular-nums ${item.qaScore >= 80 ? "text-emerald-300" : item.qaScore >= 60 ? "text-amber-300" : "text-red-400"}`}>
+                                  {item.qaScore}<span className="font-normal text-white/30">/100</span>
                                 </span>
-                              ) : <span className="text-gray-300 text-xs">—</span>}
+                              ) : <span className="text-white/30 text-xs">—</span>}
                             </td>
                             <td className="px-5 py-4 text-center">
                               {item.wpEditUrl ? (
                                 <div className="flex items-center justify-center gap-2">
-                                  <a href={item.wpEditUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline font-medium">Edit in WP</a>
-                                  {item.wpPostUrl && <a href={item.wpPostUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-gray-600 hover:underline">Preview</a>}
+                                  <a href={item.wpEditUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-gold hover:text-gold-bright hover:underline font-medium">Edit in WP</a>
+                                  {item.wpPostUrl && <a href={item.wpPostUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-white/35 hover:text-white/55 hover:underline">Preview</a>}
                                 </div>
-                              ) : <span className="text-gray-300 text-xs">—</span>}
+                              ) : <span className="text-white/30 text-xs">—</span>}
                             </td>
                             <td className="px-5 py-4">
                               <div className="flex items-center justify-center gap-1">
@@ -951,8 +950,8 @@ export default function AdminPage() {
             <>
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-xl font-bold text-gray-900">Publish Queue</h1>
-                  <p className="text-sm text-gray-500 mt-0.5">Articles are dispatched to external platforms by the hourly cron, or you can publish immediately.</p>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Publish Queue</h1>
+                  <p className="text-sm text-white/45 mt-0.5">Articles are dispatched to external platforms by the hourly cron, or you can publish immediately.</p>
                 </div>
                 <Btn variant="secondary" onClick={() => { setPqLoading(true); fetchPublishQueue().finally(() => setPqLoading(false)); }} disabled={pqLoading}>
                   {pqLoading ? <Spinner /> : I.refresh} Refresh
@@ -962,11 +961,11 @@ export default function AdminPage() {
               {publishQueueStats && (
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-4">
                   <StatCard label="Total" value={publishQueueStats.total} />
-                  <StatCard label="Scheduled" value={publishQueueStats.queued} color="text-blue-600" />
-                  <StatCard label="Publishing" value={publishQueueStats.processing} color="text-amber-600" />
-                  <StatCard label="Published" value={publishQueueStats.published} color="text-emerald-600" />
-                  <StatCard label="Failed" value={publishQueueStats.failed} color="text-red-500" />
-                  <StatCard label="Paused" value={publishQueueStats.paused} color="text-gray-400" />
+                  <StatCard label="Scheduled" value={publishQueueStats.queued} color="text-blue-300" />
+                  <StatCard label="Publishing" value={publishQueueStats.processing} color="text-amber-300" />
+                  <StatCard label="Published" value={publishQueueStats.published} color="text-emerald-300" />
+                  <StatCard label="Failed" value={publishQueueStats.failed} color="text-red-400" />
+                  <StatCard label="Paused" value={publishQueueStats.paused} color="text-white/35" />
                 </div>
               )}
 
@@ -998,14 +997,14 @@ export default function AdminPage() {
                                 </span>
                                 <div className="flex flex-wrap gap-1.5">
                                   {item.targets.map((t) => (
-                                    <span key={t.target} className="text-[10px] font-bold uppercase tracking-wide text-gray-500 bg-gray-100 rounded-md px-2 py-0.5">{t.target}</span>
+                                    <span key={t.target} className="text-[10px] font-bold uppercase tracking-wide text-white/45 bg-white/[0.07] rounded-md px-2 py-0.5">{t.target}</span>
                                   ))}
                                 </div>
                               </div>
-                              <h3 className="text-sm font-semibold text-gray-900 mt-2 leading-snug" title={item.title}>{item.title}</h3>
-                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-xs text-gray-400">
+                              <h3 className="text-sm font-semibold text-white/90 mt-2 leading-snug" title={item.title}>{item.title}</h3>
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-xs text-white/35">
                                 <span className="flex items-center gap-1">{I.clock}
-                                  {item.scheduledFor ? fmt(item.scheduledFor) : <span className="text-blue-600 font-semibold">ASAP</span>}
+                                  {item.scheduledFor ? fmt(item.scheduledFor) : <span className="text-blue-300 font-semibold">ASAP</span>}
                                 </span>
                                 <span>Added {fmt(item.createdAt)}</span>
                                 {item.retryCount > 0 && <span className="text-amber-500">{item.retryCount} {item.retryCount === 1 ? "retry" : "retries"}</span>}
@@ -1014,7 +1013,7 @@ export default function AdminPage() {
                               {item.results.length > 0 && (
                                 <div className="flex flex-wrap gap-2 mt-3">
                                   {item.results.map((r) => (
-                                    <span key={r.target} className={`inline-flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1 font-medium ${r.ok ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-red-50 text-red-700 ring-1 ring-red-200"}`}>
+                                    <span key={r.target} className={`inline-flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1 font-medium ${r.ok ? "bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-200" : "bg-red-500/10 text-red-300 ring-1 ring-red-200"}`}>
                                       <span className={`w-1.5 h-1.5 rounded-full ${r.ok ? "bg-emerald-500" : "bg-red-500"}`} />
                                       <span className="capitalize">{r.target}</span>
                                       {r.externalUrl && <a href={r.externalUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 opacity-70 hover:opacity-100">↗</a>}
@@ -1023,7 +1022,7 @@ export default function AdminPage() {
                                 </div>
                               )}
                               {item.lastError && !item.results.length && (
-                                <p className="text-xs text-red-500 mt-2 bg-red-50 rounded-lg px-3 py-2 border border-red-100">{item.lastError}</p>
+                                <p className="text-xs text-red-400 mt-2 bg-red-500/10 rounded-lg px-3 py-2 border border-red-500/25">{item.lastError}</p>
                               )}
                             </div>
 
@@ -1072,7 +1071,7 @@ export default function AdminPage() {
           {tab === "topics" && (
             <>
               <div className="flex items-center justify-between">
-                <h1 className="text-xl font-bold text-gray-900">Topic Plans</h1>
+                <h1 className="font-display text-2xl text-white/95 tracking-tight">Topic Plans</h1>
               </div>
 
               <Card>
@@ -1111,17 +1110,17 @@ export default function AdminPage() {
                       <Input value={tForm.notes} onChange={(e) => setTForm({ ...tForm, notes: e.target.value })} placeholder="Optional notes…" />
                     </div>
                   </div>
-                  <div className="border-t border-gray-100 pt-4">
-                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Strategy inputs — carried to generation</p>
+                  <div className="border-t border-white/[0.06] pt-4">
+                    <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-3">Strategy inputs — carried to generation</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       <div className="sm:col-span-2 lg:col-span-3">
-                        <Label>Custom prompt <span className="text-gray-400 font-normal">(optional — injected into research, strategy and writing)</span></Label>
+                        <Label>Custom prompt <span className="text-white/35 font-normal">(optional — injected into research, strategy and writing)</span></Label>
                         <textarea
                           value={tForm.customPrompt}
                           onChange={(e) => setTForm({ ...tForm, customPrompt: e.target.value })}
                           placeholder="e.g. Focus on founders relocating from Germany. Emphasise VARA licensing and nominee structures."
                           rows={2}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 resize-none"
+                          className="w-full border border-white/10 rounded-lg px-3 py-2 text-sm text-white/90 placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold/55 resize-none"
                         />
                       </div>
                       <div>
@@ -1163,7 +1162,7 @@ export default function AdminPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="bg-gray-50/80 text-[11px] font-bold text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                        <tr className="bg-white/[0.03]/80 text-[11px] font-bold text-white/35 uppercase tracking-wide border-b border-white/[0.06]">
                           <th className="px-5 py-3 text-left">Topic</th>
                           <th className="px-5 py-3 text-left">Keyword</th>
                           <th className="px-5 py-3 text-left">Cluster</th>
@@ -1173,17 +1172,17 @@ export default function AdminPage() {
                           <th className="px-5 py-3 text-center">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-50">
+                      <tbody className="divide-y divide-white/[0.05]">
                         {topics.map((t) => (
-                          <tr key={t.id} className={`hover:bg-gray-50/60 transition-colors ${t.status === "archived" ? "opacity-40" : ""}`}>
+                          <tr key={t.id} className={`hover:bg-white/[0.03]/60 transition-colors ${t.status === "archived" ? "opacity-40" : ""}`}>
                             <td className="px-5 py-4 max-w-[240px]">
-                              <p className="font-semibold text-gray-900 truncate text-sm" title={t.topic}>{t.topic}</p>
-                              {t.audience && <p className="text-xs text-indigo-500 mt-0.5 truncate">{t.audience}</p>}
-                              {t.notes && <p className="text-xs text-gray-400 mt-0.5 truncate">{t.notes}</p>}
+                              <p className="font-semibold text-white/90 truncate text-sm" title={t.topic}>{t.topic}</p>
+                              {t.audience && <p className="text-xs text-gold mt-0.5 truncate">{t.audience}</p>}
+                              {t.notes && <p className="text-xs text-white/35 mt-0.5 truncate">{t.notes}</p>}
                             </td>
-                            <td className="px-5 py-4 text-xs text-gray-500">{t.focusKeyword || <span className="text-gray-300">—</span>}</td>
-                            <td className="px-5 py-4 text-xs text-gray-500">{t.cluster || <span className="text-gray-300">—</span>}</td>
-                            <td className="px-5 py-4 text-center text-xs font-bold text-gray-600">{t.priority}</td>
+                            <td className="px-5 py-4 text-xs text-white/45">{t.focusKeyword || <span className="text-white/30">—</span>}</td>
+                            <td className="px-5 py-4 text-xs text-white/45">{t.cluster || <span className="text-white/30">—</span>}</td>
+                            <td className="px-5 py-4 text-center text-xs font-bold text-white/55">{t.priority}</td>
                             <td className="px-5 py-4 text-center">
                               <Select value={t.status} onChange={(e) => patchTopic(t.id, { status: e.target.value as TopicPlanStatus })}
                                 className={`text-xs rounded-lg px-2 py-1 border-0 ring-1 ring-inset font-semibold ${TOPIC_STATUS[t.status].badge}`}>
@@ -1192,7 +1191,7 @@ export default function AdminPage() {
                                 ))}
                               </Select>
                             </td>
-                            <td className="px-5 py-4 text-xs text-gray-400 whitespace-nowrap">{fmt(t.createdAt)}</td>
+                            <td className="px-5 py-4 text-xs text-white/35 whitespace-nowrap">{fmt(t.createdAt)}</td>
                             <td className="px-5 py-4">
                               <div className="flex items-center justify-center gap-1.5">
                                 {t.status === "approved" && (
@@ -1224,10 +1223,10 @@ export default function AdminPage() {
           {tab === "links" && (
             <>
               <div className="flex items-center justify-between">
-                <h1 className="text-xl font-bold text-gray-900">Link Manager</h1>
+                <h1 className="font-display text-2xl text-white/95 tracking-tight">Link Manager</h1>
                 <div className="flex items-center gap-3">
                   {wpSyncResult && (
-                    <p className={`text-xs font-medium ${wpSyncResult.ok ? "text-emerald-600" : "text-red-500"}`}>{wpSyncResult.msg}</p>
+                    <p className={`text-xs font-medium ${wpSyncResult.ok ? "text-emerald-300" : "text-red-400"}`}>{wpSyncResult.msg}</p>
                   )}
                   <Btn variant="secondary" onClick={syncWpLinks} disabled={wpSyncing}>
                     {wpSyncing ? <><Spinner /> Syncing…</> : "Sync from WordPress"}
@@ -1254,11 +1253,11 @@ export default function AdminPage() {
                           <Input value={editingLink.category} onChange={(e) => setEditingLink({ ...editingLink, category: e.target.value })} />
                         </div>
                         <div>
-                          <Label>Keywords <span className="text-gray-400 font-normal">(comma-separated)</span></Label>
+                          <Label>Keywords <span className="text-white/35 font-normal">(comma-separated)</span></Label>
                           <Input value={editingLink.keywords.join(", ")} onChange={(e) => setEditingLink({ ...editingLink, keywords: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} />
                         </div>
                         <div>
-                          <Label>Anchor texts <span className="text-gray-400 font-normal">(comma-separated)</span></Label>
+                          <Label>Anchor texts <span className="text-white/35 font-normal">(comma-separated)</span></Label>
                           <Input value={editingLink.anchors.join(", ")} onChange={(e) => setEditingLink({ ...editingLink, anchors: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} />
                         </div>
                         <div>
@@ -1304,11 +1303,11 @@ export default function AdminPage() {
                           <Input value={lForm.category} onChange={(e) => setLForm({ ...lForm, category: e.target.value })} placeholder="e.g. company-formation" />
                         </div>
                         <div>
-                          <Label>Keywords <span className="text-gray-400 font-normal">(comma-separated)</span></Label>
+                          <Label>Keywords <span className="text-white/35 font-normal">(comma-separated)</span></Label>
                           <Input value={lForm.keywords} onChange={(e) => setLForm({ ...lForm, keywords: e.target.value })} placeholder="vara, crypto licence, …" />
                         </div>
                         <div>
-                          <Label>Anchor texts <span className="text-gray-400 font-normal">(comma-separated)</span></Label>
+                          <Label>Anchor texts <span className="text-white/35 font-normal">(comma-separated)</span></Label>
                           <Input value={lForm.anchors} onChange={(e) => setLForm({ ...lForm, anchors: e.target.value })} placeholder="VARA licence, crypto licence in Dubai" />
                         </div>
                         <div>
@@ -1342,7 +1341,7 @@ export default function AdminPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="bg-gray-50/80 text-[11px] font-bold text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                        <tr className="bg-white/[0.03]/80 text-[11px] font-bold text-white/35 uppercase tracking-wide border-b border-white/[0.06]">
                           <th className="px-5 py-3 text-left">Title</th>
                           <th className="px-5 py-3 text-left">URL</th>
                           <th className="px-5 py-3 text-left">Type</th>
@@ -1353,28 +1352,28 @@ export default function AdminPage() {
                           <th className="px-5 py-3 text-center">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-50">
+                      <tbody className="divide-y divide-white/[0.05]">
                         {links.map((l) => (
-                          <tr key={l.id} className={`hover:bg-gray-50/60 transition-colors ${l.status === "inactive" ? "opacity-50" : ""}`}>
+                          <tr key={l.id} className={`hover:bg-white/[0.03]/60 transition-colors ${l.status === "inactive" ? "opacity-50" : ""}`}>
                             <td className="px-5 py-4 max-w-[140px]">
-                              <p className="font-semibold text-gray-900 truncate text-xs">{l.title}</p>
+                              <p className="font-semibold text-white/90 truncate text-xs">{l.title}</p>
                             </td>
                             <td className="px-5 py-4 max-w-[180px]">
-                              <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:underline truncate block">{l.url}</a>
+                              <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-xs text-gold hover:underline truncate block">{l.url}</a>
                             </td>
                             <td className="px-5 py-4">
-                              <Badge className={l.type === "internal" ? "bg-blue-50 text-blue-700 ring-blue-600/20" : "bg-violet-50 text-violet-700 ring-violet-600/20"}>{l.type}</Badge>
+                              <Badge className={l.type === "internal" ? "bg-blue-500/10 text-blue-300 ring-blue-500/25" : "bg-violet-500/10 text-violet-300 ring-violet-500/25"}>{l.type}</Badge>
                             </td>
-                            <td className="px-5 py-4 text-xs text-gray-600 font-medium uppercase tracking-wide">
+                            <td className="px-5 py-4 text-xs text-white/55 font-medium uppercase tracking-wide">
                               {l.language
-                                ? <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded font-semibold">{l.language}</span>
-                                : <span className="text-gray-300">—</span>}
+                                ? <span className="px-2 py-0.5 bg-gold/10 text-gold-bright rounded font-semibold">{l.language}</span>
+                                : <span className="text-white/30">—</span>}
                             </td>
-                            <td className="px-5 py-4 text-xs text-gray-500">{l.category || <span className="text-gray-300">—</span>}</td>
-                            <td className="px-5 py-4 text-xs text-gray-500 max-w-[160px] truncate" title={l.keywords.join(", ")}>{l.keywords.join(", ") || <span className="text-gray-300">—</span>}</td>
+                            <td className="px-5 py-4 text-xs text-white/45">{l.category || <span className="text-white/30">—</span>}</td>
+                            <td className="px-5 py-4 text-xs text-white/45 max-w-[160px] truncate" title={l.keywords.join(", ")}>{l.keywords.join(", ") || <span className="text-white/30">—</span>}</td>
                             <td className="px-5 py-4 text-center">
                               <button onClick={() => toggleLinkStatus(l.id, l.status)}
-                                className={`text-xs font-semibold px-2.5 py-1 rounded-lg ring-1 ring-inset transition-all ${l.status === "active" ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 hover:bg-red-50 hover:text-red-600 hover:ring-red-600/20" : "bg-gray-100 text-gray-500 ring-gray-500/20 hover:bg-emerald-50 hover:text-emerald-700 hover:ring-emerald-600/20"}`}>
+                                className={`text-xs font-semibold px-2.5 py-1 rounded-lg ring-1 ring-inset transition-all ${l.status === "active" ? "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25 hover:bg-red-500/10 hover:text-red-300 hover:ring-red-500/25" : "bg-white/[0.07] text-white/45 ring-white/15 hover:bg-emerald-500/10 hover:text-emerald-300 hover:ring-emerald-500/25"}`}>
                                 {l.status}
                               </button>
                             </td>
@@ -1405,16 +1404,16 @@ export default function AdminPage() {
           {tab === "performance" && (
             <>
               <div className="flex items-center justify-between">
-                <h1 className="text-xl font-bold text-gray-900">Performance</h1>
+                <h1 className="font-display text-2xl text-white/95 tracking-tight">Performance</h1>
               </div>
 
               <Card>
                 <div className="p-6 flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <h2 className="text-base font-semibold text-gray-900">Performance Sync</h2>
-                    <p className="text-xs text-gray-500 mt-1">Pulls last 90 days from Google Search Console + GA4. Auto-runs every Monday 03:00 UTC.</p>
+                    <h2 className="text-base font-semibold text-white/90">Performance Sync</h2>
+                    <p className="text-xs text-white/45 mt-1">Pulls last 90 days from Google Search Console + GA4. Auto-runs every Monday 03:00 UTC.</p>
                     {syncResult && (
-                      <p className={`mt-2.5 text-xs font-semibold ${syncResult.ok ? "text-emerald-600" : "text-red-500"}`}>{syncResult.msg}</p>
+                      <p className={`mt-2.5 text-xs font-semibold ${syncResult.ok ? "text-emerald-300" : "text-red-400"}`}>{syncResult.msg}</p>
                     )}
                   </div>
                   <Btn variant="primary" onClick={() => syncPerformance("sync_all")} disabled={syncing}>
@@ -1434,13 +1433,13 @@ export default function AdminPage() {
                 const totalClicks = perfRecords.reduce((s, p) => s + p.clicks, 0);
                 return (
                   <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-4">
-                    <StatCard label="High" value={high} color="text-emerald-600" />
-                    <StatCard label="Medium" value={medium} color="text-amber-600" />
-                    <StatCard label="Low" value={low} color="text-red-500" />
-                    <StatCard label="Not indexed" value={unknown} color="text-gray-400" />
+                    <StatCard label="High" value={high} color="text-emerald-300" />
+                    <StatCard label="Medium" value={medium} color="text-amber-300" />
+                    <StatCard label="Low" value={low} color="text-red-400" />
+                    <StatCard label="Not indexed" value={unknown} color="text-white/35" />
                     <StatCard label="Avg position" value={avgPos} />
                     <StatCard label="Avg CTR %" value={avgCtr} />
-                    <StatCard label="Total clicks" value={totalClicks.toLocaleString()} color="text-indigo-600" />
+                    <StatCard label="Total clicks" value={totalClicks.toLocaleString()} color="text-gold" />
                   </div>
                 );
               })()}
@@ -1453,7 +1452,7 @@ export default function AdminPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="bg-gray-50/80 text-[11px] font-bold text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                        <tr className="bg-white/[0.03]/80 text-[11px] font-bold text-white/35 uppercase tracking-wide border-b border-white/[0.06]">
                           <th className="px-5 py-3 text-left">Topic</th>
                           <th className="px-5 py-3 text-center">Class</th>
                           <th className="px-5 py-3 text-right">Impressions</th>
@@ -1466,26 +1465,26 @@ export default function AdminPage() {
                           <th className="px-5 py-3 text-center">Sync</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-50">
+                      <tbody className="divide-y divide-white/[0.05]">
                         {[...perfRecords]
                           .sort((a, b) => {
                             const o: Record<PerformanceClass, number> = { high: 0, medium: 1, low: 2, unknown: 3 };
                             return (o[a.classification] - o[b.classification]) || (a.avgPosition - b.avgPosition);
                           })
                           .map((p) => (
-                            <tr key={p.postId} className="hover:bg-gray-50/60 transition-colors">
+                            <tr key={p.postId} className="hover:bg-white/[0.03]/60 transition-colors">
                               <td className="px-5 py-4 max-w-[200px]">
-                                <a href={p.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-gray-900 hover:text-indigo-600 truncate block text-sm">{p.topic}</a>
-                                {p.cluster && <p className="text-xs text-gray-400 mt-0.5">{p.cluster}</p>}
+                                <a href={p.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-white/90 hover:text-gold-bright truncate block text-sm">{p.topic}</a>
+                                {p.cluster && <p className="text-xs text-white/35 mt-0.5">{p.cluster}</p>}
                               </td>
                               <td className="px-5 py-4 text-center"><Badge className={PERF_STATUS[p.classification].badge}>{PERF_STATUS[p.classification].label}</Badge></td>
-                              <td className="px-5 py-4 text-right text-xs text-gray-600 tabular-nums">{p.impressions.toLocaleString()}</td>
-                              <td className="px-5 py-4 text-right text-xs font-semibold text-gray-900 tabular-nums">{p.clicks.toLocaleString()}</td>
-                              <td className="px-5 py-4 text-right text-xs text-gray-600 tabular-nums">{p.avgPosition.toFixed(1)}</td>
-                              <td className="px-5 py-4 text-right text-xs text-gray-600 tabular-nums">{p.ctr.toFixed(1)}%</td>
-                              <td className="px-5 py-4 text-right text-xs text-gray-600 tabular-nums">{p.pageviews.toLocaleString()}</td>
-                              <td className="px-5 py-4 text-right text-xs text-gray-600 tabular-nums">{Math.round(p.avgTimeOnPage)}s</td>
-                              <td className="px-5 py-4 text-xs text-gray-400 whitespace-nowrap">{fmt(p.lastSyncedAt)}</td>
+                              <td className="px-5 py-4 text-right text-xs text-white/55 tabular-nums">{p.impressions.toLocaleString()}</td>
+                              <td className="px-5 py-4 text-right text-xs font-semibold text-white/90 tabular-nums">{p.clicks.toLocaleString()}</td>
+                              <td className="px-5 py-4 text-right text-xs text-white/55 tabular-nums">{p.avgPosition.toFixed(1)}</td>
+                              <td className="px-5 py-4 text-right text-xs text-white/55 tabular-nums">{p.ctr.toFixed(1)}%</td>
+                              <td className="px-5 py-4 text-right text-xs text-white/55 tabular-nums">{p.pageviews.toLocaleString()}</td>
+                              <td className="px-5 py-4 text-right text-xs text-white/55 tabular-nums">{Math.round(p.avgTimeOnPage)}s</td>
+                              <td className="px-5 py-4 text-xs text-white/35 whitespace-nowrap">{fmt(p.lastSyncedAt)}</td>
                               <td className="px-5 py-4 text-center">
                                 <Btn variant="ghost" size="sm" onClick={() => syncPerformance("sync_post", p.postId)} disabled={syncing}>
                                   {I.refresh}

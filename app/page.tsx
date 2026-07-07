@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import StudioNav from "./components/StudioNav";
 import type { LinkValidationResult, LinkIssue } from "@/lib/linkValidator";
 import type { ReadinessResult, ReadinessSubscore, ReadinessIssue } from "@/lib/readinessValidator";
 
@@ -1928,60 +1929,53 @@ export default function HomePage() {
   }, [videoStatus, videoUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isAuthed === null) return (
-    <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
-      <div className="w-2 h-2 rounded-full bg-[#C9A84C] animate-pulse" />
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="studio-bg" />
+      <div className="w-2 h-2 rounded-full bg-gold animate-pulse" />
     </div>
   );
 
   if (isAuthed === false) return (
-    <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
-      <form onSubmit={handleLogin} className="w-80 flex flex-col gap-4">
-        <div className="text-center mb-2">
-          <p className="text-white/40 text-sm mt-1">Enter your password to continue</p>
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="studio-bg" />
+      <form onSubmit={handleLogin} className="relative z-10 w-[22rem] rise-in">
+        <div className="text-center mb-8">
+          <div className="w-12 h-12 mx-auto rounded-xl bg-gradient-to-b from-[#dcbd72] via-gold to-[#a8873a] flex items-center justify-center shadow-[0_10px_30px_-8px_rgba(201,168,76,0.55)] mb-5">
+            <span className="font-display text-black font-semibold text-2xl leading-none">A</span>
+          </div>
+          <h1 className="font-display text-2xl text-white/95 tracking-tight">Aston Content Studio</h1>
+          <p className="text-white/35 text-sm mt-1.5">Enter your password to continue</p>
         </div>
-        <input
-          ref={loginRef}
-          type="password"
-          value={loginPw}
-          onChange={e => setLoginPw(e.target.value)}
-          placeholder="Password"
-          className="w-full bg-white/[0.06] border border-white/10 rounded-lg px-4 py-3 text-white placeholder:text-white/25 focus:outline-none focus:border-[#C9A84C]/50 text-sm"
-        />
-        {loginError && <p className="text-red-400 text-xs text-center">{loginError}</p>}
-        <button
-          type="submit"
-          className="w-full bg-[#C9A84C] hover:bg-[#b8963e] text-black font-medium rounded-lg py-3 text-sm transition-colors"
-        >
-          Sign in
-        </button>
+        <div className="panel p-6 space-y-4">
+          <input
+            ref={loginRef}
+            type="password"
+            value={loginPw}
+            onChange={e => setLoginPw(e.target.value)}
+            placeholder="Password"
+            className="input-studio"
+          />
+          {loginError && <p className="text-red-300 text-xs text-center">{loginError}</p>}
+          <button type="submit" className="btn-gold w-full">
+            Sign in
+          </button>
+        </div>
       </form>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white font-sans">
-      <div
-        className="fixed inset-0 opacity-[0.03]"
-        style={{
-          backgroundImage:
-            "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)",
-          backgroundSize: "60px 60px",
-        }}
-      />
-      <div className="fixed top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#C9A84C] to-transparent" />
+    <div className="min-h-screen text-white font-sans">
+      <div className="studio-bg" />
+      <StudioNav />
 
-      <div className="relative z-10 max-w-2xl mx-auto px-6 py-16">
-        <header className="mb-14">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-8 h-8 rounded-sm bg-[#C9A84C] flex items-center justify-center">
-              <span className="text-black font-bold text-sm tracking-tight">A</span>
-            </div>
-            <span className="text-sm text-white/40 tracking-[0.2em] uppercase">Aston.ae</span>
-          </div>
-          <h1 className="text-4xl font-light tracking-tight text-white mb-3">
-            Blog <span className="text-[#C9A84C]">Generator</span>
+      <div className="relative z-10 max-w-2xl mx-auto px-6 pt-12 pb-16">
+        <header className="mb-12 rise-in">
+          <p className="label-caps mb-2.5">Articles · WordPress</p>
+          <h1 className="font-display text-[2.75rem] leading-tight tracking-tight text-white/95 mb-3">
+            Blog <span className="text-gold">generator</span>
           </h1>
-          <p className="text-white/40 text-sm leading-relaxed">
+          <p className="text-white/40 text-sm leading-relaxed max-w-lg">
             Enter a topic. We run a full strategy analysis, write the post, generate images, and publish a draft to WordPress — ready for your review.
           </p>
         </header>
@@ -1992,11 +1986,12 @@ export default function HomePage() {
 
               {/* Mode selector */}
               <div>
-                <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">Generation mode</label>
-                <div className="grid grid-cols-2 gap-2">
+                <label className="label-caps mb-3">Generation mode</label>
+                <div className="grid grid-cols-2 gap-2.5">
                   {MODES.map((m) => (
                     <button
                       key={m.id}
+                      data-active={mode === m.id}
                       onClick={() => {
                         setMode(m.id);
                         if (m.id === "improve_existing") {
@@ -2008,13 +2003,9 @@ export default function HomePage() {
                           setFetchError("");
                         }
                       }}
-                      className={`text-left px-3 py-2.5 rounded-lg border transition-all duration-150 ${
-                        mode === m.id
-                          ? "border-[#C9A84C]/60 bg-[#C9A84C]/10"
-                          : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
-                      }`}
+                      className="option-card"
                     >
-                      <p className={`text-xs font-medium ${mode === m.id ? "text-[#C9A84C]" : "text-white/60"}`}>{m.label}</p>
+                      <p className={`text-xs font-medium ${mode === m.id ? "text-gold-bright" : "text-white/60"}`}>{m.label}</p>
                       <p className="text-white/30 text-xs mt-0.5">{m.description}</p>
                     </button>
                   ))}
@@ -2025,13 +2016,13 @@ export default function HomePage() {
               {mode !== "improve_existing" && (
                 <div>
                   {/* Toggle */}
-                  <div className="flex items-center gap-1 mb-4 bg-white/[0.04] border border-white/10 rounded-lg p-1 w-fit">
+                  <div className="flex items-center gap-1 mb-4 bg-white/[0.04] border border-white/10 rounded-full p-1 w-fit">
                     <button
                       type="button"
                       onClick={() => { setInputMode("title"); setCustomPrompt(""); }}
-                      className={`px-4 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
+                      className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all duration-150 ${
                         inputMode === "title"
-                          ? "bg-[#C9A84C] text-black"
+                          ? "bg-gradient-to-b from-[#dcbd72] to-[#b6923a] text-black shadow-[0_4px_14px_-4px_rgba(201,168,76,0.6)]"
                           : "text-white/40 hover:text-white/70"
                       }`}
                     >
@@ -2040,9 +2031,9 @@ export default function HomePage() {
                     <button
                       type="button"
                       onClick={() => { setInputMode("prompt"); setTopic(""); }}
-                      className={`px-4 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
+                      className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all duration-150 ${
                         inputMode === "prompt"
-                          ? "bg-[#C9A84C] text-black"
+                          ? "bg-gradient-to-b from-[#dcbd72] to-[#b6923a] text-black shadow-[0_4px_14px_-4px_rgba(201,168,76,0.6)]"
                           : "text-white/40 hover:text-white/70"
                       }`}
                     >
@@ -2577,8 +2568,11 @@ export default function HomePage() {
               <button
                 onClick={handleGenerate}
                 disabled={!canGenerate}
-                className="w-full bg-[#C9A84C] hover:bg-[#D4B86A] disabled:opacity-30 disabled:cursor-not-allowed text-black font-medium text-sm tracking-wide py-3.5 rounded-lg transition-all duration-200"
+                className="btn-gold w-full !py-3.5 tracking-wide"
               >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
+                </svg>
                 Generate Post{useDurablePipeline ? "" : " (legacy)"}
               </button>
 
@@ -2600,29 +2594,38 @@ export default function HomePage() {
           )}
 
           {status === "loading" && (
-            <div className="py-12 space-y-10">
-              <div className="flex justify-center">
-                <div className="relative w-16 h-16">
-                  <div className="absolute inset-0 rounded-full border border-white/5" />
-                  <div className="absolute inset-0 rounded-full border-t border-[#C9A84C] animate-spin" />
-                  <div className="absolute inset-3 rounded-full bg-[#C9A84C]/10" />
-                </div>
-              </div>
-              <div className="space-y-3">
-                {STEPS.map((step, i) => (
-                  <div key={step} className={`flex items-center gap-3 transition-all duration-500 ${i < stepIndex ? "opacity-30" : i === stepIndex ? "opacity-100" : "opacity-20"}`}>
-                    <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors duration-300 ${i < stepIndex ? "bg-[#C9A84C]/40" : i === stepIndex ? "bg-[#C9A84C] animate-pulse" : "bg-white/20"}`} />
-                    <p className={`text-sm ${i === stepIndex ? "text-white" : "text-white/50"}`}>{step}</p>
+            <div className="py-10 rise-in">
+              <div className="panel px-7 py-8 space-y-8">
+                <div className="flex justify-center">
+                  <div className="relative w-16 h-16">
+                    <div className="absolute inset-0 rounded-full border border-white/[0.06]" />
+                    <div className="absolute inset-0 rounded-full border-t-2 border-gold animate-spin" />
+                    <div className="absolute inset-3 rounded-full bg-gold/10 shadow-[0_0_24px_rgba(201,168,76,0.25)_inset]" />
+                    <span className="absolute inset-0 flex items-center justify-center font-display text-gold text-lg">A</span>
                   </div>
-                ))}
-              </div>
-              {retryMessage && (
-                <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg bg-[#C9A84C]/10 border border-[#C9A84C]/20">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#C9A84C] animate-pulse flex-shrink-0" />
-                  <p className="text-xs text-[#C9A84C]/80">{retryMessage}</p>
                 </div>
-              )}
-              <p className="text-center text-white/20 text-xs">This takes about 3–4 minutes</p>
+                <div className="space-y-3">
+                  {STEPS.map((step, i) => (
+                    <div key={step} className={`flex items-center gap-3 transition-all duration-500 ${i < stepIndex ? "opacity-40" : i === stepIndex ? "opacity-100" : "opacity-20"}`}>
+                      {i < stepIndex ? (
+                        <svg className="w-3.5 h-3.5 text-gold/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <div className={`w-1.5 h-1.5 mx-1 rounded-full flex-shrink-0 transition-colors duration-300 ${i === stepIndex ? "bg-gold animate-pulse shadow-[0_0_8px_rgba(201,168,76,0.7)]" : "bg-white/20"}`} />
+                      )}
+                      <p className={`text-sm ${i === stepIndex ? "text-white" : "text-white/50"}`}>{step}</p>
+                    </div>
+                  ))}
+                </div>
+                {retryMessage && (
+                  <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-gold/10 border border-gold/20">
+                    <div className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse flex-shrink-0" />
+                    <p className="text-xs text-gold/85">{retryMessage}</p>
+                  </div>
+                )}
+                <p className="text-center text-white/25 text-xs">This takes about 3–4 minutes — the run keeps going even if this tab disconnects</p>
+              </div>
             </div>
           )}
 
@@ -2945,7 +2948,7 @@ export default function HomePage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <a href={result.editUrl} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 bg-[#C9A84C] hover:bg-[#D4B86A] text-black font-medium text-sm py-3 rounded-lg transition-colors duration-200">
+                  className="btn-gold !py-3">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                   </svg>
