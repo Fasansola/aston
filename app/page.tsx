@@ -1104,21 +1104,26 @@ export default function HomePage() {
 
         let dispatched = 0;          // events already handled across all connections
         let terminal = false;
-        let emptyReconnects = 0;
-        const MAX_EMPTY_RECONNECTS = 6;
+        // Give up on wall-clock silence, not connection count: the pipeline has
+        // legitimate multi-minute quiet stretches (content writing + link scrub +
+        // image prompts between two events; up to 3 QA fix passes), and the old
+        // 6-empty-connections rule declared runs failed in seconds while the
+        // article was still being generated — and often still landed in WordPress.
+        const STALL_BUDGET_MS = 25 * 60_000;   // max silence before giving up
+        let lastProgressAt = Date.now();
+        const stalled = () => Date.now() - lastProgressAt > STALL_BUDGET_MS;
 
         while (!terminal) {
-          const streamRes = await fetch(`/api/generate-workflow/${encodeURIComponent(runId)}`);
-          if (!streamRes.ok || !streamRes.body) {
-            if (++emptyReconnects > MAX_EMPTY_RECONNECTS) throw new Error("Lost connection to the generation run. Check WordPress drafts before retrying.");
-            await new Promise((r) => setTimeout(r, 2000));
+          const streamRes = await fetch(`/api/generate-workflow/${encodeURIComponent(runId)}`).catch(() => null);
+          if (!streamRes || !streamRes.ok || !streamRes.body) {
+            if (stalled()) throw new Error("Lost connection to the generation run. Check WordPress drafts before retrying.");
+            await new Promise((r) => setTimeout(r, 3000));
             continue;
           }
           const reader = streamRes.body.getReader();
           const decoder = new TextDecoder();
           let buffer = "";
           let idx = 0;               // position within this replayed stream
-          let newThisConnection = 0;
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -1127,20 +1132,19 @@ export default function HomePage() {
             buffer = parts.pop() ?? "";
             for (const part of parts) {
               const dataLine = part.split("\n").find((l) => l.startsWith("data: "));
-              if (!dataLine) continue;
+              if (!dataLine) continue;   // keepalive pings and comments land here
               let event: Record<string, unknown>;
               try { event = JSON.parse(dataLine.slice(6)); } catch { continue; }
               if (idx++ < dispatched) continue;   // already handled in a prior connection
-              dispatched++; newThisConnection++;
+              dispatched++; lastProgressAt = Date.now();
               if (dispatch(event) === "done") { terminal = true; break; }
             }
             if (terminal) break;
           }
           if (terminal) break;
           // Connection closed without a terminal event (function hit its limit, or
-          // a network drop). Reconnect; guard against an endlessly empty stream.
-          if (newThisConnection > 0) emptyReconnects = 0;
-          else if (++emptyReconnects > MAX_EMPTY_RECONNECTS) throw new Error("The generation run stalled without finishing. Check WordPress drafts, or try again.");
+          // a network drop). Reconnect unless the run has been silent too long.
+          if (stalled()) throw new Error("The generation run stalled without finishing. Check WordPress drafts, or try again.");
           await new Promise((r) => setTimeout(r, 1500));
         }
       } else {

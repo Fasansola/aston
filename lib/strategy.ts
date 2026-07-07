@@ -8,31 +8,7 @@
 
 import OpenAI from "openai";
 import { ResearchBrief } from "./research";
-
-const PRIMARY_MODEL  = "gpt-5.5";
-// gpt-5.3 returns 404 on this account; gpt-5.5 is the only ≥5.3 model available.
-const FALLBACK_MODEL = "gpt-5.5";
-
-async function chatWithFallback(
-  openai: OpenAI,
-  params: Omit<Parameters<OpenAI["chat"]["completions"]["create"]>[0], "model" | "stream">,
-  signal?: AbortSignal
-): Promise<OpenAI.Chat.ChatCompletion> {
-  try {
-    const result = await openai.chat.completions.create(
-      { ...params, model: PRIMARY_MODEL, stream: false },
-      { signal: signal ?? AbortSignal.timeout(90_000) }
-    );
-    return result;
-  } catch (primaryErr) {
-    const errMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
-    console.warn(`[strategy] ${PRIMARY_MODEL} failed (${errMsg}) — retrying with ${FALLBACK_MODEL}`);
-    return openai.chat.completions.create(
-      { ...params, model: FALLBACK_MODEL, stream: false },
-      { signal: AbortSignal.timeout(240_000) }
-    );
-  }
-}
+import { chatWithRetry, assertCompleted, extractJson } from "./llm";
 
 export interface StrategyInputs {
   topic: string;        // required
@@ -219,10 +195,9 @@ Rules:
   // JSON on complex topics, causing silent parse failures. A second attempt almost
   // always succeeds because the model picks a more concise generation path.
   const MAX_STRATEGY_ATTEMPTS = 2;
-  let lastRaw = "";
 
   for (let attempt = 1; attempt <= MAX_STRATEGY_ATTEMPTS; attempt++) {
-    const response = await chatWithFallback(openai, {
+    const response = await chatWithRetry(openai, {
       messages: [
         { role: "system", content: STRATEGY_SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
@@ -231,36 +206,19 @@ Rules:
       max_completion_tokens: 24000,
       // 240s: the 12-step strategy is a heavy reasoning + 24k-token task on
       // gpt-5.5, slower than the gpt-4o this 120s was originally tuned for.
-    }, AbortSignal.timeout(240_000));
+    }, { label: "strategy", timeoutMs: 240_000 });
 
-    const choice = response.choices[0];
-    if (choice.finish_reason === "length") {
-      // Even 24 000 wasn't enough — no point retrying with same budget
-      throw new Error("Strategy response was cut off by the token limit. Increase max_completion_tokens.");
-    }
-
-    lastRaw = choice.message.content?.trim() ?? "";
-    const jsonMatch = lastRaw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      if (attempt < MAX_STRATEGY_ATTEMPTS) {
-        console.warn(`[strategy] No JSON found on attempt ${attempt} — retrying...`);
-        continue;
-      }
-      throw new Error(`No JSON found in strategy response. Raw: ${lastRaw.slice(0, 400)}`);
-    }
+    // Even 24 000 wasn't enough — no point retrying with the same budget
+    const raw = assertCompleted(response, "strategy");
 
     try {
-      return JSON.parse(jsonMatch[0]) as StrategyBrief;
-    } catch {
+      return extractJson<StrategyBrief>(raw, "strategy");
+    } catch (parseErr) {
       if (attempt < MAX_STRATEGY_ATTEMPTS) {
-        console.warn(`[strategy] Invalid JSON on attempt ${attempt} (${lastRaw.length} chars) — retrying...`);
+        console.warn(`[strategy] ${parseErr instanceof Error ? parseErr.message.slice(0, 200) : parseErr} — retrying (attempt ${attempt})...`);
         continue;
       }
-      // Show beginning AND end of response so we can see where it broke
-      const debugInfo = lastRaw.length > 800
-        ? `[first 500 chars]: ${lastRaw.slice(0, 500)} … [last 300 chars]: ${lastRaw.slice(-300)}`
-        : lastRaw;
-      throw new Error(`Strategy returned invalid JSON after ${MAX_STRATEGY_ATTEMPTS} attempts. Raw (${lastRaw.length} chars): ${debugInfo}`);
+      throw parseErr;
     }
   }
 

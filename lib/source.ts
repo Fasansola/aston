@@ -15,6 +15,7 @@
  */
 
 import OpenAI from "openai";
+import { chatWithRetry, assertCompleted, extractJson } from "./llm";
 
 export type GenerationMode =
   | "topic_only"
@@ -115,27 +116,16 @@ Rules:
 - avoid_reusing: 2-5 items — specific phrases, headings, or patterns to avoid
 - If the source is thin or off-topic, return fewer items rather than inventing content`;
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-5.5",
+  // 240s primary: long source texts on a reasoning model routinely overran
+  // the old 120s budget — and because the input is the same on every WDK
+  // retry, those timeouts were systematic, not transient.
+  const response = await chatWithRetry(openai, {
     messages: [{ role: "user", content: userPrompt }],
-  }, { signal: AbortSignal.timeout(120_000) });
+  }, { label: "sourceBrief", timeoutMs: 240_000 });
 
-  const raw = response.choices[0].message.content?.trim() ?? "";
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error(
-      `No JSON found in source brief response. Raw: ${raw.slice(0, 200)}`
-    );
-  }
-
-  try {
-    const parsed = JSON.parse(jsonMatch[0]);
-    return { mode, ...parsed } as SourceBrief;
-  } catch {
-    throw new Error(
-      `Source brief returned invalid JSON. Raw: ${raw.slice(0, 200)}`
-    );
-  }
+  const raw = assertCompleted(response, "sourceBrief");
+  const parsed = extractJson<Omit<SourceBrief, "mode">>(raw, "sourceBrief");
+  return { mode, ...parsed } as SourceBrief;
 }
 
 // ── Format brief for prompt injection ────────────────────────

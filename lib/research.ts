@@ -8,6 +8,7 @@
  */
 
 import OpenAI from "openai";
+import { chatWithRetry, assertCompleted, extractJson } from "./llm";
 
 export interface ResearchBrief {
   serp_summary: string;
@@ -34,8 +35,12 @@ export async function deriveTitle(
     primaryCountry ? `Primary jurisdiction: ${primaryCountry}` : "",
   ].filter(Boolean).join("\n");
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-5.5",
+  // No max_completion_tokens: on gpt-5.5 reasoning tokens count against the
+  // cap, and the old 2000 budget could be consumed entirely by reasoning —
+  // returning an EMPTY message (finish_reason "length") and failing every
+  // retry the same way. 120s primary: 60s was the tightest gpt-5.5 budget
+  // in the pipeline and timed out on hard prompts.
+  const response = await chatWithRetry(openai, {
     messages: [
       {
         role: "system",
@@ -53,20 +58,10 @@ Return a JSON object. No markdown, no code fences.
 }`,
       },
     ],
-    max_completion_tokens: 2000,
-  }, { signal: AbortSignal.timeout(60_000) });
+  }, { label: "deriveTitle", timeoutMs: 120_000 });
 
-  const raw = response.choices[0].message.content?.trim() ?? "";
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error(`No JSON found in deriveTitle response. Raw: ${raw.slice(0, 200)}`);
-  }
-
-  try {
-    return JSON.parse(jsonMatch[0]) as { title: string; topic: string };
-  } catch {
-    throw new Error(`deriveTitle returned invalid JSON. Raw: ${raw.slice(0, 200)}`);
-  }
+  const raw = assertCompleted(response, "deriveTitle");
+  return extractJson<{ title: string; topic: string }>(raw, "deriveTitle");
 }
 
 export interface DiscoveredLink {

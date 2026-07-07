@@ -21,48 +21,13 @@ import { SourceBrief, formatBriefForPrompt } from "./source";
 import { StrategyBrief } from "./strategy";
 import { AuthorityLink, formatAuthorityLinksForPrompt } from "./authorityLinks";
 import { selectOptimalTitle } from "./titleEngine";
+import { chatWithRetry, assertCompleted, extractJson } from "./llm";
 
 // ── Model configuration ───────────────────────────────────────
-// PRIMARY_MODEL is used for all major generation steps.
-// FALLBACK_MODEL is used automatically if the primary model
-// fails (timeout, rate limit, model unavailable, etc.).
+// Model constants and the retry/fallback/JSON helpers live in lib/llm.ts,
+// shared with the strategy, research, source and title-engine calls.
 // Body fields that may contain an aston-chartjs canvas needing data sanitisation.
 const CHART_FIELDS = ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"];
-
-const PRIMARY_MODEL  = "gpt-5.5";
-// gpt-5.3 returns 404 on this account; gpt-5.5 is the only ≥5.3 model available,
-// so the fallback retries the same model on transient errors (not a downgrade).
-const FALLBACK_MODEL = "gpt-5.5";
-
-/**
- * Wraps an OpenAI chat completion call with automatic model fallback.
- * If the primary model (gpt-5.5) times out or errors, retries immediately
- * with the fallback model (gpt-5.3) so generation always completes.
- */
-async function chatWithFallback(
-  openai: OpenAI,
-  params: Omit<Parameters<OpenAI["chat"]["completions"]["create"]>[0], "model" | "stream">,
-  signal?: AbortSignal
-): Promise<OpenAI.Chat.ChatCompletion> {
-  try {
-    // Use a fresh AbortSignal for the primary attempt so a timeout on the
-    // primary model doesn't also cancel the fallback attempt.
-    const primarySignal = signal ?? AbortSignal.timeout(90_000);
-    const result = await openai.chat.completions.create(
-      { ...params, model: PRIMARY_MODEL, stream: false },
-      { signal: primarySignal }
-    );
-    return result;
-  } catch (primaryErr) {
-    const errMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
-    console.warn(`[openai] ${PRIMARY_MODEL} failed (${errMsg}) — retrying with ${FALLBACK_MODEL}`);
-    // Fallback gets its own generous timeout — no cancellation from primary signal
-    return openai.chat.completions.create(
-      { ...params, model: FALLBACK_MODEL, stream: false },
-      { signal: AbortSignal.timeout(300_000) }
-    );
-  }
-}
 
 // ── Fixed system prompt — never changes between requests ──────
 const SYSTEM_PROMPT = `You are a senior business consultant, SEO strategist, and authoritative blog writer for Aston VIP (Aston.ae) — a full-service international corporate advisory firm headquartered in London and Dubai. Aston VIP advises entrepreneurs, investors, corporate groups, family offices, and fintech businesses on international company formation, regulatory licensing, corporate banking, cross-border tax structuring, and nominee services across 20+ jurisdictions including the UAE (mainland, DIFC, ADGM, free zones), UK, Cyprus, Germany, Switzerland, Spain, Netherlands, Sweden, Denmark, Hong Kong, Panama, Seychelles, and others.
@@ -831,44 +796,27 @@ BLUEPRINT RULES:
 - more_content_6 must be a distinct fifth body section covering a practical angle not addressed in sections 1–4 (e.g. common mistakes, jurisdiction comparison, a specific use case, or a compliance checklist). Do not duplicate more_content_4 themes.
 - faq_questions: 5 to 6 specific questions a real reader would ask about this topic. Favour questions that match how people phrase queries to Google and AI answer engines, since the FAQ section is a primary source for featured snippets and AI citations. Questions only, no answers yet`;
 
-  const response = await chatWithFallback(openai, {
+  // 240s primary (matches strategy): the blueprint is a heavy structured-
+  // reasoning task on gpt-5.5 — the old 90s budget timed out routinely.
+  const response = await chatWithRetry(openai, {
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
-  }, AbortSignal.timeout(90_000));
+  }, { label: "blueprint", timeoutMs: 240_000 });
 
-  const choice = response.choices[0];
-  if (choice.finish_reason === "length") {
-    throw new Error("Blueprint response was cut off by the token limit. Increase max_tokens or shorten the prompt.");
+  const raw = assertCompleted(response, "blueprint");
+  const parsed = extractJson<Blueprint>(raw, "blueprint");
+  // Force the locked title + focus keyword — never trust the model to echo them
+  // unchanged. The title engine already chose the winner; this is the source of truth.
+  parsed.seo_title = lockedTitle;
+  parsed.focus_keyword = lockedKeyword;
+  if (parsed.meta_description && parsed.meta_description.length > 141) {
+    const cut = parsed.meta_description.slice(0, 141);
+    const lastStop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "), cut.lastIndexOf("."), cut.lastIndexOf("!"), cut.lastIndexOf("?"));
+    parsed.meta_description = lastStop > 80 ? parsed.meta_description.slice(0, lastStop + 1) : cut.replace(/\s+\S*$/, "");
   }
-
-  const raw = choice.message.content?.trim() ?? "";
-
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error(
-      `No JSON found in blueprint response. Raw: ${raw.slice(0, 200)}`
-    );
-  }
-
-  try {
-    const parsed = JSON.parse(jsonMatch[0]) as Blueprint;
-    // Force the locked title + focus keyword — never trust the model to echo them
-    // unchanged. The title engine already chose the winner; this is the source of truth.
-    parsed.seo_title = lockedTitle;
-    parsed.focus_keyword = lockedKeyword;
-    if (parsed.meta_description && parsed.meta_description.length > 141) {
-      const cut = parsed.meta_description.slice(0, 141);
-      const lastStop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "), cut.lastIndexOf("."), cut.lastIndexOf("!"), cut.lastIndexOf("?"));
-      parsed.meta_description = lastStop > 80 ? parsed.meta_description.slice(0, lastStop + 1) : cut.replace(/\s+\S*$/, "");
-    }
-    return sanitizeBlueprint(parsed);
-  } catch {
-    throw new Error(
-      `Blueprint returned invalid JSON. Raw: ${raw.slice(0, 200)}`
-    );
-  }
+  return sanitizeBlueprint(parsed);
 }
 
 // ── Step 2: Generate blog content from blueprint ──────────────
@@ -1107,45 +1055,30 @@ Array of objects recording every external link placed. Empty array if none used.
 
 ${linksBlock}`;
 
-  const response = await chatWithFallback(openai, {
+  const response = await chatWithRetry(openai, {
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
-  }, AbortSignal.timeout(300_000));
+  }, { label: "content", timeoutMs: 300_000 });
 
-  const choice = response.choices[0];
-  if (choice.finish_reason === "length") {
-    throw new Error("Content response was cut off by the token limit — the JSON is incomplete. Reduce content scope or increase max_tokens.");
+  const raw = assertCompleted(response, "content");
+  const parsed = extractJson<BlogContent>(raw, "content");
+  // Lock the title + focus keyword to the blueprint's (the title-engine winner)
+  // so the content step can never drift from the selected H1/SEO title/theme.
+  parsed.seo_title = blueprint.seo_title;
+  parsed.focus_keyword = blueprint.focus_keyword;
+  // Repair/remove any malformed Chart.js blocks so charts never render blank.
+  for (const f of CHART_FIELDS) {
+    const rec = parsed as unknown as Record<string, unknown>;
+    if (typeof rec[f] === "string") rec[f] = sanitizeChartBlocks(rec[f] as string);
   }
-
-  const raw = choice.message.content?.trim() ?? "";
-
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error(`No JSON found in GPT response. Raw: ${raw.slice(0, 200)}`);
+  if (parsed.meta_description && parsed.meta_description.length > 141) {
+    const cut = parsed.meta_description.slice(0, 141);
+    const lastStop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "), cut.lastIndexOf("."), cut.lastIndexOf("!"), cut.lastIndexOf("?"));
+    parsed.meta_description = lastStop > 80 ? parsed.meta_description.slice(0, lastStop + 1) : cut.replace(/\s+\S*$/, "");
   }
-
-  try {
-    const parsed = JSON.parse(jsonMatch[0]) as BlogContent;
-    // Lock the title + focus keyword to the blueprint's (the title-engine winner)
-    // so the content step can never drift from the selected H1/SEO title/theme.
-    parsed.seo_title = blueprint.seo_title;
-    parsed.focus_keyword = blueprint.focus_keyword;
-    // Repair/remove any malformed Chart.js blocks so charts never render blank.
-    for (const f of CHART_FIELDS) {
-      const rec = parsed as unknown as Record<string, unknown>;
-      if (typeof rec[f] === "string") rec[f] = sanitizeChartBlocks(rec[f] as string);
-    }
-    if (parsed.meta_description && parsed.meta_description.length > 141) {
-      const cut = parsed.meta_description.slice(0, 141);
-      const lastStop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "), cut.lastIndexOf("."), cut.lastIndexOf("!"), cut.lastIndexOf("?"));
-      parsed.meta_description = lastStop > 80 ? parsed.meta_description.slice(0, lastStop + 1) : cut.replace(/\s+\S*$/, "");
-    }
-    return parsed;
-  } catch {
-    throw new Error(`GPT returned invalid JSON. Raw: ${raw.slice(0, 200)}`);
-  }
+  return parsed;
 }
 
 // ── Step 3: Generate content-aware image prompts ──────────────
@@ -1240,36 +1173,16 @@ Alt text rules (SEO-optimised — all must be met):
 8. Examples of good alt text: "UAE trade license setup for mainland company formation", "DIFC financial services license requirements for fund managers", "Dubai crypto license VARA regulatory framework guide"
 9. Examples of bad alt text: "glass office tower at sunset", "businesspeople shaking hands in lobby", "documents on a desk with calculator"`;
 
-  const response = await openai.chat.completions.create({
-    model: PRIMARY_MODEL,
+  // 120s, not 60s: gpt-5.5 reasoning is slower than the gpt-4o this was tuned for.
+  const response = await chatWithRetry(openai, {
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
-    // 120s, not 60s: gpt-5.5 reasoning is slower than the gpt-4o this was tuned for.
-  }, { signal: AbortSignal.timeout(120_000) });
+  }, { label: "imagePrompts", timeoutMs: 120_000 });
 
-  const choice = response.choices[0];
-  if (choice.finish_reason === "length") {
-    throw new Error("Image prompts response was cut off by the token limit.");
-  }
-
-  const raw = choice.message.content?.trim() ?? "";
-
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error(
-      `No JSON found in image prompts response. Raw: ${raw.slice(0, 200)}`
-    );
-  }
-
-  try {
-    return JSON.parse(jsonMatch[0]) as ImagePrompts;
-  } catch {
-    throw new Error(
-      `GPT returned invalid JSON for image prompts. Raw: ${raw.slice(0, 200)}`
-    );
-  }
+  const raw = assertCompleted(response, "imagePrompts");
+  return extractJson<ImagePrompts>(raw, "imagePrompts");
 }
 
 // ── Step 2b: Fix only the fields that failed QA ───────────────
@@ -1462,25 +1375,18 @@ Return this exact JSON shape with ONLY the fields that need fixing plus updated 
 
 The "internal_links_used" and "external_links_used" arrays must include ALL links in the full article — both the ones already placed in untouched sections and any new ones you add.`;
 
-  const response = await chatWithFallback(openai, {
+  // 300s to match the content step: a full-article fix on gpt-5.5 (up to 28k
+  // tokens of reasoning + output) overruns the old gpt-4o-era 120s budget.
+  const response = await chatWithRetry(openai, {
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: prompt },
     ],
     max_completion_tokens: 28000,
-    // 300s to match the content step: a full-article fix on gpt-5.5 (up to 28k
-    // tokens of reasoning + output) overruns the old gpt-4o-era 120s budget.
-  }, AbortSignal.timeout(300_000));
+  }, { label: "fixBlogContent", timeoutMs: 300_000 });
 
-  if (response.choices[0]?.finish_reason === "length") {
-    throw new Error("fixBlogContent response was cut off — increase max_completion_tokens");
-  }
-
-  const raw = response.choices[0]?.message?.content?.trim() ?? "";
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error(`fixBlogContent: no JSON in response. Raw: ${raw.slice(0, 200)}`);
-
-  const fixes = JSON.parse(jsonMatch[0]) as Partial<BlogContent>;
+  const raw = assertCompleted(response, "fixBlogContent");
+  const fixes = extractJson<Partial<BlogContent>>(raw, "fixBlogContent");
 
   // Safe merge: only apply non-empty values from GPT so a truncated response
   // can't wipe fields that were already good.

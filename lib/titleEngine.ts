@@ -20,8 +20,7 @@
 
 import OpenAI from "openai";
 import type { StrategyBrief } from "./strategy";
-
-const MODEL = "gpt-5.5";
+import { chatWithRetry, assertCompleted, extractJson } from "./llm";
 
 export interface TitleCandidate {
   title: string;
@@ -163,19 +162,18 @@ Provide exactly 20 candidates.`;
 
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const res = await openai.chat.completions.create(
-      { model: MODEL, max_completion_tokens: 8000, messages: [{ role: "system", content: system }, { role: "user", content: user }] },
-      { signal: AbortSignal.timeout(120_000) }
+    // 16k cap (was 8k): reasoning tokens count against max_completion_tokens
+    // on gpt-5.5, and 20 scored candidates need real output headroom.
+    const res = await chatWithRetry(openai,
+      { max_completion_tokens: 16000, messages: [{ role: "system", content: system }, { role: "user", content: user }] },
+      { label: "titleEngine", timeoutMs: 120_000 }
     );
-    const raw = res.choices[0]?.message?.content?.trim() ?? "";
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) { console.warn("[titleEngine] no JSON in response — using fallback"); return fallback(); }
-
-    const parsed = JSON.parse(match[0]) as {
+    const raw = assertCompleted(res, "titleEngine");
+    const parsed = extractJson<{
       candidates?: Array<{ title?: string; intent?: number; commercial?: number; ctr?: number; ai?: number }>;
       selected_title?: string;
       focus_keyword?: string;
-    };
+    }>(raw, "titleEngine");
 
     const candidates: TitleCandidate[] = (parsed.candidates ?? [])
       .filter((c) => c && typeof c.title === "string" && c.title.trim().length > 0)

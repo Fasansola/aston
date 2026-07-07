@@ -357,6 +357,29 @@ export async function createWordPressPost(
     },
   };
 
+  // ── Idempotency guard ─────────────────────────────────────
+  // A WDK retry of publishStep can arrive after the post was ALREADY created
+  // (e.g. the create succeeded but the response timed out). Look the slug up
+  // first: if a post exists, update it in place instead of creating a
+  // duplicate draft. Lookup failures are non-fatal — we fall back to create.
+  let existingId: number | null = null;
+  try {
+    const lookup = await axios.get(`${WP_URL}/wp-json/wp/v2/posts`, {
+      headers: BASE_HEADERS,
+      timeout: 15_000,
+      params: { slug: content.slug, status: "publish,future,draft,pending,private", per_page: 1, _fields: "id,slug" },
+    });
+    if (Array.isArray(lookup.data) && typeof lookup.data[0]?.id === "number") {
+      existingId = lookup.data[0].id;
+      console.warn(`[wordpress] Post with slug "${content.slug}" already exists (id ${existingId}) — updating it instead of creating a duplicate`);
+    }
+  } catch (lookupErr: unknown) {
+    console.warn(`[wordpress] Slug lookup failed (non-fatal, will create): ${lookupErr instanceof Error ? lookupErr.message : String(lookupErr)}`);
+  }
+  const postEndpoint = existingId
+    ? `${WP_URL}/wp-json/wp/v2/posts/${existingId}`
+    : `${WP_URL}/wp-json/wp/v2/posts`;
+
   // SiteGround's anti-bot (sgcaptcha) intermittently intercepts requests from
   // cloud IPs (Vercel) and returns an HTML captcha page instead of JSON. It's
   // transient — waiting a few seconds and retrying usually clears it. We retry
@@ -370,7 +393,7 @@ export async function createWordPressPost(
   for (let attempt = 1; attempt <= SG_MAX_RETRIES; attempt++) {
     try {
       response = await axios.post(
-        `${WP_URL}/wp-json/wp/v2/posts`,
+        postEndpoint,
         postBody,
         { headers: BASE_HEADERS, timeout: 45_000 }
       );
