@@ -24,6 +24,8 @@ interface SchedulerSettings {
   enabled: boolean; blogsPerDay: number; publishMode: "draft_only";
   maxRetries: number; blockOnQaWarning: boolean; maxPerRun: number;
   runHour: number; imageModel: "imagen-4" | "gpt-image-2";
+  mediaOutputs: { audio: boolean; video: boolean; podcast: boolean };
+  podcastLength: number;
 }
 interface RunLog {
   runId: string; startedAt: string; completedAt: string | null;
@@ -737,6 +739,44 @@ export default function AdminPage() {
                           <option value="gpt-image-2">GPT Image 2 (OpenAI)</option>
                           <option value="imagen-4">Imagen 4 (Google)</option>
                         </Select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-3">Media Outputs</p>
+                      <p className="text-xs text-white/35 mb-3 leading-relaxed">
+                        Generated automatically after each scheduled post is published — same as the media options on the manual page. Runs as a separate durable workflow, so a media failure never fails the post.
+                      </p>
+                      <div className="space-y-2.5">
+                        {([
+                          { key: "audio"   as const, label: "Read-aloud audio", desc: "Kokoro narration MP3, saved to the post's audio player" },
+                          { key: "video"   as const, label: "YouTube video",    desc: "Narrated scene-by-scene video, rendered + uploaded to YouTube" },
+                          { key: "podcast" as const, label: "Podcast episode",  desc: "Two-voice conversation, published to the podcast feed" },
+                        ]).map((m) => (
+                          <div key={m.key} className="flex items-center justify-between rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                            <div>
+                              <p className="text-sm font-medium text-white/80">{m.label}</p>
+                              <p className="text-xs text-white/35 mt-0.5">{m.desc}</p>
+                            </div>
+                            <Toggle
+                              checked={settings.mediaOutputs?.[m.key] ?? false}
+                              onChange={() => saveScheduler({ mediaOutputs: { ...(settings.mediaOutputs ?? { audio: false, video: false, podcast: false }), [m.key]: !(settings.mediaOutputs?.[m.key] ?? false) } })}
+                              disabled={savingSettings}
+                            />
+                          </div>
+                        ))}
+                        {settings.mediaOutputs?.podcast && (
+                          <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                            <p className="text-xs font-medium text-white/45 mb-2">Podcast length</p>
+                            <Select value={settings.podcastLength ?? 30} onChange={(e) => saveScheduler({ podcastLength: Number(e.target.value) })} disabled={savingSettings} className="w-full">
+                              <option value={3}>3 minutes (test)</option>
+                              <option value={15}>15 minutes</option>
+                              <option value={30}>30 minutes</option>
+                              <option value={45}>45 minutes</option>
+                              <option value={60}>60 minutes</option>
+                            </Select>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

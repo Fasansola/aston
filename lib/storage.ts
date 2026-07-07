@@ -58,6 +58,10 @@ export interface SchedulerSettings {
   maxPerRun: number;
   runHour: number; // 0–23 UTC — cron fires hourly, only processes at this hour
   imageModel: ImageModel;
+  // Post-publish media outputs — parity with the manual generation page.
+  // Applied to every scheduled post via the durable generateMedia workflow.
+  mediaOutputs: { audio: boolean; video: boolean; podcast: boolean };
+  podcastLength: number; // minutes: 3 | 15 | 30 | 45 | 60
 }
 
 export interface RunLog {
@@ -173,6 +177,8 @@ const DEFAULT_SETTINGS: SchedulerSettings = {
   maxPerRun: 1,
   runHour: 8,
   imageModel: "gpt-image-2",
+  mediaOutputs: { audio: false, video: false, podcast: false },
+  podcastLength: 30,
 };
 
 // ── Storage adapter ───────────────────────────────────────────
@@ -328,7 +334,9 @@ export async function getNextEligibleItem(): Promise<QueueItem | null> {
 // ── Scheduler settings ────────────────────────────────────────
 
 export async function getSettings(): Promise<SchedulerSettings> {
-  return kget<SchedulerSettings>(KEYS.settings, DEFAULT_SETTINGS);
+  const stored = await kget<SchedulerSettings>(KEYS.settings, DEFAULT_SETTINGS);
+  // Backfill fields added after the settings object was first persisted.
+  return { ...DEFAULT_SETTINGS, ...stored, mediaOutputs: { ...DEFAULT_SETTINGS.mediaOutputs, ...(stored.mediaOutputs ?? {}) } };
 }
 
 export async function saveSettings(

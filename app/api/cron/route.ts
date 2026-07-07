@@ -32,6 +32,8 @@ import { selectAuthorityLinks, mergeWithDiscovered } from "@/lib/authorityLinks"
 import { emptyBrief, processSourceInput, SourceBrief } from "@/lib/source";
 import { generateStrategy, StrategyBrief, StrategyContext } from "@/lib/strategy";
 import { researchTopic, deriveTitle, findExternalAuthorityLinks, ResearchBrief } from "@/lib/research";
+import { start } from "workflow/api";
+import { generateMediaWorkflow } from "@/lib/workflows/generateMedia";
 
 export const maxDuration = 300;
 
@@ -231,6 +233,41 @@ async function processOneItem(
       qaWarnings: qa.warnings,
       lastError: null,
     });
+
+    // ── Post-publish media outputs (parity with the manual page) ──
+    // Fire-and-forget: start() enqueues the durable workflow and returns
+    // immediately, so audio/video/podcast generation (up to ~20 min) never
+    // presses on this cron invocation's budget. Failures are logged inside
+    // the workflow and never affect the completed queue item.
+    const media = settings.mediaOutputs;
+    if (media && (media.audio || media.video || media.podcast)) {
+      try {
+        const run = await start(generateMediaWorkflow, [{
+          postId: post.id,
+          title: content.seo_title || resolvedTopic,
+          focusKeyword: content.focus_keyword ?? "",
+          secondaryKeywords: content.secondary_keywords ?? [],
+          summary: content.meta_description || content.excerpt || "",
+          blogUrl: post.link ?? null,
+          language: strategyInputs?.language || null,
+          content: {
+            main_content:   assembled.main_content,
+            more_content_1: assembled.more_content_1,
+            more_content_2: content.more_content_2,
+            more_content_3: assembled.more_content_3,
+            more_content_4: assembled.more_content_4,
+            more_content_5: content.more_content_5,
+            more_content_6: content.more_content_6,
+            final_points:   content.final_points,
+          },
+          outputs: { audio: media.audio, video: media.video, podcast: media.podcast },
+          podcastLength: settings.podcastLength ?? 30,
+        }]);
+        console.log(`[cron:item] Media workflow started for post ${post.id} (run ${run.runId}) — audio:${media.audio} video:${media.video} podcast:${media.podcast}`);
+      } catch (mediaErr) {
+        console.error(`[cron:item] Could not start media workflow for post ${post.id} (non-fatal): ${mediaErr instanceof Error ? mediaErr.message : String(mediaErr)}`);
+      }
+    }
 
     return { postId: post.id, qaScore: qa.score };
   }

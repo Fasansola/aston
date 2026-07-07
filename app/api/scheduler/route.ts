@@ -49,7 +49,15 @@ export async function POST(req: NextRequest) {
                            ? body.maxPerRun : (current.maxPerRun ?? 1),
       runHour:           typeof body.runHour === "number" && body.runHour >= 0 && body.runHour <= 23
                            ? body.runHour : (current.runHour ?? 8),
-      imageModel:        body.imageModel === "imagen-4" ? "imagen-4" : (current.imageModel ?? "gpt-image-2"),
+      imageModel:        body.imageModel === "imagen-4" || body.imageModel === "gpt-image-2"
+                           ? body.imageModel : (current.imageModel ?? "gpt-image-2"),
+      mediaOutputs: {
+        audio:   typeof body.mediaOutputs?.audio   === "boolean" ? body.mediaOutputs.audio   : (current.mediaOutputs?.audio   ?? false),
+        video:   typeof body.mediaOutputs?.video   === "boolean" ? body.mediaOutputs.video   : (current.mediaOutputs?.video   ?? false),
+        podcast: typeof body.mediaOutputs?.podcast === "boolean" ? body.mediaOutputs.podcast : (current.mediaOutputs?.podcast ?? false),
+      },
+      podcastLength:     [3, 15, 30, 45, 60].includes(body.podcastLength as number)
+                           ? body.podcastLength as number : (current.podcastLength ?? 30),
     };
 
     await saveSettings(updated);
