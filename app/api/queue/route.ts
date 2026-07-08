@@ -14,6 +14,8 @@ import {
   updateQueueItem,
   deleteQueueItem,
   completedTodayCount,
+  getSettings,
+  recoverStuckProcessingItems,
 } from "@/lib/storage";
 import { GenerationMode } from "@/lib/source";
 import { start } from "workflow/api";
@@ -35,6 +37,16 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // Watchdog: recover items pinned in "processing" by a killed run, so the
+    // admin (which polls this endpoint) auto-heals them without waiting for the
+    // once-daily cron. Non-fatal.
+    try {
+      const { maxRetries } = await getSettings();
+      await recoverStuckProcessingItems(maxRetries ?? 2);
+    } catch (err) {
+      console.warn(`[queue:GET] Watchdog check failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+
     const [queue, completedToday] = await Promise.all([
       getQueue(),
       completedTodayCount(),

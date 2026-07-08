@@ -50,6 +50,11 @@ export interface QueueItem {
   // this moment and triggers generation; the daily cron also honours it and
   // acts as a backstop, never picking the item up early.
   scheduledFor?: string | null;
+  // When the item most recently entered "processing". Used by the stuck-item
+  // watchdog: a scheduled generation that overruns the function's time limit
+  // is killed mid-pipeline and can never write a terminal status, so it would
+  // otherwise sit in "processing" forever. The watchdog re-queues it.
+  processingStartedAt?: string | null;
   // Live generation progress, written by the cron as it runs the pipeline so
   // the admin queue can show step-by-step status (there is no browser stream
   // for scheduled posts the way there is on the manual page). Cleared when the
@@ -272,6 +277,46 @@ export async function getQueue(): Promise<QueueItem[]> {
 
 export async function saveQueue(items: QueueItem[]): Promise<void> {
   return kset(KEYS.queue, items);
+}
+
+// A scheduled generation runs inside one function invocation with a hard time
+// limit. If the pipeline overruns it (e.g. several QA rewrites), the function
+// is killed before it can write a terminal status, leaving the item pinned to
+// "processing" — and the daily backstop only ever picks up "queued" items, so
+// nothing recovers it. This watchdog re-queues (or fails, past maxRetries) any
+// item that has been "processing" longer than the limit could possibly allow.
+//
+// Threshold is comfortably above the 800s function budget so it can never fire
+// on a run that is legitimately still working.
+const STUCK_PROCESSING_MS = 20 * 60_000;
+
+export async function recoverStuckProcessingItems(maxRetries = 2): Promise<number> {
+  const queue = await getQueue();
+  const now = Date.now();
+  let changed = 0;
+
+  for (const item of queue) {
+    if (item.status !== "processing") continue;
+    // Prefer the explicit start stamp; fall back to the last progress tick.
+    // A processing item with neither is from before this field existed and is
+    // therefore already stale — recover it.
+    const startedIso = item.processingStartedAt ?? item.progress?.updatedAt ?? null;
+    if (startedIso && now - new Date(startedIso).getTime() < STUCK_PROCESSING_MS) continue;
+
+    const nextRetry = (item.retryCount ?? 0) + 1;
+    item.status = nextRetry <= maxRetries ? "queued" : "failed";
+    item.retryCount = nextRetry;
+    item.lastError = "Generation was interrupted (timed out or the function stopped). Auto-recovered by the watchdog.";
+    item.progress = null;
+    item.processingStartedAt = null;
+    changed++;
+  }
+
+  if (changed > 0) {
+    await saveQueue(queue);
+    console.warn(`[storage] Watchdog recovered ${changed} stuck "processing" item(s)`);
+  }
+  return changed;
 }
 
 export async function addQueueItem(

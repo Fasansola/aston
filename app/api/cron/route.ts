@@ -23,6 +23,7 @@ import {
   completedTodayCount,
   addRunLog,
   updateRunLog,
+  recoverStuckProcessingItems,
 } from "@/lib/storage";
 import { selectLinks } from "@/lib/links";
 import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePrompts, generateImage, IMAGE_QA_CHECKS, type ImageModel } from "@/lib/openai";
@@ -36,7 +37,11 @@ import { researchTopic, deriveTitle, findExternalAuthorityLinks, ResearchBrief }
 import { start } from "workflow/api";
 import { generateMediaWorkflow } from "@/lib/workflows/generateMedia";
 
-export const maxDuration = 300;
+// 800s (Fluid Compute max) — the full pipeline with QA rewrites routinely
+// exceeds 300s; overrunning the limit was killing scheduled generations
+// mid-run and pinning items in "processing". The video/podcast routes already
+// use 800. The stuck-item watchdog covers anything that still overruns.
+export const maxDuration = 800;
 
 async function generateImageWithRetry(
   prompt: string,
@@ -331,7 +336,7 @@ async function processTargetedItem(itemId: string) {
     topicsFailed: 0,
     status: "running",
   });
-  await updateQueueItem(item.id, { status: "processing" });
+  await updateQueueItem(item.id, { status: "processing", processingStartedAt: new Date().toISOString(), progress: null });
 
   const MAX_TECH_RETRIES = 3;
   let lastError = "Unknown error";
@@ -364,6 +369,18 @@ export async function GET(req: NextRequest) {
   if (!authOk(req)) {
     console.warn("[cron] Unauthorized request");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Watchdog: re-queue any item pinned in "processing" by a previous run that
+  // overran its function limit and was killed mid-pipeline. Runs before both
+  // the targeted and daily paths so a stuck item (including the very item now
+  // being targeted) is recovered and can generate again.
+  try {
+    const { maxRetries } = await getSettings();
+    const recovered = await recoverStuckProcessingItems(maxRetries ?? 2);
+    if (recovered > 0) console.warn(`[cron] Watchdog re-queued ${recovered} stuck item(s)`);
+  } catch (err) {
+    console.warn(`[cron] Watchdog check failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
   }
 
   const targetItemId = req.nextUrl.searchParams.get("itemId");
@@ -414,7 +431,7 @@ export async function GET(req: NextRequest) {
       }
 
       console.log(`[cron] Processing item ${item.id}: "${item.topic}" (${i + 1}/${limit})`);
-      await updateQueueItem(item.id, { status: "processing" });
+      await updateQueueItem(item.id, { status: "processing", processingStartedAt: new Date().toISOString(), progress: null });
       run.topicsAttempted++;
 
       const MAX_TECH_RETRIES = 3;
