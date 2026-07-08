@@ -74,6 +74,18 @@ async function processOneItem(
 ) {
   const customInstruction = strategyInputs?.customPrompt?.trim() || undefined;
 
+  // Persist coarse pipeline progress onto the queue item so the admin can show
+  // step-by-step status for headless (scheduled) generation. Non-fatal — a
+  // failed progress write never interrupts generation.
+  const TOTAL_STEPS = 7;
+  const reportProgress = async (step: number, label: string) => {
+    try {
+      await updateQueueItem(itemId, { progress: { step, total: TOTAL_STEPS, label, updatedAt: new Date().toISOString() } });
+    } catch (err) {
+      console.warn(`[cron:item] progress write failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   // Step 0 — derive title from custom prompt if no topic provided
   let resolvedTopic = topic.trim();
   if (!resolvedTopic && customInstruction) {
@@ -84,6 +96,7 @@ async function processOneItem(
   }
 
   // Step 1 — SEO research
+  await reportProgress(1, "Researching the search landscape…");
   let research: ResearchBrief | undefined;
   try {
     research = await researchTopic(resolvedTopic, strategyInputs?.primary_country, customInstruction);
@@ -93,6 +106,7 @@ async function processOneItem(
   }
 
   // Step 2 — strategy engine
+  await reportProgress(2, "Running 12-step strategy analysis…");
   console.log(`[cron:item] Running strategy engine for "${resolvedTopic}"`);
   const strategy: StrategyBrief = await generateStrategy({
     topic:               resolvedTopic,
@@ -113,6 +127,7 @@ async function processOneItem(
     sourceBrief = await processSourceInput(mode as Parameters<typeof processSourceInput>[0], resolvedTopic, sourceText);
   }
 
+  await reportProgress(3, "Planning the article blueprint…");
   const selectedLinks = await selectLinks(resolvedTopic, strategyInputs?.language);
   const blueprint = await generateBlueprint(resolvedTopic, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language);
 
@@ -147,8 +162,10 @@ async function processOneItem(
     let imageIds: ImageIds;
 
     if (attempt === 1) {
+      await reportProgress(4, "Writing the article…");
       content = await generateBlogContent(resolvedTopic, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language, authorityLinks);
     } else {
+      await reportProgress(4, `Revising for quality (attempt ${attempt} of ${MAX_ATTEMPTS})…`);
       const failingFields = Object.entries(prevQAChecks!).filter(([, v]) => !v).map(([k]) => k).join(", ");
       console.log(`[cron:item] QA retry ${attempt}/${MAX_ATTEMPTS} — fixing: ${failingFields}`);
       content = await fixBlogContent(resolvedTopic, prevContent!, blueprint, selectedLinks, prevQAChecks!, strategyInputs?.language, prevBrokenUrls.length > 0 ? prevBrokenUrls : undefined, authorityLinks);
@@ -172,6 +189,7 @@ async function processOneItem(
 
     const needNewImages = attempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevQAChecks![k]);
     if (needNewImages) {
+      await reportProgress(5, "Generating and uploading images…");
       imagePrompts = await generateImagePrompts(resolvedTopic, content);
       const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
         generateImageWithRetry(imagePrompts.keypoint_one_img_prompt, imageModel, "kp1"),
@@ -200,6 +218,7 @@ async function processOneItem(
       imageIds     = prevImageIds!;
     }
 
+    await reportProgress(6, "Running quality checks…");
     const qa = runQA(content, imagePrompts, imageIds, resolvedTopic);
     console.log(`[cron:item] QA attempt ${attempt}: ${qa.status.toUpperCase()} (score ${qa.score}/100)`);
 
@@ -225,11 +244,13 @@ async function processOneItem(
       more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
     };
 
+    await reportProgress(7, "Publishing draft to WordPress…");
     const post = await createWordPressPost(content.seo_title || resolvedTopic, content, imagePrompts, assembled, imageIds, strategyInputs?.language);
 
     await updateQueueItem(itemId, {
       status: "completed",
       completedAt: new Date().toISOString(),
+      progress: null,
       wpPostId: post.id,
       wpEditUrl: `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
       wpPostUrl: post.link ?? null,
@@ -334,7 +355,7 @@ async function processTargetedItem(itemId: string) {
     }
   }
 
-  await updateQueueItem(item.id, { status: "failed", retryCount: (item.retryCount ?? 0) + 1, lastError });
+  await updateQueueItem(item.id, { status: "failed", retryCount: (item.retryCount ?? 0) + 1, lastError, progress: null });
   await updateRunLog(runId, { completedAt: new Date().toISOString(), topicsFailed: 1, status: "failed" });
   return NextResponse.json({ error: lastError, itemId: item.id }, { status: 500 });
 }
@@ -429,6 +450,7 @@ export async function GET(req: NextRequest) {
               status: nextRetry <= maxRetries ? "queued" : "failed",
               retryCount: nextRetry,
               lastError: message,
+              progress: null,
             });
             run.topicsFailed++;
           }

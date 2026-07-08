@@ -50,6 +50,11 @@ export interface QueueItem {
   // this moment and triggers generation; the daily cron also honours it and
   // acts as a backstop, never picking the item up early.
   scheduledFor?: string | null;
+  // Live generation progress, written by the cron as it runs the pipeline so
+  // the admin queue can show step-by-step status (there is no browser stream
+  // for scheduled posts the way there is on the manual page). Cleared when the
+  // item finishes.
+  progress?: { step: number; total: number; label: string; updatedAt: string } | null;
   // Per-item media outputs, chosen at enqueue time. Items without their own
   // selection fall back to the scheduler-settings defaults.
   mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };

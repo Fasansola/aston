@@ -11,6 +11,8 @@
  * a new <item> appears. The feed is served publicly (see proxy.ts exemption).
  */
 
+import { fetchWithSgRetry } from "./wordpress";
+
 const WP_URL = process.env.WP_URL!;
 const WP_AUTH = Buffer.from(
   `${process.env.WP_USERNAME}:${process.env.WP_APP_PASSWORD}`
@@ -104,15 +106,28 @@ export async function getPodcastEpisodes(config: PodcastConfig): Promise<Podcast
     // Episodes live in the dedicated podcast custom post type (the CPT itself is
     // the curation — no category filter needed). Public/view context exposes the
     // ACF fields without requiring edit rights.
-    const res = await fetch(
+    // SiteGround's anti-bot intermittently returns HTTP 200 with an HTML
+    // captcha page instead of JSON (common from cloud IPs). fetchWithSgRetry
+    // detects that page and retries with backoff, so res.json() below never
+    // chokes on "<html>…".
+    const res = await fetchWithSgRetry("getPodcastEpisodes", () => fetch(
       `${WP_URL}/wp-json/wp/v2/${config.cptRestBase}?per_page=100&_embed=wp:featuredmedia&orderby=date&order=desc`,
       { headers: { Authorization: `Basic ${WP_AUTH}` }, signal: AbortSignal.timeout(20_000) }
-    );
+    ));
     if (!res.ok) {
       console.warn(`[podcast] CPT "${config.cptRestBase}" fetch failed: ${res.status}`);
       return [];
     }
-    const posts = (await res.json()) as Array<Record<string, unknown>>;
+    // Guard against a captcha page that slipped through as HTTP 200: parse the
+    // text and bail cleanly rather than throwing an "Unexpected token '<'".
+    const rawText = await res.text();
+    let posts: Array<Record<string, unknown>>;
+    try {
+      posts = JSON.parse(rawText) as Array<Record<string, unknown>>;
+    } catch {
+      console.warn(`[podcast] CPT "${config.cptRestBase}" returned non-JSON (likely a SiteGround captcha page) — skipping feed refresh`);
+      return [];
+    }
 
     const episodes = await Promise.all(
       posts.map(async (p): Promise<PodcastEpisode | null> => {

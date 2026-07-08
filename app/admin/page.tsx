@@ -16,6 +16,7 @@ interface QueueItem {
   wpPostId: number | null; wpEditUrl: string | null; wpPostUrl: string | null;
   qaScore: number | null; qaWarnings: string[];
   scheduledFor?: string | null;
+  progress?: { step: number; total: number; label: string; updatedAt: string } | null;
   mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
   podcastLength?: number;
 }
@@ -426,6 +427,16 @@ export default function AdminPage() {
   useEffect(() => {
     if (tab === "publish_queue" && isAuthed) fetchPublishQueue();
   }, [tab, isAuthed, fetchPublishQueue]);
+
+  // Live-refresh the queue while a post is being generated so its step-by-step
+  // progress advances on screen — the scheduler equivalent of the manual
+  // page's progress stream. Polls only while something is actually processing.
+  const anyProcessing = items.some((i) => i.status === "processing");
+  useEffect(() => {
+    if (!isAuthed || !anyProcessing || (tab !== "dashboard" && tab !== "queue")) return;
+    const t = setInterval(() => { fetchDashboard(); }, 4000);
+    return () => clearInterval(t);
+  }, [isAuthed, anyProcessing, tab, fetchDashboard]);
 
   // ── Queue actions ──────────────────────────────────────────────
   async function addQueueItem() {
@@ -1092,6 +1103,20 @@ export default function AdminPage() {
                               <p className="font-semibold text-white/90 truncate text-sm" title={item.topic}>{item.topic}</p>
                               {item.lastError && <p className="text-xs text-red-400 mt-0.5 truncate" title={item.lastError}>{item.lastError}</p>}
                               {item.status === "completed" && item.completedAt && <p className="text-xs text-white/35 mt-0.5">Done {fmt(item.completedAt)}</p>}
+                              {item.status === "processing" && item.progress && (
+                                <div className="mt-1.5 max-w-[220px]">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <p className="text-xs text-amber-300 truncate" title={item.progress.label}>{item.progress.label}</p>
+                                    <span className="text-[10px] text-white/35 tabular-nums shrink-0 ml-2">{item.progress.step}/{item.progress.total}</span>
+                                  </div>
+                                  <div className="progress-track">
+                                    <div className="progress-fill" style={{ width: `${Math.round((item.progress.step / item.progress.total) * 100)}%` }} />
+                                  </div>
+                                </div>
+                              )}
+                              {item.status === "processing" && !item.progress && (
+                                <p className="text-xs text-amber-300 mt-0.5">Starting…</p>
+                              )}
                               {item.status === "queued" && item.scheduledFor && (
                                 <p className={`text-xs mt-0.5 ${new Date(item.scheduledFor) > new Date() ? "text-gold/80" : "text-white/35"}`}>
                                   ⏱ Generates {fmt(item.scheduledFor)}
