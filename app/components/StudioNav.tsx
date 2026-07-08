@@ -12,6 +12,7 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/", label: "Generate" },
   { href: "/admin", label: "Scheduler" },
+  { href: "/media", label: "Add media" },
   { href: "/podcast", label: "Podcast" },
   { href: "/video", label: "Video" },
   { href: "/alt-text", label: "Alt text" },

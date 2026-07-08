@@ -1152,9 +1152,17 @@ export default function AdminPage() {
                             </td>
                             <td className="px-5 py-4 text-center">
                               {item.wpEditUrl ? (
-                                <div className="flex items-center justify-center gap-2">
-                                  <a href={item.wpEditUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-gold hover:text-gold-bright hover:underline font-medium">Edit in WP</a>
-                                  {item.wpPostUrl && <a href={item.wpPostUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-white/35 hover:text-white/55 hover:underline">Preview</a>}
+                                <div className="flex flex-col items-center gap-1">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <a href={item.wpEditUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-gold hover:text-gold-bright hover:underline font-medium">Edit in WP</a>
+                                    {item.wpPostUrl && <a href={item.wpPostUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-white/35 hover:text-white/55 hover:underline">Preview</a>}
+                                  </div>
+                                  {item.wpPostId && (
+                                    <a href={`/media?postId=${item.wpPostId}&title=${encodeURIComponent(item.topic)}`}
+                                      className="text-[11px] text-white/45 hover:text-gold-bright hover:underline inline-flex items-center gap-1">
+                                      🎬 Add media
+                                    </a>
+                                  )}
                                 </div>
                               ) : <span className="text-white/30 text-xs">—</span>}
                             </td>

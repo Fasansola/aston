@@ -25,7 +25,20 @@
  * logic is reused without refactoring.
  */
 
-import { sleep } from "workflow";
+import { sleep, getWritable } from "workflow";
+
+// ── Progress streaming ────────────────────────────────────────
+// So a client (the Media page) can follow a media run's live progress the
+// same way the main route follows generatePostWorkflow. Must run in a step.
+async function emit(event: Record<string, unknown>): Promise<void> {
+  "use step";
+  const writer = getWritable<string>().getWriter();
+  try {
+    await writer.write(`data: ${JSON.stringify(event)}\n\n`);
+  } finally {
+    writer.releaseLock();
+  }
+}
 
 export interface MediaContentFields {
   main_content:   string;
@@ -229,25 +242,32 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
   "use workflow";
 
   const result: GenerateMediaResult = { audioUrl: null, youtubeUrl: null, podcastUrl: null, errors: [] };
-  const fail = (label: string, err: unknown) => {
+  const fail = async (label: string, err: unknown) => {
     const msg = `${label}: ${err instanceof Error ? err.message : String(err)}`;
     console.error(`[generateMedia] ${msg}`);
     result.errors.push(msg);
+    await emit({ type: "media_failed", output: label, message: err instanceof Error ? err.message : String(err) });
   };
+
+  await emit({ type: "progress", message: "Starting media generation…" });
 
   // 1 — Read-aloud audio (also reused as the video narration track)
   if (input.outputs.audio) {
+    await emit({ type: "progress", output: "audio", message: "Generating read-aloud audio…" });
     try {
       result.audioUrl = await audioStep(input);
+      await emit({ type: "media_done", output: "audio", url: result.audioUrl });
     } catch (err) {
-      fail("audio", err);
+      await fail("audio", err);
     }
   }
 
   // 2 — Video: submit render, then poll with durable sleeps, then upload
   if (input.outputs.video) {
     try {
+      await emit({ type: "progress", output: "video", message: "Building scenes and submitting the video render…" });
       const submission = await videoSubmitStep(input, result.audioUrl);
+      await emit({ type: "progress", output: "video", message: "Rendering video on Remotion Lambda… (this can take a few minutes)" });
       let videoUrl: string | null = null;
       for (let i = 0; i < VIDEO_POLL_MAX; i++) {
         await sleep(VIDEO_POLL_INTERVAL);
@@ -256,18 +276,22 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
         if (check.status === "error") throw new Error(`render failed: ${check.error ?? "unknown"}`);
       }
       if (!videoUrl) throw new Error(`render did not finish within ${VIDEO_POLL_MAX} polls`);
+      await emit({ type: "progress", output: "video", message: "Uploading the finished video to YouTube…" });
       result.youtubeUrl = await uploadVideoStep(input, videoUrl, submission);
+      await emit({ type: "media_done", output: "video", url: result.youtubeUrl });
     } catch (err) {
-      fail("video", err);
+      await fail("video", err);
     }
   }
 
   // 3 — Two-voice podcast episode
   if (input.outputs.podcast) {
+    await emit({ type: "progress", output: "podcast", message: "Writing and voicing the podcast episode…" });
     try {
       result.podcastUrl = await podcastStep(input);
+      await emit({ type: "media_done", output: "podcast", url: result.podcastUrl });
     } catch (err) {
-      fail("podcast", err);
+      await fail("podcast", err);
     }
   }
 
@@ -278,5 +302,6 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
     `podcast:${result.podcastUrl ? "ok" : input.outputs.podcast ? "FAILED" : "off"}` +
     (result.errors.length ? ` — errors: ${result.errors.join(" | ")}` : "")
   );
+  await emit({ type: "done", result });
   return result;
 }
