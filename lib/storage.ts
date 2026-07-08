@@ -50,6 +50,10 @@ export interface QueueItem {
   // this moment and triggers generation; the daily cron also honours it and
   // acts as a backstop, never picking the item up early.
   scheduledFor?: string | null;
+  // Per-item media outputs, chosen at enqueue time. Items without their own
+  // selection fall back to the scheduler-settings defaults.
+  mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
+  podcastLength?: number; // minutes: 3 | 15 | 30 | 45 | 60
 }
 
 export type ImageModel = "imagen-4" | "gpt-image-2";
@@ -278,6 +282,8 @@ export async function addQueueItem(
     language?: string;
     customPrompt?: string;
     scheduledFor?: string | null;
+    mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
+    podcastLength?: number;
   }
 ): Promise<QueueItem> {
   const item: QueueItem = {

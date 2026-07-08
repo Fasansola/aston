@@ -80,6 +80,8 @@ export async function POST(req: NextRequest) {
       language = "",
       customPrompt = "",
       delayMinutes,
+      mediaOutputs,
+      podcastLength,
     }: {
       topic: string;
       mode: GenerationMode;
@@ -92,6 +94,8 @@ export async function POST(req: NextRequest) {
       language: string;
       customPrompt: string;
       delayMinutes?: number;
+      mediaOutputs?: { audio?: boolean; video?: boolean; podcast?: boolean };
+      podcastLength?: number;
     } = body;
 
     const hasTopic = !!topic?.trim();
@@ -119,6 +123,10 @@ export async function POST(req: NextRequest) {
       ? new Date(Date.now() + delayMinutes * 60_000).toISOString()
       : undefined;
 
+    if (podcastLength !== undefined && ![3, 15, 30, 45, 60].includes(podcastLength)) {
+      return NextResponse.json({ error: "podcastLength must be one of: 3, 15, 30, 45, 60" }, { status: 400 });
+    }
+
     const item = await addQueueItem(topic.trim(), mode, sourceText, priority, {
       audience:            audience || undefined,
       primary_country:     primary_country || undefined,
@@ -127,6 +135,14 @@ export async function POST(req: NextRequest) {
       language:            language || undefined,
       customPrompt:        customPrompt.trim() || undefined,
       scheduledFor,
+      // Per-item media selection — only stored when the caller sent one, so
+      // items without it fall back to the scheduler-settings defaults.
+      mediaOutputs: mediaOutputs !== undefined ? {
+        audio:   mediaOutputs.audio   === true,
+        video:   mediaOutputs.video   === true,
+        podcast: mediaOutputs.podcast === true,
+      } : undefined,
+      podcastLength,
     });
 
     // Time-scheduled items get their own durable timer: sleep until due, then

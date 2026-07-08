@@ -16,6 +16,8 @@ interface QueueItem {
   wpPostId: number | null; wpEditUrl: string | null; wpPostUrl: string | null;
   qaScore: number | null; qaWarnings: string[];
   scheduledFor?: string | null;
+  mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
+  podcastLength?: number;
 }
 interface QueueStats {
   total: number; queued: number; processing: number;
@@ -300,6 +302,8 @@ export default function AdminPage() {
   const [newMode, setNewMode]     = useState<GenerationMode>("topic_only");
   const [newPriority, setNewPriority] = useState(3);
   const [newDelay, setNewDelay] = useState("");   // "" = next scheduled run; otherwise minutes
+  const [newMedia, setNewMedia] = useState({ audio: false, video: false, podcast: false });
+  const [newPodcastLength, setNewPodcastLength] = useState(30);
   const [adding, setAdding]       = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [showStrategyInputs, setShowStrategyInputs] = useState(false);
@@ -442,9 +446,12 @@ export default function AdminPage() {
           language: newLanguage.trim() || undefined,
           customPrompt: newCustomPrompt.trim() || undefined,
           delayMinutes: newDelay ? Number(newDelay) : undefined,
+          mediaOutputs: newMedia,
+          podcastLength: newMedia.podcast ? newPodcastLength : undefined,
         }),
       });
       setNewTopic(""); setNewPriority(3); setNewDelay("");
+      setNewMedia({ audio: false, video: false, podcast: false }); setNewPodcastLength(30);
       setNewAudience(""); setNewPrimaryCountry(""); setNewSecondaryCountries(""); setNewPriorityService(""); setNewLanguage(""); setNewCustomPrompt("");
       await fetchDashboard();
       showToast(newDelay ? `Topic queued — generates in ${Number(newDelay) < 60 ? `${newDelay} min` : `${Number(newDelay) / 60}h`}` : "Topic added to queue");
@@ -850,9 +857,9 @@ export default function AdminPage() {
                     </div>
 
                     <div>
-                      <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-3">Media Outputs</p>
+                      <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-3">Default Media Outputs</p>
                       <p className="text-xs text-white/35 mb-3 leading-relaxed">
-                        Generated automatically after each scheduled post is published — same as the media options on the manual page. Runs as a separate durable workflow, so a media failure never fails the post.
+                        You normally choose media per post when adding it to <button className="text-gold underline underline-offset-2 hover:text-gold-bright" onClick={() => setTab("queue")}>Generate</button>. These defaults only apply to older queue items that were added before per-post selection existed. Leave them off unless you want media on everything.
                       </p>
                       <div className="space-y-2.5">
                         {([
@@ -992,6 +999,39 @@ export default function AdminPage() {
                       {adding ? <><Spinner /> Adding…</> : <>{I.plus} Add to queue</>}
                     </Btn>
                   </div>
+
+                  {/* Per-post media outputs — chosen here so only the posts
+                      that need a podcast/video/audio get one */}
+                  <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                    <p className="text-xs font-medium text-white/45 mb-2.5">Media outputs for this post <span className="text-white/30 font-normal">— generated automatically after the draft is saved</span></p>
+                    <div className="flex flex-wrap items-center gap-x-6 gap-y-2.5">
+                      {([
+                        { key: "audio"   as const, label: "Read-aloud audio" },
+                        { key: "video"   as const, label: "YouTube video" },
+                        { key: "podcast" as const, label: "Podcast episode" },
+                      ]).map((m) => (
+                        <label key={m.key} className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={newMedia[m.key]}
+                            onChange={() => setNewMedia(v => ({ ...v, [m.key]: !v[m.key] }))}
+                            className="w-3.5 h-3.5 accent-gold"
+                          />
+                          <span className={`text-sm ${newMedia[m.key] ? "text-white/85" : "text-white/50"}`}>{m.label}</span>
+                        </label>
+                      ))}
+                      {newMedia.podcast && (
+                        <Select value={newPodcastLength} onChange={(e) => setNewPodcastLength(Number(e.target.value))} className="!py-1.5 text-xs">
+                          <option value={3}>3 min (test)</option>
+                          <option value={15}>15 min</option>
+                          <option value={30}>30 min</option>
+                          <option value={45}>45 min</option>
+                          <option value={60}>60 min</option>
+                        </Select>
+                      )}
+                    </div>
+                  </div>
+
                   <div>
                     <button type="button" onClick={() => setShowStrategyInputs(v => !v)}
                       className="flex items-center gap-1.5 text-xs text-gold hover:text-gold-bright font-semibold transition-colors">
@@ -1056,6 +1096,13 @@ export default function AdminPage() {
                                 <p className={`text-xs mt-0.5 ${new Date(item.scheduledFor) > new Date() ? "text-gold/80" : "text-white/35"}`}>
                                   ⏱ Generates {fmt(item.scheduledFor)}
                                 </p>
+                              )}
+                              {item.mediaOutputs && (item.mediaOutputs.audio || item.mediaOutputs.video || item.mediaOutputs.podcast) && (
+                                <span className="flex flex-wrap gap-1 mt-1">
+                                  {item.mediaOutputs.audio   && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gold/10 text-gold/85 border border-gold/25">audio</span>}
+                                  {item.mediaOutputs.video   && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gold/10 text-gold/85 border border-gold/25">video</span>}
+                                  {item.mediaOutputs.podcast && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gold/10 text-gold/85 border border-gold/25">podcast {item.podcastLength ?? 30}m</span>}
+                                </span>
                               )}
                             </td>
                             <td className="px-5 py-4 text-xs text-white/45 whitespace-nowrap capitalize">{item.mode.replace(/_/g, " ")}</td>

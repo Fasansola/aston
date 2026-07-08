@@ -67,7 +67,10 @@ async function processOneItem(
   sourceText: string,
   settings: Awaited<ReturnType<typeof getSettings>>,
   strategyInputs?: StrategyContext & { customPrompt?: string },
-  imageModel: ImageModel = "gpt-image-2"
+  imageModel: ImageModel = "gpt-image-2",
+  // Per-item media selection (chosen at enqueue time). Items without their
+  // own selection fall back to the scheduler-settings defaults.
+  media?: { outputs?: { audio: boolean; video: boolean; podcast: boolean }; podcastLength?: number }
 ) {
   const customInstruction = strategyInputs?.customPrompt?.trim() || undefined;
 
@@ -240,8 +243,8 @@ async function processOneItem(
     // immediately, so audio/video/podcast generation (up to ~20 min) never
     // presses on this cron invocation's budget. Failures are logged inside
     // the workflow and never affect the completed queue item.
-    const media = settings.mediaOutputs;
-    if (media && (media.audio || media.video || media.podcast)) {
+    const mediaOutputs = media?.outputs ?? settings.mediaOutputs;
+    if (mediaOutputs && (mediaOutputs.audio || mediaOutputs.video || mediaOutputs.podcast)) {
       try {
         const run = await start(generateMediaWorkflow, [{
           postId: post.id,
@@ -261,10 +264,10 @@ async function processOneItem(
             more_content_6: content.more_content_6,
             final_points:   content.final_points,
           },
-          outputs: { audio: media.audio, video: media.video, podcast: media.podcast },
-          podcastLength: settings.podcastLength ?? 30,
+          outputs: { audio: mediaOutputs.audio, video: mediaOutputs.video, podcast: mediaOutputs.podcast },
+          podcastLength: media?.podcastLength ?? settings.podcastLength ?? 30,
         }]);
-        console.log(`[cron:item] Media workflow started for post ${post.id} (run ${run.runId}) — audio:${media.audio} video:${media.video} podcast:${media.podcast}`);
+        console.log(`[cron:item] Media workflow started for post ${post.id} (run ${run.runId}) — audio:${mediaOutputs.audio} video:${mediaOutputs.video} podcast:${mediaOutputs.podcast}`);
       } catch (mediaErr) {
         console.error(`[cron:item] Could not start media workflow for post ${post.id} (non-fatal): ${mediaErr instanceof Error ? mediaErr.message : String(mediaErr)}`);
       }
@@ -320,7 +323,8 @@ async function processTargetedItem(itemId: string) {
         priority_service:    item.priority_service,
         language:            item.language,
         customPrompt:        item.customPrompt,
-      }, settings.imageModel ?? "gpt-image-2");
+      }, settings.imageModel ?? "gpt-image-2",
+      { outputs: item.mediaOutputs, podcastLength: item.podcastLength });
       await updateRunLog(runId, { completedAt: new Date().toISOString(), topicsCompleted: 1, status: "completed" });
       console.log(`[cron:targeted] Item ${item.id} completed — WP post ${result.postId}, QA ${result.qaScore}/100`);
       return NextResponse.json({ runId, itemId: item.id, postId: result.postId, qaScore: result.qaScore });
@@ -407,7 +411,8 @@ export async function GET(req: NextRequest) {
             priority_service:    item.priority_service,
             language:            item.language,
             customPrompt:        item.customPrompt,
-          }, settings.imageModel ?? "gpt-image-2");
+          }, settings.imageModel ?? "gpt-image-2",
+          { outputs: item.mediaOutputs, podcastLength: item.podcastLength });
           run.topicsCompleted++;
           console.log(`[cron] Item ${item.id} completed — WP post ${result.postId}, QA ${result.qaScore}/100`);
           itemDone = true;
