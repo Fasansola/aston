@@ -33,8 +33,41 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
-async function loadPost(id: string | number) {
-  const { data: post } = await axios.get(`${WP_URL}/wp-json/wp/v2/posts/${id}?context=edit`, AUTH);
+// Turn a full WordPress URL (or bare slug) into the post's slug — the last
+// non-empty path segment. Handles Polylang language prefixes and trailing
+// slashes: "https://aston.ae/de/mein-artikel/" → "mein-artikel".
+function slugFromUrl(input: string): string {
+  const trimmed = input.trim();
+  try {
+    const u = new URL(trimmed);
+    const segs = u.pathname.split("/").filter(Boolean);
+    return segs[segs.length - 1] ?? "";
+  } catch {
+    // Not a full URL — treat as a bare slug / path.
+    return trimmed.replace(/^\/+|\/+$/g, "").split("/").pop() ?? "";
+  }
+}
+
+// Fetch the raw WP post by numeric id OR by URL/slug.
+async function fetchPostRaw(opts: { id?: string | number; url?: string }): Promise<Record<string, unknown>> {
+  if (opts.id !== undefined && opts.id !== "") {
+    const { data } = await axios.get(`${WP_URL}/wp-json/wp/v2/posts/${opts.id}?context=edit`, AUTH);
+    return data;
+  }
+  const slug = slugFromUrl(opts.url ?? "");
+  if (!slug) throw new Error("Could not read a post slug from that URL");
+  const { data } = await axios.get(`${WP_URL}/wp-json/wp/v2/posts`, {
+    ...AUTH,
+    params: { slug, status: "any", context: "edit", per_page: 1 },
+  });
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new Error(`No post found for "${slug}". Check the URL, or use the post ID.`);
+  }
+  return data[0];
+}
+
+async function loadPost(opts: { id?: string | number; url?: string }) {
+  const post = await fetchPostRaw(opts);
   const acf = (post.acf ?? {}) as Record<string, unknown>;
   const meta = (post.meta ?? {}) as Record<string, unknown>;
 
@@ -69,10 +102,11 @@ async function loadPost(id: string | number) {
 export async function GET(req: NextRequest) {
   if (!authOk(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const id = req.nextUrl.searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+  const url = req.nextUrl.searchParams.get("url");
+  if (!id && !url) return NextResponse.json({ error: "Provide a post id or url" }, { status: 400 });
 
   try {
-    const p = await loadPost(id);
+    const p = await loadPost(id ? { id } : { url: url! });
     // Refine podcast detection with a CPT lookup (source_post_id === this post).
     let podcast = p.existing.podcast;
     if (!podcast) {
@@ -111,7 +145,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const p = await loadPost(postId);
+    const p = await loadPost({ id: postId });
     const run = await start(generateMediaWorkflow, [{
       postId: p.id,
       title: p.title,

@@ -40,11 +40,14 @@ function MediaWorkspace() {
   const [outMsg, setOutMsg] = useState<Record<MediaKey, string>>({ audio: "", video: "", podcast: "" });
   const [outUrl, setOutUrl] = useState<Record<MediaKey, string>>({ audio: "", video: "", podcast: "" });
 
-  const loadPost = useCallback(async (id: string) => {
-    if (!id.trim()) return;
+  const loadPost = useCallback(async (value: string) => {
+    const v = value.trim();
+    if (!v) return;
     setLoading(true); setLoadError(""); setPost(null);
     try {
-      const res = await fetch(`/api/post-media?id=${encodeURIComponent(id.trim())}`);
+      // All-digits → treat as a post ID; anything else (URL or slug) → url lookup.
+      const query = /^\d+$/.test(v) ? `id=${encodeURIComponent(v)}` : `url=${encodeURIComponent(v)}`;
+      const res = await fetch(`/api/post-media?${query}`);
       const data = await res.json();
       if (!res.ok) { setLoadError(data.error ?? "Could not load post"); return; }
       setPost(data.post);
@@ -155,13 +158,13 @@ function MediaWorkspace() {
       {/* Post picker (shown when no post loaded via query) */}
       {!post && (
         <div className="panel p-6 space-y-3 rise-in">
-          <label className="label-caps">WordPress post ID</label>
+          <label className="label-caps">WordPress post ID or URL</label>
           <div className="flex gap-2">
             <input
               value={postIdInput}
               onChange={(e) => setPostIdInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && loadPost(postIdInput)}
-              placeholder="e.g. 4213"
+              placeholder="e.g. 4213  or  https://aston.ae/your-post-slug"
               className="input-studio"
             />
             <button onClick={() => loadPost(postIdInput)} disabled={loading || !postIdInput.trim()} className="btn-gold shrink-0 !py-2.5">
@@ -170,7 +173,7 @@ function MediaWorkspace() {
           </div>
           {initialTitle && <p className="text-xs text-white/35">Post: {initialTitle}</p>}
           {loadError && <p className="text-xs text-red-300">{loadError}</p>}
-          <p className="text-[11px] text-white/30">Tip: open a completed post from the Scheduler&apos;s Gen Queue and click “Add media” — it links straight here.</p>
+          <p className="text-[11px] text-white/30">Paste the post&apos;s ID or its live URL. Or open a post from the Scheduler&apos;s Recent posts and click “Add media” — it links straight here.</p>
         </div>
       )}
 
