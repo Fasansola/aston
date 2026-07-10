@@ -15,6 +15,7 @@
 
 import OpenAI from "openai";
 import { articleToAudioScript } from "./replicate";
+import { extractJson } from "./llm";
 
 export interface RawVideoSegment {
   sectionTitle: string;
@@ -88,13 +89,7 @@ export async function segmentVideoScript(
   // summarisation task that runs inside the shared 300s video pipeline alongside
   // 7 sequential image generations. gpt-5.5's reasoning latency overran the 45s
   // script timeout ("Request was aborted") and starved the rest of the budget.
-  const { choices } = await openai.chat.completions.create({
-    model: "gpt-4o",
-    temperature: 0.3,
-    messages: [
-      {
-        role: "system",
-        content: `You are a video script writer. Given a long blog article, you produce a tight 3–4 minute video script divided into exactly 7 scenes. The video must stand alone as a summary — it should not read like an excerpt of the article.
+  const systemPrompt = `You are a video script writer. Given a long blog article, you produce a tight 3–4 minute video script divided into exactly 7 scenes. The video must stand alone as a summary — it should not read like an excerpt of the article.
 
 TARGET LENGTH: 3–4 minutes total. At ~130 words per minute that means 60–70 words of narration per scene (420–490 words total). Do not exceed 70 words per scene.
 
@@ -115,12 +110,10 @@ IMAGE PROMPT RULES — write as if briefing a professional photographer:
 - Keep the main subject centred — the image is cropped on the left and right edges when displayed, so never place important content near the edges
 - NEVER use these words — they produce AI-looking results: cinematic, dramatic, glowing, ethereal, stunning, vibrant, majestic, epic, surreal, fantasy, artistic, render, 3D
 - GOOD example: "A photograph of a male legal consultant in a navy suit reviewing UAE company formation documents with a client across a glass desk in a sunlit DIFC office tower, floor-to-ceiling windows with soft afternoon light, shot on Sony A7R V 85mm f/1.8, shallow depth of field, warm neutral tones"
-- BAD example: "Professional business meeting in a modern office with dramatic cinematic lighting and vibrant colours" — too generic, no photography language, will look AI-generated`,
-      },
-      {
-        role: "user",
-        content: hasContent
-          ? `Article title: "${title}"
+- BAD example: "Professional business meeting in a modern office with dramatic cinematic lighting and vibrant colours" — too generic, no photography language, will look AI-generated`;
+
+  const userPrompt = hasContent
+    ? `Article title: "${title}"
 
 Full article (${wordCount} words):
 ${fullScript}
@@ -128,18 +121,10 @@ ${fullScript}
 Write a tight 3–4 minute video script that summarises this article across exactly 7 scenes.
 Each narration must be 60–70 words — written fresh for video, NOT copied verbatim from the article.
 Cover the article's key points. Make each scene self-contained and engaging when spoken aloud.
-Return a JSON array only — no markdown, no code fences, no explanation:
+Return a JSON object with a "scenes" array only — no markdown, no code fences, no explanation:
 
-[
-  {
-    "sectionTitle": "Introduction",
-    "narration": "...",
-    "displayText": "...",
-    "bullets": ["...", "...", "..."],
-    "imagePrompt": "..."
-  }
-]`
-          : `Topic / title: "${title}"
+{ "scenes": [ { "sectionTitle": "Introduction", "narration": "...", "displayText": "...", "bullets": ["...", "...", "..."], "imagePrompt": "..." } ] }`
+    : `Topic / title: "${title}"
 
 No article text is provided. Write a complete 7-scene video script on this topic from scratch.
 Target: 3–4 minutes total — 60–70 words of narration per scene.
@@ -147,34 +132,48 @@ Target audience: business owners and entrepreneurs interested in UAE and interna
 Write with authority — real jurisdiction names, regulator names, realistic fee ranges, practical advice.
 Each scene must cover a distinct aspect of the topic and flow naturally when spoken aloud.
 
-Return a JSON array only — no markdown, no code fences:
+Return a JSON object with a "scenes" array only — no markdown, no code fences:
 
-[
-  {
-    "sectionTitle": "Introduction",
-    "narration": "...",
-    "displayText": "...",
-    "bullets": ["...", "...", "..."],
-    "imagePrompt": "..."
+{ "scenes": [ { "sectionTitle": "Introduction", "narration": "...", "displayText": "...", "bullets": ["...", "...", "..."], "imagePrompt": "..." } ] }`;
+
+  // gpt-4o with response_format json_object (guarantees valid JSON) + one retry.
+  // Kept on gpt-4o (not the gpt-5.5 lib/llm helper) because segmentation is a
+  // fast mechanical task and gpt-5.5's reasoning latency overran the timeout.
+  const MAX_ATTEMPTS = 2;
+  let segments: RawVideoSegment[] | null = null;
+  let lastErr = "";
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const { choices } = await openai.chat.completions.create({
+        model: "gpt-4o",
+        temperature: 0.3,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }, { signal: AbortSignal.timeout(60_000) });
+
+      const raw = choices[0].message.content?.trim() ?? "";
+      const parsed = extractJson<{ scenes?: RawVideoSegment[] } | RawVideoSegment[]>(raw, "videoScript");
+      const arr = Array.isArray(parsed) ? parsed : parsed.scenes;
+      if (!Array.isArray(arr) || arr.length === 0) throw new Error("no scenes array in response");
+      segments = arr;
+      break;
+    } catch (err) {
+      lastErr = err instanceof Error ? err.message : String(err);
+      console.warn(`[videoScript] segmentation attempt ${attempt}/${MAX_ATTEMPTS} failed: ${lastErr}`);
+    }
   }
-]`,
-      },
-    ],
-  }, { signal: AbortSignal.timeout(45_000) });
 
-  const raw = choices[0].message.content?.trim() ?? "";
-  const match = raw.match(/\[[\s\S]*\]/);
-  if (!match) {
-    throw new Error(`Script segmentation returned no JSON. Raw: ${raw.slice(0, 200)}`);
-  }
-
-  const segments = JSON.parse(match[0]) as RawVideoSegment[];
+  if (!segments) throw new Error(`Script segmentation failed after ${MAX_ATTEMPTS} attempts: ${lastErr}`);
 
   // Attach word counts — durations are placeholders until recalibrated
   // against the real audio length in generate-video/route.ts
   return segments.map((seg) => ({
     ...seg,
-    wordCount: countWords(seg.narration),
+    bullets: Array.isArray(seg.bullets) ? seg.bullets : [],
+    wordCount: countWords(seg.narration ?? ""),
     durationSeconds: 0, // recalibrated after audio generation
   }));
 }

@@ -26,8 +26,7 @@ import { submitRemotionRender }                                                 
 import type { VideoSegment }                                                       from "@/src/remotion/VideoComposition";
 import { uploadSceneImageToS3, uploadAssetToS3 }                                  from "@/lib/sceneImageS3";
 import { uploadMediaToWordPress }                                                  from "@/lib/wordpress";
-import { estimateMp3DurationSeconds } from "@/lib/replicate";
-import { generateElevenLabsNarration } from "@/lib/podcastAudio";
+import { generateElevenLabsNarration, measureAudioDurationSeconds } from "@/lib/podcastAudio";
 import OpenAI from "openai";
 
 // 800s: scene images now use GPT Image 2 (slow, reasoning-based). They run in
@@ -35,12 +34,27 @@ import OpenAI from "openai";
 // old Imagen-era 300s.
 export const maxDuration = 800;
 
-// Dark navy 1×1 PNG — used when image generation fails so Remotion always has a valid URL.
-const FALLBACK_IMG = "https://placehold.co/1280x720/0f1a2e/0f1a2e.png";
+// Empty string → the Remotion composition's SafeImg renders a solid navy fill.
+// Using a self-contained fallback (not an external placehold.co URL that Lambda
+// must fetch and that can fail the render) means a bad scene image never breaks
+// the video.
+const FALLBACK_IMG = "";
+
+// Reject a promise if it doesn't settle within `ms`. Used to hard-cap external
+// image calls whose SDKs don't expose an abort signal (Imagen), so one hung
+// request can't stall the whole bounded-parallel image phase.
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
 
 // Primary scene-image generator: GPT Image 2. Uses 1536x1024 (the proven,
 // SDK-valid landscape size also used for post images); Remotion cover-fits it
 // into the 16:9 frame. Slower than Imagen but higher quality.
+// 120s cap (was 200s): a slow image should fail over to the much faster Imagen
+// quickly rather than eating the shared 800s budget while 7 images generate.
 async function callGptImage2(prompt: string): Promise<Buffer> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const response = await openai.images.generate({
@@ -49,21 +63,23 @@ async function callGptImage2(prompt: string): Promise<Buffer> {
     n: 1,
     size: "1536x1024",
     quality: "high",
-  }, { signal: AbortSignal.timeout(200_000) });
+  }, { signal: AbortSignal.timeout(120_000) });
   const b64 = response.data?.[0]?.b64_json;
   if (b64) return Buffer.from(b64, "base64");
   const url = response.data?.[0]?.url;
   if (url) {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     return Buffer.from(await res.arrayBuffer());
   }
   throw new Error("GPT Image 2 returned no image data");
 }
 
-// Fast fallback generator, used only if GPT Image 2 fails on a scene.
+// Fast fallback generator, used only if GPT Image 2 fails on a scene. The
+// @google/genai SDK has no abort option, so we wrap the call in a hard 60s
+// timeout — otherwise a hung request pins a worker slot indefinitely.
 async function callImagen(prompt: string): Promise<Buffer> {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-  const response = await ai.models.generateImages({
+  const response = await withTimeout(ai.models.generateImages({
     model:  "imagen-4.0-generate-001",
     prompt,
     config: {
@@ -71,7 +87,7 @@ async function callImagen(prompt: string): Promise<Buffer> {
       aspectRatio:    "16:9",
       outputMimeType: "image/jpeg",
     },
-  });
+  }), 60_000, "Imagen 4");
   const imgBytes = response.generatedImages?.[0]?.image?.imageBytes;
   if (!imgBytes) throw new Error("Imagen 4 returned no image bytes");
   return Buffer.from(imgBytes, "base64");
@@ -304,7 +320,9 @@ export async function POST(req: NextRequest) {
         const script = timedSegments.map((s) => s.narration).join(" ");
 
         const audioResult = await generateElevenLabsNarration(script);
-        audioDurationSeconds = estimateMp3DurationSeconds(audioResult.buffer);
+        // Measure the REAL duration (ffmpeg) so scene timings sync to the
+        // narration — a byte-length estimate drifts and desyncs the video.
+        audioDurationSeconds = await measureAudioDurationSeconds(audioResult.buffer);
         const ext = audioResult.mimeType === "audio/mpeg" ? "mp3" : "wav";
         const filename = `${slug}-video-audio.${ext}`;
 
@@ -318,13 +336,25 @@ export async function POST(req: NextRequest) {
         audioS3Url = await uploadAssetToS3(audioResult.buffer, filename, audioResult.mimeType, "audio");
         console.log(`[generate-video] Audio uploaded to S3 (~${Math.round(audioDurationSeconds)}s)`);
       } else {
-        // Pre-provided URL (WordPress-hosted) — fetch and re-host on S3
+        // Pre-provided URL (WordPress-hosted) — fetch the buffer once so we can
+        // both MEASURE its real duration and re-host it on S3 (Lambda can't
+        // reach SiteGround). Falls back to the word-count estimate + URL rehost
+        // only if the direct fetch fails.
         await send({ type: "progress", message: "Copying audio to S3 for rendering…", elapsedSecs: elapsed() });
         const audioFilename = providedAudioUrl.trim().split("/").pop() ?? "video-audio.mp3";
-        audioS3Url = await fetchAssetToS3(providedAudioUrl.trim(), audioFilename, "audio/mpeg");
-        const totalWords = timedSegments.reduce((s, seg) => s + seg.wordCount, 0);
-        audioDurationSeconds = (totalWords / 130) * 60;
-        console.log(`[generate-video] Using provided audio via S3, estimated duration: ~${Math.round(audioDurationSeconds)}s`);
+        try {
+          const res = await fetch(providedAudioUrl.trim(), { signal: AbortSignal.timeout(60_000) });
+          if (!res.ok) throw new Error(`provided audio fetch failed: ${res.status}`);
+          const buf = Buffer.from(await res.arrayBuffer());
+          audioDurationSeconds = await measureAudioDurationSeconds(buf);
+          audioS3Url = await uploadAssetToS3(buf, audioFilename, res.headers.get("content-type") ?? "audio/mpeg", "audio");
+          console.log(`[generate-video] Provided audio re-hosted on S3, measured duration ~${Math.round(audioDurationSeconds)}s`);
+        } catch (err) {
+          console.warn(`[generate-video] Could not fetch provided audio to measure (${err instanceof Error ? err.message : err}) — using estimate + URL rehost`);
+          audioS3Url = await fetchAssetToS3(providedAudioUrl.trim(), audioFilename, "audio/mpeg");
+          const totalWords = timedSegments.reduce((s, seg) => s + seg.wordCount, 0);
+          audioDurationSeconds = (totalWords / 130) * 60;
+        }
       }
 
       // ── 5. Calibrate every segment duration to the real audio ─────

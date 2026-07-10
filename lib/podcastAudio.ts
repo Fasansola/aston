@@ -112,6 +112,40 @@ async function ffmpeg(args: string[]): Promise<void> {
 }
 
 /**
+ * Measure an audio buffer's real duration in seconds using ffmpeg. Much more
+ * accurate than estimating from byte length (which assumes a fixed bitrate) —
+ * the video pipeline relies on this to sync scene durations to the narration.
+ * Falls back to a 128 kbps byte estimate if ffmpeg is unavailable or errors.
+ */
+export async function measureAudioDurationSeconds(buffer: Buffer): Promise<number> {
+  const byteEstimate = buffer.length / 16_000; // 128 kbps ≈ 16 KB/s
+  if (!ffmpegPath || buffer.length < 2_000) return byteEstimate;
+  const dir = await mkdtemp(join(tmpdir(), "audiodur-"));
+  const file = join(dir, "audio.mp3");
+  try {
+    await writeFile(file, buffer);
+    // `ffmpeg -i <file>` writes the container's "Duration: HH:MM:SS.ss" line to
+    // stderr and exits non-zero (no output specified) — that's expected.
+    let stderr = "";
+    try {
+      await execFileAsync(ffmpegPath, ["-i", file], { maxBuffer: 1024 * 1024 * 16 });
+    } catch (e: unknown) {
+      stderr = (e as { stderr?: string })?.stderr ?? "";
+    }
+    const m = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+    if (m) {
+      const secs = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+      if (secs > 0) return secs;
+    }
+    return byteEstimate;
+  } catch {
+    return byteEstimate;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
  * Build the full episode MP3:
  *   [music intro] ⤬ clean conversation ⤬ [music outro]
  * If BACKGROUND_MUSIC_URL is unset/unreachable, the speech is returned on its own.

@@ -38,6 +38,20 @@ function fade(frame: number, i0: number, i1: number, o0: number, o1: number) {
   });
 }
 
+/**
+ * An <Img> that can NEVER fail the render. Remotion's built-in <Img> aborts the
+ * whole render if the URL 404s, times out, or is unreachable from Lambda — so a
+ * single bad scene image (or an expired/blocked asset URL) killed the entire
+ * video. This renders a solid navy fill on any load error (or empty src) instead.
+ */
+const SafeImg: React.FC<{ src: string; style?: React.CSSProperties }> = ({ src, style }) => {
+  const [failed, setFailed] = React.useState(false);
+  if (!src || failed) {
+    return <div style={{ ...style, backgroundColor: NAVY }} />;
+  }
+  return <Img src={src} style={style} onError={() => setFailed(true)} />;
+};
+
 const MusicTrack: React.FC<{ src: string; totalFrames: number }> = ({ src, totalFrames }) => {
   const frame  = useCurrentFrame();
   const volume = interpolate(
@@ -164,7 +178,7 @@ const Scene: React.FC<{ segment: VideoSegment; index: number; segFrames: number 
         overflow: "hidden",
         opacity: contentOp,
       }}>
-        <Img
+        <SafeImg
           src={segment.imageUrl}
           style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${scale})`, transformOrigin: index % 2 === 0 ? "left center" : "right center" }}
         />
@@ -193,7 +207,7 @@ const CtaEndScreen: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
   });
   return (
     <AbsoluteFill style={{ backgroundColor: NAVY, opacity, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-      {logoUrl && <Img src={logoUrl} style={{ height: 77, objectFit: "contain", marginBottom: 26 }} />}
+      {logoUrl && <SafeImg src={logoUrl} style={{ height: 77, objectFit: "contain", marginBottom: 26 }} />}
       <div style={{ width: 80, height: 3, backgroundColor: GOLD, marginBottom: 24 }} />
       <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 20, textTransform: "uppercase", letterSpacing: "0.4em", margin: "0 0 16px" }}>Corporate Advisory</p>
       <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 38, margin: "0 0 22px" }}>Speak with our advisers today</p>
@@ -212,7 +226,7 @@ const IntroCard: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
   });
   return (
     <AbsoluteFill style={{ backgroundColor: NAVY, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", opacity }}>
-      {logoUrl && <Img src={logoUrl} style={{ height: 156, objectFit: "contain", marginBottom: 24 }} />}
+      {logoUrl && <SafeImg src={logoUrl} style={{ height: 156, objectFit: "contain", marginBottom: 24 }} />}
       <p style={{ fontFamily: "Georgia, serif", color: "#ffffff", fontSize: 38, letterSpacing: "0.12em", margin: "0 0 10px" }}>ASTON VIP</p>
       <p style={{ fontFamily: "Georgia, serif", color: GOLD, fontSize: 18, textTransform: "uppercase", letterSpacing: "0.4em", margin: "0 0 16px" }}>Corporate Advisory</p>
       <div style={{ width: 60, height: 2, backgroundColor: GOLD, marginBottom: 16 }} />
@@ -226,7 +240,7 @@ const IntroCard: React.FC<{ logoUrl: string }> = ({ logoUrl }) => {
 const LogoWatermark: React.FC<{ logoUrl: string }> = ({ logoUrl }) => (
   <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "flex-end" }}>
     <div style={{ padding: "0 22px 18px 0" }}>
-      <Img src={logoUrl} style={{ height: 52, objectFit: "contain", opacity: 0.9 }} />
+      <SafeImg src={logoUrl} style={{ height: 52, objectFit: "contain", opacity: 0.9 }} />
     </div>
   </AbsoluteFill>
 );
