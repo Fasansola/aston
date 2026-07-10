@@ -317,6 +317,8 @@ export default function AdminPage() {
   const [settings, setSettings]   = useState<SchedulerSettings | null>(null);
   const [runs, setRuns]           = useState<RunLog[]>([]);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [spotifySyncing, setSpotifySyncing] = useState(false);
+  const [spotifyResult, setSpotifyResult]   = useState<{ ok: boolean; msg: string; synced?: number } | null>(null);
 
   const [items, setItems]         = useState<QueueItem[]>([]);
   const [newTopic, setNewTopic]   = useState("");
@@ -528,6 +530,20 @@ export default function AdminPage() {
       const data = await res.json();
       setSettings(data.settings);
     } finally { setSavingSettings(false); }
+  }
+
+  async function runSpotifySync() {
+    setSpotifySyncing(true);
+    setSpotifyResult(null);
+    try {
+      const res  = await fetch("/api/spotify-sync", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { setSpotifyResult({ ok: false, msg: data.error ?? data.message ?? "Sync failed" }); return; }
+      setSpotifyResult({ ok: true, msg: data.message ?? "Done", synced: data.synced });
+      showToast(typeof data.synced === "number" && data.synced > 0 ? `Embedded Spotify player in ${data.synced} post${data.synced === 1 ? "" : "s"}` : "Spotify sync complete — nothing new to embed");
+    } catch {
+      setSpotifyResult({ ok: false, msg: "Network error — could not reach the sync endpoint" });
+    } finally { setSpotifySyncing(false); }
   }
 
   async function addTopic() {
@@ -1046,6 +1062,28 @@ export default function AdminPage() {
                   </div>
                 </Card>
               )}
+
+              {/* ── Maintenance / integrations ── */}
+              <Card>
+                <CardHeader title="Podcast → Spotify sync" subtitle="When a podcast goes live on Spotify, its player is embedded back into the blog post. This runs automatically every hour — use this to force it now." />
+                <div className="p-6">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-sm text-white/70">Just published an episode on Spotify and want it on the site immediately?</p>
+                      <p className="text-xs text-white/35 mt-0.5">Only posts whose episode is already live on Spotify get embedded — nothing else is touched.</p>
+                    </div>
+                    <Btn variant="secondary" onClick={runSpotifySync} disabled={spotifySyncing}>
+                      {spotifySyncing ? <><Spinner /> Syncing…</> : <>{I.refresh} Sync Spotify now</>}
+                    </Btn>
+                  </div>
+                  {spotifyResult && (
+                    <div className={`mt-4 flex items-start gap-2.5 rounded-xl px-4 py-3 text-sm border ${spotifyResult.ok ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25" : "bg-red-500/10 text-red-300 border-red-500/25"}`}>
+                      <span className="mt-0.5">{spotifyResult.ok ? "✓" : "✕"}</span>
+                      <span>{spotifyResult.msg}</span>
+                    </div>
+                  )}
+                </div>
+              </Card>
             </>
           )}
 
