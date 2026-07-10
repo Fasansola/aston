@@ -284,6 +284,7 @@ const I = {
   bolt:      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
   publish:   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" /></svg>,
   history:   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+  settings:  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
   chevron:   <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>,
   clock:     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
   check:     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>,
@@ -291,7 +292,7 @@ const I = {
 
 // ── Main component ─────────────────────────────────────────────
 
-type Tab = "dashboard" | "queue" | "history" | "topics" | "links" | "performance" | "publish_queue";
+type Tab = "dashboard" | "queue" | "history" | "topics" | "links" | "performance" | "publish_queue" | "settings";
 
 export default function AdminPage() {
   const [isAuthed, setIsAuthed]     = useState<null | boolean>(null);
@@ -299,6 +300,18 @@ export default function AdminPage() {
   const [authError, setAuthError]   = useState("");
   const [tab, setTab]         = useState<Tab>("dashboard");
   const [loading, setLoading] = useState(false);
+  // First-visit guide: shown until dismissed once (persisted), reopenable any time.
+  const [showHelp, setShowHelpRaw] = useState(false);
+  useEffect(() => {
+    try { setShowHelpRaw(localStorage.getItem("aston_admin_guide_seen") !== "1"); } catch { /* SSR/no storage */ }
+  }, []);
+  const setShowHelp = (v: boolean | ((p: boolean) => boolean)) => {
+    setShowHelpRaw((prev) => {
+      const next = typeof v === "function" ? v(prev) : v;
+      try { if (!next) localStorage.setItem("aston_admin_guide_seen", "1"); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   const [stats, setStats]         = useState<QueueStats | null>(null);
   const [settings, setSettings]   = useState<SchedulerSettings | null>(null);
@@ -312,6 +325,7 @@ export default function AdminPage() {
   const [newDelay, setNewDelay] = useState("");   // "" = next scheduled run; otherwise minutes
   const [newMedia, setNewMedia] = useState({ audio: false, video: false, podcast: false });
   const [newPodcastLength, setNewPodcastLength] = useState(30);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [adding, setAdding]       = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [showStrategyInputs, setShowStrategyInputs] = useState(false);
@@ -489,6 +503,7 @@ export default function AdminPage() {
       setNewMedia({ audio: false, video: false, podcast: false }); setNewPodcastLength(30);
       setNewAudience(""); setNewPrimaryCountry(""); setNewSecondaryCountries(""); setNewPriorityService(""); setNewLanguage(""); setNewCustomPrompt("");
       await fetchDashboard();
+      setShowAddForm(false);
       showToast(newDelay ? `Topic queued — generates in ${Number(newDelay) < 60 ? `${newDelay} min` : `${Number(newDelay) / 60}h`}` : "Topic added to queue");
     } finally { setAdding(false); }
   }
@@ -652,14 +667,26 @@ export default function AdminPage() {
   }
 
   // ── Nav config ─────────────────────────────────────────────────
-  const navItems: { id: Tab; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { id: "dashboard",    label: "Dashboard",    icon: I.dashboard },
-    { id: "queue",        label: "Generate",     icon: I.queue,   badge: stats?.queued },
-    { id: "history",      label: "History",      icon: I.history },
-    { id: "publish_queue",label: "Publish",      icon: I.publish, badge: publishQueueStats?.queued || undefined },
-    { id: "topics",       label: "Topics",       icon: I.topics,  badge: topics.filter(x => x.status !== "archived").length || undefined },
-    { id: "links",        label: "Links",        icon: I.links,   badge: links.filter(x => x.status === "active").length || undefined },
-    { id: "performance",  label: "Performance",  icon: I.perf,    badge: perfRecords.length || undefined },
+  // The sidebar itself teaches the model: the four content tabs are ONE
+  // pipeline, in order — plan it, write it, review it, put it live.
+  type NavItem = { id: Tab; label: string; icon: React.ReactNode; badge?: number; step?: number };
+  const navSections: { label: string | null; items: NavItem[] }[] = [
+    { label: null, items: [
+      { id: "dashboard",    label: "Overview",     icon: I.dashboard },
+    ]},
+    { label: "Content pipeline", items: [
+      { id: "topics",       label: "Plan topics",  icon: I.topics,  step: 1, badge: topics.filter(x => x.status !== "archived").length || undefined },
+      { id: "queue",        label: "Write queue",  icon: I.queue,   step: 2, badge: stats?.queued },
+      { id: "history",      label: "Recent posts", icon: I.history, step: 3 },
+      { id: "publish_queue",label: "Go live",      icon: I.publish, step: 4, badge: publishQueueStats?.queued || undefined },
+    ]},
+    { label: "Setup", items: [
+      { id: "settings",     label: "Settings",     icon: I.settings },
+      { id: "links",        label: "Links",        icon: I.links,   badge: links.filter(x => x.status === "active").length || undefined },
+    ]},
+    { label: "Insights", items: [
+      { id: "performance",  label: "Performance",  icon: I.perf,    badge: perfRecords.length || undefined },
+    ]},
   ];
 
   return (
@@ -697,17 +724,32 @@ export default function AdminPage() {
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
-          {navItems.map((item) => (
-            <button key={item.id} onClick={() => setTab(item.id)}
-              className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all ${tab === item.id ? "bg-gradient-to-b from-[#dcbd72] to-[#b6923a] text-black shadow-[0_6px_18px_-8px_rgba(201,168,76,0.6)]" : "text-white/35 hover:bg-white/[0.06] hover:text-white"}`}>
-              <span className="flex-shrink-0">{item.icon}</span>
-              <span className="flex-1 text-left font-medium text-[13px]">{item.label}</span>
-              {item.badge !== undefined && item.badge > 0 && (
-                <span className={`text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none tabular-nums ${tab === item.id ? "bg-black/20 text-black" : "bg-white/10 text-white/30"}`}>
-                  {item.badge}
-                </span>
+          {navSections.map((section, si) => (
+            <div key={si} className={si > 0 ? "mt-4" : ""}>
+              {section.label && (
+                <p className="px-3 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/25">{section.label}</p>
               )}
-            </button>
+              <div className="space-y-0.5">
+                {section.items.map((item) => (
+                  <button key={item.id} onClick={() => setTab(item.id)}
+                    className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all ${tab === item.id ? "bg-gradient-to-b from-[#dcbd72] to-[#b6923a] text-black shadow-[0_6px_18px_-8px_rgba(201,168,76,0.6)]" : "text-white/35 hover:bg-white/[0.06] hover:text-white"}`}>
+                    {item.step !== undefined ? (
+                      <span className={`flex-shrink-0 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center ${tab === item.id ? "bg-black/20 text-black" : "bg-white/[0.08] text-white/40"}`}>
+                        {item.step}
+                      </span>
+                    ) : (
+                      <span className="flex-shrink-0">{item.icon}</span>
+                    )}
+                    <span className="flex-1 text-left font-medium text-[13px]">{item.label}</span>
+                    {item.badge !== undefined && item.badge > 0 && (
+                      <span className={`text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none tabular-nums ${tab === item.id ? "bg-black/20 text-black" : "bg-white/10 text-white/30"}`}>
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 
@@ -743,10 +785,40 @@ export default function AdminPage() {
             <>
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Dashboard</h1>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Overview</h1>
                   <p className="text-sm text-white/45 mt-0.5">What the scheduler is doing, and what happens next</p>
                 </div>
+                <Btn variant="secondary" size="sm" onClick={() => setShowHelp(v => !v)}>
+                  {showHelp ? "Hide guide" : "How does this work?"}
+                </Btn>
               </div>
+
+              {/* ── First-time explainer: the whole tool in four sentences ── */}
+              {showHelp && (
+                <Card className="!border-gold/25">
+                  <div className="p-6">
+                    <p className="font-display text-lg text-white/90 mb-4">This tool writes blog posts for aston.ae on autopilot. Four steps:</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {[
+                        { n: 1, title: "Plan topics", tab: "topics" as Tab, body: "Collect article ideas in an idea bank. Nothing generates from here — it's just planning. When an idea is ready, push it to the Write queue." },
+                        { n: 2, title: "Write queue", tab: "queue" as Tab, body: "Topics here get written automatically — every day at 08:00 UTC, or at an exact time you pick per topic. Each becomes a full article with images, saved to WordPress as a draft." },
+                        { n: 3, title: "Recent posts", tab: "history" as Tab, body: "Every generated post lands here (including ones made on the Generate page). Review them in WordPress, and add audio, video or a podcast to any of them." },
+                        { n: 4, title: "Go live", tab: "publish_queue" as Tab, body: "Drafts you approve get scheduled here and are published to the live site automatically." },
+                      ].map((s) => (
+                        <button key={s.n} onClick={() => setTab(s.tab)}
+                          className="text-left rounded-xl bg-white/[0.03] border border-white/[0.06] hover:border-gold/40 transition-all px-4 py-3.5">
+                          <p className="text-sm font-semibold text-white/85">
+                            <span className="inline-flex w-5 h-5 mr-2 rounded-full bg-gold/15 text-gold text-[11px] font-bold items-center justify-center">{s.n}</span>
+                            {s.title}
+                          </p>
+                          <p className="text-xs text-white/45 mt-1.5 leading-relaxed">{s.body}</p>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-white/35 mt-4">The switch in the sidebar (or in <button className="text-gold underline underline-offset-2 hover:text-gold-bright" onClick={() => setTab("settings")}>Settings</button>) turns the daily autopilot on and off. Everything is saved as a WordPress <em>draft</em> first — nothing goes live without you.</p>
+                  </div>
+                </Card>
+              )}
 
               {/* ── Plain-English status: what happens next ── */}
               {settings && stats && (() => {
@@ -765,7 +837,7 @@ export default function AdminPage() {
                               ? <>The scheduler is <strong className="text-emerald-300">on</strong>, but the queue is empty — nothing will generate until you add a topic in <button className="text-gold underline underline-offset-2 hover:text-gold-bright" onClick={() => setTab("queue")}>Generate</button>.</>
                               : <>Next automatic run <strong className="text-gold-bright">{human}</strong> (08:00 UTC): it will write <strong className="text-white">{willWrite === 0 ? "no posts (daily target reached)" : `${willWrite} post${willWrite === 1 ? "" : "s"}`}</strong>{willWrite > 0 && <> from the <strong className="text-white">{stats.queued}</strong> waiting topic{stats.queued === 1 ? "" : "s"}</>} and save {willWrite === 1 ? "it" : "them"} as WordPress draft{willWrite === 1 ? "" : "s"}. {stats.completedToday} of {settings.blogsPerDay} daily posts done so far.</>
                           ) : (
-                            <>The scheduler is <strong className="text-white/70">paused</strong> — nothing generates automatically. Topics with a set time still generate. Flip the toggle below to resume daily runs.</>
+                            <>The scheduler is <strong className="text-white/70">paused</strong> — nothing generates automatically. Topics with a set time still generate. Turn it on in <button className="text-gold underline underline-offset-2 hover:text-gold-bright" onClick={() => setTab("settings")}>Settings</button> or with the switch in the sidebar.</>
                           )}
                         </p>
                         {dueEarlier > 0 && (
@@ -783,24 +855,24 @@ export default function AdminPage() {
               {/* ── The content pipeline, made visible ── */}
               {stats && (
                 <Card>
-                  <CardHeader title="How your content flows" subtitle="Each stage is a tab — click one to manage it" />
+                  <CardHeader title="Your content pipeline" subtitle="These are the four numbered tabs in the sidebar — click a stage to open it" />
                   <div className="px-5 py-5 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 overflow-x-auto">
                     <PipelineStage
                       count={topics.filter(t => t.status !== "archived" && t.status !== "queued").length}
-                      label="Topic ideas" hint="Plan and approve ideas"
+                      label="1 · Plan topics" hint="Idea bank — nothing generates yet"
                       onClick={() => setTab("topics")} />
                     <PipelineStage
                       count={stats.queued}
-                      label="Waiting to write" hint={stats.processing > 0 ? `${stats.processing} writing right now` : "Picked up by the daily run"}
+                      label="2 · Write queue" hint={stats.processing > 0 ? `${stats.processing} writing right now` : "Written by the daily run or at a set time"}
                       active={stats.processing > 0}
                       onClick={() => setTab("queue")} />
                     <PipelineStage
                       count={stats.completed}
-                      label="Drafts created" hint="Review & edit in WordPress"
-                      onClick={() => setTab("queue")} />
+                      label="3 · Recent posts" hint="Review drafts, add audio / video / podcast"
+                      onClick={() => setTab("history")} />
                     <PipelineStage
                       count={publishQueueStats?.queued ?? 0}
-                      label="Publish schedule" hint="Drafts queued to go live"
+                      label="4 · Go live" hint="Approved drafts scheduled to publish"
                       onClick={() => setTab("publish_queue")} />
                     <PipelineStage
                       count={publishQueueStats?.published ?? 0}
@@ -818,6 +890,48 @@ export default function AdminPage() {
                   <StatCard label="Paused" value={stats.paused} color="text-white/35" sub="on hold" />
                 </div>
               )}
+
+              {runs.length > 0 && (
+                <Card>
+                  <CardHeader title="Recent Runs" subtitle={`${runs.length} run${runs.length !== 1 ? "s" : ""} recorded`} />
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-white/[0.03]/80 text-[11px] font-bold text-white/35 uppercase tracking-wide border-b border-white/[0.06]">
+                          {["Run ID","Started","Completed","Tried","Done","Failed","Status"].map(h => (
+                            <th key={h} className={`px-5 py-3 ${["Tried","Done","Failed","Status"].includes(h) ? "text-center" : "text-left"}`}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/[0.05]">
+                        {[...runs].reverse().map((r) => (
+                          <tr key={r.runId} className="hover:bg-white/[0.03]/60 transition-colors">
+                            <td className="px-5 py-3.5 font-mono text-xs text-white/35">{r.runId.slice(4, 22)}</td>
+                            <td className="px-5 py-3.5 text-xs text-white/45 whitespace-nowrap">{fmt(r.startedAt)}</td>
+                            <td className="px-5 py-3.5 text-xs text-white/45 whitespace-nowrap">{fmt(r.completedAt)}</td>
+                            <td className="px-5 py-3.5 text-center text-sm tabular-nums">{r.topicsAttempted}</td>
+                            <td className="px-5 py-3.5 text-center text-sm font-semibold text-emerald-300 tabular-nums">{r.topicsCompleted}</td>
+                            <td className="px-5 py-3.5 text-center text-sm font-semibold text-red-400 tabular-nums">{r.topicsFailed}</td>
+                            <td className="px-5 py-3.5 text-center"><Badge className={RUN_STATUS[r.status]}>{r.status.replace(/_/g, " ")}</Badge></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
+            </>
+          )}
+
+          {/* ══ SETTINGS ═════════════════════════════════════════ */}
+          {tab === "settings" && (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Settings</h1>
+                  <p className="text-sm text-white/45 mt-0.5">When the scheduler runs, how many posts it writes, and the quality &amp; media defaults.</p>
+                </div>
+              </div>
 
               {settings && (
                 <Card>
@@ -932,36 +1046,6 @@ export default function AdminPage() {
                   </div>
                 </Card>
               )}
-
-              {runs.length > 0 && (
-                <Card>
-                  <CardHeader title="Recent Runs" subtitle={`${runs.length} run${runs.length !== 1 ? "s" : ""} recorded`} />
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-white/[0.03]/80 text-[11px] font-bold text-white/35 uppercase tracking-wide border-b border-white/[0.06]">
-                          {["Run ID","Started","Completed","Tried","Done","Failed","Status"].map(h => (
-                            <th key={h} className={`px-5 py-3 ${["Tried","Done","Failed","Status"].includes(h) ? "text-center" : "text-left"}`}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/[0.05]">
-                        {[...runs].reverse().map((r) => (
-                          <tr key={r.runId} className="hover:bg-white/[0.03]/60 transition-colors">
-                            <td className="px-5 py-3.5 font-mono text-xs text-white/35">{r.runId.slice(4, 22)}</td>
-                            <td className="px-5 py-3.5 text-xs text-white/45 whitespace-nowrap">{fmt(r.startedAt)}</td>
-                            <td className="px-5 py-3.5 text-xs text-white/45 whitespace-nowrap">{fmt(r.completedAt)}</td>
-                            <td className="px-5 py-3.5 text-center text-sm tabular-nums">{r.topicsAttempted}</td>
-                            <td className="px-5 py-3.5 text-center text-sm font-semibold text-emerald-300 tabular-nums">{r.topicsCompleted}</td>
-                            <td className="px-5 py-3.5 text-center text-sm font-semibold text-red-400 tabular-nums">{r.topicsFailed}</td>
-                            <td className="px-5 py-3.5 text-center"><Badge className={RUN_STATUS[r.status]}>{r.status.replace(/_/g, " ")}</Badge></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </Card>
-              )}
             </>
           )}
 
@@ -970,13 +1054,18 @@ export default function AdminPage() {
             <>
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Generate</h1>
-                  <p className="text-sm text-white/45 mt-0.5">Topics waiting to be written. The daily run works through this list top-priority first — or give a topic an exact time.</p>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Write queue</h1>
+                  <p className="text-sm text-white/45 mt-0.5">Topics here get written automatically — top priority first at the daily run, or at the exact time you set per topic.</p>
                 </div>
+                {!(showAddForm || items.length === 0) && (
+                  <Btn variant="primary" onClick={() => setShowAddForm(true)}>{I.plus} Add topic</Btn>
+                )}
               </div>
 
+              {(showAddForm || items.length === 0) && (
               <Card>
-                <CardHeader title="Add to Queue" subtitle="Topics are picked up by the scheduler, or processed manually." />
+                <CardHeader title="Add a topic" subtitle="It will be written at the next daily run — or pick an exact time below."
+                  action={items.length > 0 ? <Btn variant="ghost" size="sm" onClick={() => setShowAddForm(false)}>Close</Btn> : undefined} />
                 <div className="p-6 space-y-4">
                   <div>
                     <Label>Custom prompt <span className="text-white/35 font-normal">(optional if topic set — AI will derive title)</span></Label>
@@ -1101,6 +1190,7 @@ export default function AdminPage() {
                   </div>
                 </div>
               </Card>
+              )}
 
               <Card>
                 <CardHeader title="Queue" subtitle={`${items.length} items · ${items.filter(i => i.status === "queued").length} waiting`} />
@@ -1280,7 +1370,7 @@ export default function AdminPage() {
             <>
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Publish</h1>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Go live</h1>
                   <p className="text-sm text-white/45 mt-0.5">Finished drafts scheduled to go live. Each publishes automatically at its set time (checked hourly) — or push one live now.</p>
                 </div>
                 <Btn variant="secondary" onClick={() => { setPqLoading(true); fetchPublishQueue().finally(() => setPqLoading(false)); }} disabled={pqLoading}>
@@ -1402,8 +1492,8 @@ export default function AdminPage() {
             <>
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Topic ideas</h1>
-                  <p className="text-sm text-white/45 mt-0.5">Your idea bank. Nothing here generates — approve an idea and push it to Generate when it&apos;s ready.</p>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Plan topics</h1>
+                  <p className="text-sm text-white/45 mt-0.5">Your idea bank. Nothing here generates — approve an idea and push it to the Write queue when it&apos;s ready.</p>
                 </div>
               </div>
 
