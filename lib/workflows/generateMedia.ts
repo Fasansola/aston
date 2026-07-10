@@ -26,6 +26,18 @@
  */
 
 import { sleep, getWritable } from "workflow";
+// Type-only imports (erased at compile time) — the concrete modules pull in
+// Node built-ins (ffmpeg-static, child_process, fs…) which the workflow bundle
+// forbids, so the actual functions are dynamically imported INSIDE each step,
+// which runs in a normal Node context at runtime.
+import type { TimedVideoSegment } from "@/lib/videoScript";
+import type { RenderSubmission } from "@/lib/videoAssets";
+
+// Local copies so the workflow body needs no static videoAssets import.
+const FALLBACK_IMG = "";
+function slugify(title: string): string {
+  return title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+}
 
 // ── Progress streaming ────────────────────────────────────────
 // So a client (the Media page) can follow a media run's live progress the
@@ -149,30 +161,89 @@ async function audioStep(input: GenerateMediaInput): Promise<string> {
   return audioUrl;
 }
 
-interface VideoSubmission {
-  renderId: string;
-  bucketName: string;
-  chapters: Array<{ title: string; startSecs: number }>;
-  captionsSrt: string;
+type VideoSubmission = RenderSubmission;
+
+// ── Durable video pre-render steps ────────────────────────────
+// Each expensive piece is its own "use step" so a timeout/crash resumes from
+// the last completed one instead of regenerating everything. All return
+// JSON-serializable values (URLs / plain objects — never Buffers).
+
+async function videoSegmentStep(input: GenerateMediaInput): Promise<TimedVideoSegment[]> {
+  "use step";
+  console.log(`[generateMedia] Segmenting video script for post ${input.postId}…`);
+  const { segmentVideoScript } = await import("@/lib/videoScript");
+  const c = input.content;
+  const hasContent = !!(c.main_content || c.more_content_1 || c.more_content_2);
+  const segments = await segmentVideoScript(input.title, hasContent ? c : undefined);
+  console.log(`[generateMedia] ${segments.length} scenes segmented for post ${input.postId}`);
+  return segments;
 }
 
-async function videoSubmitStep(input: GenerateMediaInput, audioUrl: string | null): Promise<VideoSubmission> {
+// One scene image = one checkpoint. Never throws (returns FALLBACK_IMG),
+// so a bad image can't fail the run or the render.
+async function videoImageStep(prompt: string, sectionTitle: string, slug: string, index: number): Promise<string> {
   "use step";
-  console.log(`[generateMedia] Submitting video render for post ${input.postId} (narration: ${audioUrl ? "reused" : "generated"})…`);
-  const event = await callSseRoute("/api/generate-video", {
-    title: input.title,
-    audioUrl: audioUrl || undefined,
-    ...input.content,
-  }, ["submitted"], "video");
-  const renderId = String(event.renderId ?? "");
-  if (!renderId) throw new Error("video: submitted event carried no renderId");
-  console.log(`[generateMedia] Video render submitted for post ${input.postId}: ${renderId}`);
-  return {
-    renderId,
-    bucketName: String(event.bucketName ?? ""),
-    chapters: Array.isArray(event.chapters) ? event.chapters as VideoSubmission["chapters"] : [],
-    captionsSrt: typeof event.captionsSrt === "string" ? event.captionsSrt : "",
-  };
+  console.log(`[generateMedia] Generating scene image ${index + 1} (${sectionTitle})…`);
+  const { generateSceneImageUrl } = await import("@/lib/videoAssets");
+  return generateSceneImageUrl(prompt, sectionTitle, slug, index);
+}
+
+async function videoAssetsStep(): Promise<{ logoS3Url: string; musicS3Url: string }> {
+  "use step";
+  console.log(`[generateMedia] Preparing logo + music assets…`);
+  const { prepareStaticAssets } = await import("@/lib/videoAssets");
+  return prepareStaticAssets(process.env.ASTON_LOGO_URL ?? "", process.env.BACKGROUND_MUSIC_URL ?? "");
+}
+
+async function videoAudioStep(
+  segments: TimedVideoSegment[], slug: string, providedAudioUrl: string | null
+): Promise<{ audioUrl: string; durationSeconds: number }> {
+  "use step";
+  const { generateNarrationAsset, rehostProvidedAudioAsset } = await import("@/lib/videoAssets");
+  if (providedAudioUrl) {
+    console.log(`[generateMedia] Re-hosting provided narration for video…`);
+    const totalWords = segments.reduce((s, seg) => s + seg.wordCount, 0);
+    return rehostProvidedAudioAsset(providedAudioUrl, slug, totalWords);
+  }
+  console.log(`[generateMedia] Generating video narration…`);
+  const script = segments.map((s) => s.narration).join(" ");
+  return generateNarrationAsset(script, slug);
+}
+
+async function videoSubmitRenderStep(params: {
+  segments: TimedVideoSegment[]; imageUrls: string[];
+  audioUrl: string; audioDurationSeconds: number;
+  logoS3Url: string; musicS3Url: string; slug: string;
+}): Promise<VideoSubmission> {
+  "use step";
+  console.log(`[generateMedia] Submitting Remotion render (${params.segments.length} scenes)…`);
+  const { buildVideoRenderSubmission } = await import("@/lib/videoAssets");
+  const submission = await buildVideoRenderSubmission(params);
+  console.log(`[generateMedia] Render submitted: ${submission.renderId}`);
+  return submission;
+}
+
+/**
+ * Orchestrates the durable pre-render: segment → per-image steps → assets →
+ * audio → submit. Runs in the workflow body (not a step) so each awaited step
+ * is checkpointed individually.
+ */
+async function submitVideoDurably(input: GenerateMediaInput, reusableAudioUrl: string | null): Promise<VideoSubmission> {
+  const slug = slugify(input.title);
+  const segments = await videoSegmentStep(input);
+
+  const imageUrls: string[] = new Array(segments.length).fill(FALLBACK_IMG);
+  for (let i = 0; i < segments.length; i++) {
+    imageUrls[i] = await videoImageStep(segments[i].imagePrompt, segments[i].sectionTitle, slug, i);
+  }
+
+  const { logoS3Url, musicS3Url } = await videoAssetsStep();
+  const audio = await videoAudioStep(segments, slug, reusableAudioUrl);
+
+  return videoSubmitRenderStep({
+    segments, imageUrls, audioUrl: audio.audioUrl, audioDurationSeconds: audio.durationSeconds,
+    logoS3Url, musicS3Url, slug,
+  });
 }
 
 async function checkRenderStep(renderId: string, bucketName: string): Promise<{ status: string; url?: string; error?: string }> {
@@ -266,7 +337,9 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
   if (input.outputs.video) {
     try {
       await emit({ type: "progress", output: "video", message: "Building scenes and submitting the video render…" });
-      const submission = await videoSubmitStep(input, result.audioUrl);
+      // Durable pre-render: segment → 7 image steps → assets → audio → submit,
+      // each checkpointed so an overrun resumes instead of regenerating.
+      const submission = await submitVideoDurably(input, result.audioUrl);
       await emit({ type: "progress", output: "video", message: "Rendering video on Remotion Lambda… (this can take a few minutes)" });
       let videoUrl: string | null = null;
       for (let i = 0; i < VIDEO_POLL_MAX; i++) {

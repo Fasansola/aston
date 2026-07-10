@@ -1,188 +1,30 @@
 /**
  * app/api/generate-video/route.ts
  * ─────────────────────────────────────────────────────────────
- * POST /api/generate-video
- *
- * Pipeline:
- *   1. Segment article into 7 scenes (GPT-4o-mini)
- *   2. Generate 7 background images in parallel (Imagen 4)
- *   3. Upload images to WP media (public URLs for Shotstack)
- *   4. Ensure narration audio (use provided audioUrl or generate TTS)
- *   5. Submit timeline to Shotstack → returns renderId immediately
- *
- * Render is async on Shotstack — client polls /api/check-video-render
+ * POST /api/generate-video  — browser-driven, streaming path (main Generate
+ * page). Segments the article, generates scene images + narration, and submits
+ * the render to Remotion Lambda, streaming SSE progress. The scheduler uses the
+ * durable generateVideoSteps instead (lib/workflows/generateMedia.ts), which
+ * checkpoints each piece; both share the helpers in lib/videoAssets.ts.
  *
  * SSE shapes:
  *   { type: "progress",  message, elapsedSecs }
- *   { type: "submitted", renderId, totalDurationSecs, sceneCount, elapsedSecs }
+ *   { type: "submitted", renderId, bucketName, totalDurationSecs, sceneCount,
+ *                        chapters, captionsSrt, elapsedSecs }
  *   { type: "error",     message }
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI }                                                             from "@google/genai";
-import { segmentVideoScript, calibrateSegmentDurations }                          from "@/lib/videoScript";
-import { buildSrtFromSegments }                                                   from "@/lib/video";
-import { submitRemotionRender }                                                    from "@/lib/remotionRenderer";
-import type { VideoSegment }                                                       from "@/src/remotion/VideoComposition";
-import { uploadSceneImageToS3, uploadAssetToS3 }                                  from "@/lib/sceneImageS3";
-import { uploadMediaToWordPress }                                                  from "@/lib/wordpress";
-import { generateElevenLabsNarration, measureAudioDurationSeconds } from "@/lib/podcastAudio";
-import OpenAI from "openai";
+import { segmentVideoScript } from "@/lib/videoScript";
+import {
+  slugify, FALLBACK_IMG,
+  generateSceneImageUrl, prepareStaticAssets,
+  generateNarrationAsset, rehostProvidedAudioAsset,
+  buildVideoRenderSubmission,
+} from "@/lib/videoAssets";
 
-// 800s: scene images now use GPT Image 2 (slow, reasoning-based). They run in
-// bounded parallel, but the pipeline still needs generous headroom over the
-// old Imagen-era 300s.
+// 800s: scene images use GPT Image 2 (slow). Generated in bounded parallel here.
 export const maxDuration = 800;
-
-// Empty string → the Remotion composition's SafeImg renders a solid navy fill.
-// Using a self-contained fallback (not an external placehold.co URL that Lambda
-// must fetch and that can fail the render) means a bad scene image never breaks
-// the video.
-const FALLBACK_IMG = "";
-
-// Reject a promise if it doesn't settle within `ms`. Used to hard-cap external
-// image calls whose SDKs don't expose an abort signal (Imagen), so one hung
-// request can't stall the whole bounded-parallel image phase.
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms);
-    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
-  });
-}
-
-// Primary scene-image generator: GPT Image 2. Uses 1536x1024 (the proven,
-// SDK-valid landscape size also used for post images); Remotion cover-fits it
-// into the 16:9 frame. Slower than Imagen but higher quality.
-// 120s cap (was 200s): a slow image should fail over to the much faster Imagen
-// quickly rather than eating the shared 800s budget while 7 images generate.
-async function callGptImage2(prompt: string): Promise<Buffer> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const response = await openai.images.generate({
-    model: "gpt-image-2",
-    prompt,
-    n: 1,
-    size: "1536x1024",
-    quality: "high",
-  }, { signal: AbortSignal.timeout(120_000) });
-  const b64 = response.data?.[0]?.b64_json;
-  if (b64) return Buffer.from(b64, "base64");
-  const url = response.data?.[0]?.url;
-  if (url) {
-    const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-    return Buffer.from(await res.arrayBuffer());
-  }
-  throw new Error("GPT Image 2 returned no image data");
-}
-
-// Fast fallback generator, used only if GPT Image 2 fails on a scene. The
-// @google/genai SDK has no abort option, so we wrap the call in a hard 60s
-// timeout — otherwise a hung request pins a worker slot indefinitely.
-async function callImagen(prompt: string): Promise<Buffer> {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-  const response = await withTimeout(ai.models.generateImages({
-    model:  "imagen-4.0-generate-001",
-    prompt,
-    config: {
-      numberOfImages: 1,
-      aspectRatio:    "16:9",
-      outputMimeType: "image/jpeg",
-    },
-  }), 60_000, "Imagen 4");
-  const imgBytes = response.generatedImages?.[0]?.image?.imageBytes;
-  if (!imgBytes) throw new Error("Imagen 4 returned no image bytes");
-  return Buffer.from(imgBytes, "base64");
-}
-
-/**
- * Generates a scene image. Primary is GPT Image 2; if it fails (timeout,
- * moderation, etc.) we fall back to Imagen 4, which also retries with simpler
- * prompts if its safety filter blocks the full brief.
- *
- * GPT Image 2 — full photography brief (the GPT-generated prompt)
- * Imagen 4    — full brief, then simpler, then a generic business scene
- */
-async function generateSceneImage(prompt: string, sectionTitle?: string): Promise<Buffer> {
-  // Strip camera/lens specs for a simpler fallback — keeps subject and location
-  const simplePrompt = prompt
-    .replace(/shot on [^,.]*/gi, "")
-    .replace(/\b(f\/[\d.]+|[\d]+mm|shallow depth of field|wide angle|telephoto)\b/gi, "")
-    .replace(/,\s*,/g, ",")
-    .trim();
-
-  // Generic prompt as last resort — avoids any potentially filtered content
-  const genericPrompt = sectionTitle
-    ? `A photograph of a modern professional business environment related to ${sectionTitle}, clean office setting in Dubai, natural daylight, warm neutral tones`
-    : "A photograph of a sleek modern glass office building in Dubai financial district, blue sky, warm afternoon light, professional corporate setting";
-
-  // Primary: GPT Image 2 (one attempt — it is slow, so we don't stack retries).
-  try {
-    console.log(`[generate-video] Image attempt (gpt-image-2)`);
-    return await callGptImage2(prompt);
-  } catch (err) {
-    console.warn(`[generate-video] gpt-image-2 failed: ${err instanceof Error ? err.message : String(err)} — falling back to Imagen 4`);
-  }
-
-  // Fallback: Imagen 4, with progressively simpler prompts for its safety filter.
-  const attempts = [
-    { label: "imagen full prompt",    prompt: prompt },
-    { label: "imagen simple prompt",  prompt: simplePrompt },
-    { label: "imagen generic prompt", prompt: genericPrompt },
-  ];
-
-  let lastError: Error | null = null;
-  for (const attempt of attempts) {
-    try {
-      console.log(`[generate-video] Image attempt (${attempt.label})`);
-      const buf = await callImagen(attempt.prompt);
-      return buf;
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      console.warn(`[generate-video] Image ${attempt.label} failed: ${lastError.message}`);
-      // Brief pause before retrying so we don't hammer the API
-      await new Promise(r => setTimeout(r, 2_000));
-    }
-  }
-
-  throw lastError ?? new Error("All image generation attempts failed");
-}
-
-// Fetches an asset from its source URL and re-uploads to S3 so Lambda can
-// load it reliably (SiteGround blocks many AWS IP ranges).
-async function fetchAssetToS3(
-  sourceUrl: string,
-  s3Filename: string,
-  fallbackContentType: string
-): Promise<string> {
-  try {
-    const res = await fetch(sourceUrl, { signal: AbortSignal.timeout(30_000) });
-    if (!res.ok) throw new Error(`Asset fetch failed: ${res.status}`);
-    const buf         = Buffer.from(await res.arrayBuffer());
-    const contentType = res.headers.get("content-type") ?? fallbackContentType;
-    return await uploadAssetToS3(buf, s3Filename, contentType);
-  } catch (err) {
-    console.warn(`[generate-video] S3 upload failed for ${s3Filename}, using original URL: ${err instanceof Error ? err.message : err}`);
-    return sourceUrl;
-  }
-}
-
-async function fetchLogoToS3(logoUrl: string): Promise<string> {
-  if (!logoUrl.toLowerCase().endsWith(".svg")) {
-    return fetchAssetToS3(logoUrl, "aston-logo.png", "image/png");
-  }
-  // Remotion's <Img> component cannot render SVGs from external URLs inside
-  // Lambda's headless Chromium. Convert to PNG first so it always loads.
-  try {
-    const res = await fetch(logoUrl, { signal: AbortSignal.timeout(30_000) });
-    if (!res.ok) throw new Error(`Logo fetch failed: ${res.status}`);
-    const svgBuf = Buffer.from(await res.arrayBuffer());
-    const sharp = (await import("sharp")).default;
-    const pngBuf = await sharp(svgBuf).png().toBuffer();
-    return await uploadAssetToS3(pngBuf, "aston-logo.png", "image/png");
-  } catch (err) {
-    console.warn(`[generate-video] SVG→PNG conversion failed, using original URL: ${err instanceof Error ? err.message : err}`);
-    return logoUrl;
-  }
-}
 
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
@@ -223,197 +65,68 @@ export async function POST(req: NextRequest) {
         main_content, more_content_1, more_content_2, more_content_3,
         more_content_4, more_content_5, more_content_6, final_points,
       } : undefined;
+      const slug = slugify(title.trim());
 
-      // ── 0. Upload static assets to S3 so Lambda can load them reliably ──
-      // SiteGround blocks AWS Lambda IP ranges, so any WordPress-hosted file
-      // must be re-hosted on S3 (same region as Lambda) before rendering.
-      const rawMusicUrl = process.env.BACKGROUND_MUSIC_URL ?? "";
-      const [logoS3Url, musicS3Url] = await Promise.all([
-        fetchLogoToS3(logoUrl),
-        rawMusicUrl ? fetchAssetToS3(rawMusicUrl, "background-music.mp3", "audio/mpeg") : Promise.resolve(""),
+      // ── 0. Re-host static assets (logo + music) on S3 ──
+      const [{ logoS3Url, musicS3Url }, timedSegments] = await Promise.all([
+        prepareStaticAssets(logoUrl, process.env.BACKGROUND_MUSIC_URL ?? ""),
+        (async () => {
+          await send({ type: "progress", message: hasContent ? "Dividing article into video scenes…" : "Writing video script from topic…", elapsedSecs: elapsed() });
+          return segmentVideoScript(title.trim(), scriptFields);
+        })(),
       ]);
-
-      // ── 1. Segment script ─────────────────────────────────────
-      const segMsg = hasContent
-        ? "Dividing article into video scenes…"
-        : "Writing video script from topic…";
-      await send({ type: "progress", message: segMsg, elapsedSecs: elapsed() });
-      const timedSegments = await segmentVideoScript(title.trim(), scriptFields);
       console.log(`[generate-video] ${timedSegments.length} scenes segmented`);
 
-      // ── 2. Generate background images — bounded parallel ─────────
-      // GPT Image 2 is slow (reasoning-based), so generating the scenes
-      // sequentially would overrun the function. Run up to 3 at a time, each
-      // slot reporting progress as it finishes. A null entry becomes a
-      // placeholder downstream so the render never blocks on one bad scene.
+      // ── 1. Scene images — bounded parallel, each generated + uploaded ──
+      await send({ type: "progress", message: `Generating ${timedSegments.length} scene images with GPT Image 2…`, elapsedSecs: elapsed() });
       const IMAGE_CONCURRENCY = 3;
-      const imageBuffers: (Buffer | null)[] = new Array(timedSegments.length).fill(null);
-      await send({
-        type: "progress",
-        message: `Generating ${timedSegments.length} scene images with GPT Image 2…`,
-        elapsedSecs: elapsed(),
-      });
+      const imageUrls: string[] = new Array(timedSegments.length).fill(FALLBACK_IMG);
       let nextImage = 0;
       let doneImages = 0;
       const imageWorker = async () => {
         while (nextImage < timedSegments.length) {
           const i = nextImage++;
-          try {
-            imageBuffers[i] = await generateSceneImage(timedSegments[i].imagePrompt, timedSegments[i].sectionTitle);
-          } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            console.warn(`[generate-video] Scene image ${i + 1} failed: ${errMsg}`);
-            imageBuffers[i] = null;
-          }
+          imageUrls[i] = await generateSceneImageUrl(timedSegments[i].imagePrompt, timedSegments[i].sectionTitle, slug, i);
           doneImages++;
-          await send({
-            type: "progress",
-            message: `Scene images ${doneImages} of ${timedSegments.length} ready…`,
-            elapsedSecs: elapsed(),
-          });
+          await send({ type: "progress", message: `Scene images ${doneImages} of ${timedSegments.length} ready…`, elapsedSecs: elapsed() });
         }
       };
-      await Promise.all(
-        Array.from({ length: Math.min(IMAGE_CONCURRENCY, timedSegments.length) }, imageWorker)
-      );
+      await Promise.all(Array.from({ length: Math.min(IMAGE_CONCURRENCY, timedSegments.length) }, imageWorker));
+      const uploaded = imageUrls.filter((u) => u !== FALLBACK_IMG).length;
+      console.log(`[generate-video] ${uploaded}/${timedSegments.length} images ready (${timedSegments.length - uploaded} fallback)`);
 
-      // ── 3. Upload images to WP media — sequential with delay ─────
-      const slug = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
-
-      const imageUrls: string[] = [];
-      for (let i = 0; i < imageBuffers.length; i++) {
-        const buf = imageBuffers[i];
-        await send({
-          type: "progress",
-          message: `Uploading scene image ${i + 1} of ${imageBuffers.length}…`,
-          elapsedSecs: elapsed(),
-        });
-        if (!buf) {
-          imageUrls.push(FALLBACK_IMG);
-          continue;
-        }
-        try {
-          // Upload to Remotion S3 (same AWS region as Lambda renderer).
-          // Lambda fetches these in ~10ms vs 200–500ms from WordPress/SiteGround
-          // which was causing the 300s render timeout.
-          const url = await uploadSceneImageToS3(buf, `${slug}-scene-${i + 1}.png`);
-          imageUrls.push(url);
-        } catch (err) {
-          console.warn(`[generate-video] Image ${i + 1} S3 upload failed: ${err instanceof Error ? err.message : err}`);
-          imageUrls.push(FALLBACK_IMG);
-        }
-      }
-      const uploaded = imageUrls.filter(u => u !== FALLBACK_IMG).length;
-      console.log(`[generate-video] Uploaded ${uploaded}/${imageBuffers.length} images (${imageBuffers.length - uploaded} used fallback)`);
-
-      // ── 4. Generate narration audio ──────────────────────────────
-      // NOTE: audio is always uploaded to S3 (same region as Lambda) before
-      // the render is submitted. SiteGround blocks Lambda's IP ranges, so
-      // any WordPress-hosted audio URL would fail during rendering.
-      let audioS3Url = "";
-      let audioDurationSeconds = 0;
-
+      // ── 2. Narration audio (generate or re-host provided) ──
+      let audio: { audioUrl: string; durationSeconds: number };
       if (!providedAudioUrl?.trim()) {
         await send({ type: "progress", message: "Generating narration audio (this takes ~1–2 min)…", elapsedSecs: elapsed() });
-        // Always narrate from the condensed 3–4 min video script GPT wrote,
-        // never from the full article (which could be 20+ minutes of content).
         const script = timedSegments.map((s) => s.narration).join(" ");
-
-        const audioResult = await generateElevenLabsNarration(script);
-        // Measure the REAL duration (ffmpeg) so scene timings sync to the
-        // narration — a byte-length estimate drifts and desyncs the video.
-        audioDurationSeconds = await measureAudioDurationSeconds(audioResult.buffer);
-        const ext = audioResult.mimeType === "audio/mpeg" ? "mp3" : "wav";
-        const filename = `${slug}-video-audio.${ext}`;
-
-        // Upload to WordPress (for archival / reuse later)
-        await send({ type: "progress", message: "Uploading narration audio…", elapsedSecs: elapsed() });
-        uploadMediaToWordPress(audioResult.buffer, filename, audioResult.mimeType).catch(err =>
-          console.warn(`[generate-video] WordPress audio upload failed (non-fatal): ${err.message}`)
-        );
-
-        // Upload to S3 so Lambda can fetch it (SiteGround blocks Lambda IPs)
-        audioS3Url = await uploadAssetToS3(audioResult.buffer, filename, audioResult.mimeType, "audio");
-        console.log(`[generate-video] Audio uploaded to S3 (~${Math.round(audioDurationSeconds)}s)`);
+        audio = await generateNarrationAsset(script, slug);
       } else {
-        // Pre-provided URL (WordPress-hosted) — fetch the buffer once so we can
-        // both MEASURE its real duration and re-host it on S3 (Lambda can't
-        // reach SiteGround). Falls back to the word-count estimate + URL rehost
-        // only if the direct fetch fails.
         await send({ type: "progress", message: "Copying audio to S3 for rendering…", elapsedSecs: elapsed() });
-        const audioFilename = providedAudioUrl.trim().split("/").pop() ?? "video-audio.mp3";
-        try {
-          const res = await fetch(providedAudioUrl.trim(), { signal: AbortSignal.timeout(60_000) });
-          if (!res.ok) throw new Error(`provided audio fetch failed: ${res.status}`);
-          const buf = Buffer.from(await res.arrayBuffer());
-          audioDurationSeconds = await measureAudioDurationSeconds(buf);
-          audioS3Url = await uploadAssetToS3(buf, audioFilename, res.headers.get("content-type") ?? "audio/mpeg", "audio");
-          console.log(`[generate-video] Provided audio re-hosted on S3, measured duration ~${Math.round(audioDurationSeconds)}s`);
-        } catch (err) {
-          console.warn(`[generate-video] Could not fetch provided audio to measure (${err instanceof Error ? err.message : err}) — using estimate + URL rehost`);
-          audioS3Url = await fetchAssetToS3(providedAudioUrl.trim(), audioFilename, "audio/mpeg");
-          const totalWords = timedSegments.reduce((s, seg) => s + seg.wordCount, 0);
-          audioDurationSeconds = (totalWords / 130) * 60;
-        }
+        const totalWords = timedSegments.reduce((s, seg) => s + seg.wordCount, 0);
+        audio = await rehostProvidedAudioAsset(providedAudioUrl.trim(), slug, totalWords);
       }
+      console.log(`[generate-video] Audio ready (~${Math.round(audio.durationSeconds)}s)`);
 
-      // ── 5. Calibrate every segment duration to the real audio ─────
-      // Proportional split: segment_duration = (segment_words / total_words) × audio_duration
-      // This guarantees images change exactly when the narration moves to the next scene.
-      const calibrated = audioDurationSeconds > 0
-        ? calibrateSegmentDurations(timedSegments, audioDurationSeconds)
-        : timedSegments;
-      const totalDurationSecs = calibrated.reduce((s, seg) => s + seg.durationSeconds, 0);
-      console.log(`[generate-video] Scene durations: ${calibrated.map(s => Math.round(s.durationSeconds) + "s").join(", ")}`);
-
-      // ── 6. Submit to Remotion Lambda for rendering ───────────────
+      // ── 3. Calibrate + submit render ──
       await send({ type: "progress", message: "Submitting to Remotion Lambda for rendering…", elapsedSecs: elapsed() });
-
-      const videoSegments: VideoSegment[] = calibrated.map((seg, i) => ({
-        sectionTitle:    seg.sectionTitle,
-        displayText:     seg.displayText,
-        bullets:         seg.bullets ?? [],
-        durationSeconds: seg.durationSeconds,
-        imageUrl:        imageUrls[i],
-        narration:       seg.narration,   // burned-in open captions
-      }));
-
-      const { renderId, bucketName } = await submitRemotionRender({
-        segments: videoSegments,
-        audioUrl: audioS3Url,
-        logoUrl:  logoS3Url,
-        musicUrl: musicS3Url,
-        outName: `${slug}-video.mp4`,
+      const submission = await buildVideoRenderSubmission({
+        segments: timedSegments, imageUrls, audioUrl: audio.audioUrl,
+        audioDurationSeconds: audio.durationSeconds, logoS3Url, musicS3Url, slug,
       });
-      console.log(`[generate-video] Remotion render submitted: ${renderId} (bucket: ${bucketName})`);
-
-      // Build YouTube chapter markers from calibrated scene start times
-      let chapterOffset = 0;
-      const chapters = calibrated.map((seg) => {
-        const chapter = { title: seg.sectionTitle, startSecs: Math.round(chapterOffset) };
-        chapterOffset += seg.durationSeconds;
-        return chapter;
-      });
-
-      // Build an SRT caption track from the same calibrated segments so the text
-      // is correctly spelled and timed to the narration (uploaded after the video
-      // lands on YouTube — see /api/upload-video). Phase 2 SEO.
-      const captionsSrt = buildSrtFromSegments(
-        calibrated.map((seg) => ({ text: seg.narration, durationSeconds: seg.durationSeconds }))
-      );
+      console.log(`[generate-video] Remotion render submitted: ${submission.renderId} (bucket: ${submission.bucketName})`);
 
       await send({
-        type:         "submitted",
-        renderId,
-        bucketName,
-        totalDurationSecs,
-        sceneCount:   calibrated.length,
-        chapters,
-        captionsSrt,
-        elapsedSecs:  elapsed(),
-        message:      `Rendering ${calibrated.length} scenes (~${Math.round(totalDurationSecs / 60)} min video)…`,
+        type:              "submitted",
+        renderId:          submission.renderId,
+        bucketName:        submission.bucketName,
+        totalDurationSecs: submission.totalDurationSecs,
+        sceneCount:        submission.sceneCount,
+        chapters:          submission.chapters,
+        captionsSrt:       submission.captionsSrt,
+        elapsedSecs:       elapsed(),
+        message:           `Rendering ${submission.sceneCount} scenes (~${Math.round(submission.totalDurationSecs / 60)} min video)…`,
       });
-
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[generate-video] Failed: ${msg}`);
