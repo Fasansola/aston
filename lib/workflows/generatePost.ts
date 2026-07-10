@@ -261,6 +261,31 @@ async function publishStep(
   };
 }
 
+// Record the published post in the unified post history (shared with the
+// scheduler) so manual-route posts also appear in the "recent posts" view
+// and can have media added later. Non-fatal — never blocks the workflow.
+async function recordHistoryStep(
+  postId: number, link: string | null, content: BlogContent, needsReview: boolean
+): Promise<void> {
+  "use step";
+  if (!postId) return;
+  try {
+    const { addPostHistory } = await import("@/lib/storage");
+    await addPostHistory({
+      wpPostId: postId,
+      title: content.seo_title || content.focus_keyword || `Post ${postId}`,
+      slug: content.slug,
+      focusKeyword: content.focus_keyword,
+      wpEditUrl: `${process.env.WP_URL}/wp-admin/post.php?post=${postId}&action=edit`,
+      wpPostUrl: link,
+      source: "manual",
+      needsReview,
+    });
+  } catch (err) {
+    console.warn(`[wf] post-history write failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 // Build the full `done` event payload — matches the old /api/generate contract
 // so the client's downstream (image generation, audio, link validation) works
 // identically. Pure object construction is safe in workflow context.
@@ -397,6 +422,7 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
       // EXHAUSTED — save as draft (failed QA should not go live) + notify.
       console.log("[wf] step: publish (qa-exhausted)");
       const published = await publishStep(title, content, imagePrompts, input.language, "draft");
+      await recordHistoryStep(published.postId, published.link, content, true);
       await emit(buildDoneEvent({
         published, content, imagePrompts, fileSlug, imageModel: input.imageModel,
         readMins, wordCount: qa.wordCount, language: input.language,
@@ -419,6 +445,7 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
     // PASS → publish draft
     console.log("[wf] step: publish (pass)");
     const published = await publishStep(title, content, imagePrompts, input.language);
+    await recordHistoryStep(published.postId, published.link, content, false);
     await emit(buildDoneEvent({
       published, content, imagePrompts, fileSlug, imageModel: input.imageModel,
       readMins, wordCount: qa.wordCount, language: input.language,

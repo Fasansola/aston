@@ -24,6 +24,7 @@ import {
   addRunLog,
   updateRunLog,
   recoverStuckProcessingItems,
+  addPostHistory,
 } from "@/lib/storage";
 import { selectLinks } from "@/lib/links";
 import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePrompts, generateImage, IMAGE_QA_CHECKS, type ImageModel } from "@/lib/openai";
@@ -263,6 +264,23 @@ async function processOneItem(
       qaWarnings: qa.warnings,
       lastError: null,
     });
+
+    // Record in the unified post history (scheduler + manual routes share it).
+    try {
+      await addPostHistory({
+        wpPostId: post.id,
+        title: content.seo_title || resolvedTopic,
+        slug: content.slug,
+        focusKeyword: content.focus_keyword,
+        wpEditUrl: `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
+        wpPostUrl: post.link ?? null,
+        source: "scheduler",
+        needsReview: false,
+        mediaOutputs: media?.outputs ?? settings.mediaOutputs,
+      });
+    } catch (histErr) {
+      console.warn(`[cron:item] post-history write failed (non-fatal): ${histErr instanceof Error ? histErr.message : String(histErr)}`);
+    }
 
     // ── Post-publish media outputs (parity with the manual page) ──
     // Fire-and-forget: start() enqueues the durable workflow and returns

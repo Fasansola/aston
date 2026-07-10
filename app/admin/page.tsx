@@ -70,6 +70,12 @@ interface PublishQueueStats {
   total: number; queued: number; processing: number;
   published: number; failed: number; paused: number;
 }
+interface PostHistoryEntry {
+  id: string; wpPostId: number; title: string; slug?: string; focusKeyword?: string;
+  wpEditUrl: string; wpPostUrl: string | null;
+  source: "scheduler" | "manual"; needsReview?: boolean; createdAt: string;
+  mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
+}
 
 // ── Status maps ────────────────────────────────────────────────
 
@@ -277,6 +283,7 @@ const I = {
   arrow:     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>,
   bolt:      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
   publish:   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" /></svg>,
+  history:   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
   chevron:   <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>,
   clock:     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
   check:     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>,
@@ -284,7 +291,7 @@ const I = {
 
 // ── Main component ─────────────────────────────────────────────
 
-type Tab = "dashboard" | "queue" | "topics" | "links" | "performance" | "publish_queue";
+type Tab = "dashboard" | "queue" | "history" | "topics" | "links" | "performance" | "publish_queue";
 
 export default function AdminPage() {
   const [isAuthed, setIsAuthed]     = useState<null | boolean>(null);
@@ -337,6 +344,8 @@ export default function AdminPage() {
   const [publishQueueStats, setPublishQueueStats] = useState<PublishQueueStats | null>(null);
   const [pqLoading, setPqLoading]                 = useState(false);
   const [publishingId, setPublishingId]           = useState<string | null>(null);
+  const [history, setHistory]                     = useState<PostHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading]       = useState(false);
 
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
@@ -393,6 +402,17 @@ export default function AdminPage() {
     } catch { /* silently skip */ }
   }, []);
 
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res  = await fetch("/api/history");
+      if (!res.ok) return;
+      const data = await res.json();
+      setHistory(data.posts ?? []);
+    } catch { /* silently skip */ }
+    finally { setHistoryLoading(false); }
+  }, []);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
@@ -427,6 +447,10 @@ export default function AdminPage() {
   useEffect(() => {
     if (tab === "publish_queue" && isAuthed) fetchPublishQueue();
   }, [tab, isAuthed, fetchPublishQueue]);
+
+  useEffect(() => {
+    if (tab === "history" && isAuthed) fetchHistory();
+  }, [tab, isAuthed, fetchHistory]);
 
   // Live-refresh the queue while a post is being generated so its step-by-step
   // progress advances on screen — the scheduler equivalent of the manual
@@ -631,6 +655,7 @@ export default function AdminPage() {
   const navItems: { id: Tab; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: "dashboard",    label: "Dashboard",    icon: I.dashboard },
     { id: "queue",        label: "Generate",     icon: I.queue,   badge: stats?.queued },
+    { id: "history",      label: "History",      icon: I.history },
     { id: "publish_queue",label: "Publish",      icon: I.publish, badge: publishQueueStats?.queued || undefined },
     { id: "topics",       label: "Topics",       icon: I.topics,  badge: topics.filter(x => x.status !== "archived").length || undefined },
     { id: "links",        label: "Links",        icon: I.links,   badge: links.filter(x => x.status === "active").length || undefined },
@@ -1190,6 +1215,63 @@ export default function AdminPage() {
                   </div>
                 )}
               </Card>
+            </>
+          )}
+
+          {/* ══ HISTORY ══════════════════════════════════════════ */}
+          {tab === "history" && (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Recent posts</h1>
+                  <p className="text-sm text-white/45 mt-0.5">The 20 most recent articles — from the scheduler and the Generate page. Add media to any of them.</p>
+                </div>
+                <Btn variant="secondary" onClick={() => fetchHistory()} disabled={historyLoading}>
+                  {historyLoading ? <Spinner /> : I.refresh} Refresh
+                </Btn>
+              </div>
+
+              {history.length === 0 ? (
+                <Card>
+                  <EmptyState
+                    icon={I.history}
+                    title="No posts yet"
+                    body="Once you generate a post — here or on the Generate page — it appears here so you can add audio, video or a podcast to it."
+                  />
+                </Card>
+              ) : (
+                <Card>
+                  <div className="divide-y divide-white/[0.05]">
+                    {history.map((h) => (
+                      <div key={h.id} className="flex items-center gap-4 px-6 py-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-semibold text-white/90 text-sm truncate" title={h.title}>{h.title}</p>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ring-1 ring-inset ${h.source === "manual" ? "bg-sky-500/10 text-sky-300 ring-sky-500/25" : "bg-gold/10 text-gold/85 ring-gold/25"}`}>
+                              {h.source === "manual" ? "Generate page" : "Scheduler"}
+                            </span>
+                            {h.needsReview && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 ring-1 ring-inset ring-amber-500/25">needs review</span>}
+                          </div>
+                          <p className="text-xs text-white/35 mt-0.5">
+                            {fmt(h.createdAt)}{h.focusKeyword ? ` · ${h.focusKeyword}` : ""}
+                            {h.mediaOutputs && (h.mediaOutputs.audio || h.mediaOutputs.video || h.mediaOutputs.podcast) && (
+                              <span className="text-white/25"> · media at generation: {[h.mediaOutputs.audio && "audio", h.mediaOutputs.video && "video", h.mediaOutputs.podcast && "podcast"].filter(Boolean).join(", ")}</span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <a href={h.wpEditUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-white/45 hover:text-white/70 hover:underline">Edit in WP</a>
+                          {h.wpPostUrl && <a href={h.wpPostUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-white/45 hover:text-white/70 hover:underline">View</a>}
+                          <a href={`/media?postId=${h.wpPostId}&title=${encodeURIComponent(h.title)}`}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-gold hover:text-gold-bright">
+                            🎬 Add media
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
             </>
           )}
 

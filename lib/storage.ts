@@ -185,6 +185,7 @@ const KEYS = {
   links:        "aston:links",
   topics:       "aston:topics",
   publishQueue: "aston:publish_queue",
+  postHistory:  "aston:post_history",
 } as const;
 
 const DEFAULT_SETTINGS: SchedulerSettings = {
@@ -427,6 +428,50 @@ export async function addRunLog(log: RunLog): Promise<void> {
   const all = await kget<RunLog[]>(KEYS.runs, []);
   all.push(log);
   return kset(KEYS.runs, all.slice(-100)); // keep last 100
+}
+
+// ── Post history ──────────────────────────────────────────────
+// A unified, source-agnostic record of every article that reached WordPress —
+// from the scheduler AND the manual Generate page — so both show up in one
+// "recent posts" view where media can be added afterward. Capped at the most
+// recent 20, newest first.
+
+export interface PostHistoryEntry {
+  id: string;                       // unique history id (not the WP id)
+  wpPostId: number;
+  title: string;
+  slug?: string;
+  focusKeyword?: string;
+  wpEditUrl: string;
+  wpPostUrl: string | null;
+  source: "scheduler" | "manual";
+  needsReview?: boolean;
+  createdAt: string;                // ISO
+  // What media was requested at generation time (scheduler only). Purely
+  // informational — the history's "Add media" link works regardless.
+  mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
+}
+
+const POST_HISTORY_LIMIT = 20;
+
+export async function getPostHistory(): Promise<PostHistoryEntry[]> {
+  return kget<PostHistoryEntry[]>(KEYS.postHistory, []);
+}
+
+export async function addPostHistory(
+  entry: Omit<PostHistoryEntry, "id" | "createdAt"> & { createdAt?: string }
+): Promise<void> {
+  const all = await kget<PostHistoryEntry[]>(KEYS.postHistory, []);
+  // De-dupe by WordPress post id so a re-run/update of the same post doesn't
+  // create a second row — keep the newest.
+  const withoutDup = all.filter((e) => e.wpPostId !== entry.wpPostId);
+  const record: PostHistoryEntry = {
+    id: `h_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    createdAt: entry.createdAt ?? new Date().toISOString(),
+    ...entry,
+  };
+  const next = [record, ...withoutDup].slice(0, POST_HISTORY_LIMIT);
+  return kset(KEYS.postHistory, next);
 }
 
 export async function updateRunLog(
