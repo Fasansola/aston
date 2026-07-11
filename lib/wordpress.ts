@@ -359,19 +359,34 @@ export async function createWordPressPost(
 
   // ── Idempotency guard ─────────────────────────────────────
   // A WDK retry of publishStep can arrive after the post was ALREADY created
-  // (e.g. the create succeeded but the response timed out). Look the slug up
-  // first: if a post exists, update it in place instead of creating a
-  // duplicate draft. Lookup failures are non-fatal — we fall back to create.
+  // (create succeeded but the response timed out) — updating that just-made
+  // post avoids a duplicate. But an AI-generated slug can also COLLIDE with a
+  // pre-existing, unrelated post (e.g. a year-old published article on a
+  // similar topic). We must never overwrite that live content.
+  //
+  // Discriminator: age. A retry's duplicate is seconds/minutes old; a colliding
+  // old post is not. Only reuse a match created within the last 30 minutes —
+  // comfortably longer than any single generation (incl. QA retries), but far
+  // short of an old post. Anything older → create fresh; WordPress auto-suffixes
+  // the slug (…-2) so the old post is untouched.
+  const RECENT_MATCH_MS = 30 * 60_000;
   let existingId: number | null = null;
   try {
     const lookup = await axios.get(`${WP_URL}/wp-json/wp/v2/posts`, {
       headers: BASE_HEADERS,
       timeout: 15_000,
-      params: { slug: content.slug, status: "publish,future,draft,pending,private", per_page: 1, _fields: "id,slug" },
+      params: { slug: content.slug, status: "publish,future,draft,pending,private", per_page: 1, _fields: "id,slug,date_gmt" },
     });
-    if (Array.isArray(lookup.data) && typeof lookup.data[0]?.id === "number") {
-      existingId = lookup.data[0].id;
-      console.warn(`[wordpress] Post with slug "${content.slug}" already exists (id ${existingId}) — updating it instead of creating a duplicate`);
+    const hit = Array.isArray(lookup.data) ? lookup.data[0] : undefined;
+    if (hit && typeof hit.id === "number") {
+      const createdMs = hit.date_gmt ? Date.parse(`${hit.date_gmt}Z`) : NaN;
+      const ageMs = Number.isFinite(createdMs) ? Date.now() - createdMs : Infinity;
+      if (ageMs <= RECENT_MATCH_MS) {
+        existingId = hit.id;
+        console.warn(`[wordpress] Slug "${content.slug}" matches a post created ${Math.round(ageMs / 1000)}s ago (id ${existingId}) — treating as a retry and updating it instead of duplicating`);
+      } else {
+        console.warn(`[wordpress] Slug "${content.slug}" collides with an existing older post (id ${hit.id}, created ${hit.date_gmt}) — creating a NEW post instead of overwriting it (WordPress will adjust the slug)`);
+      }
     }
   } catch (lookupErr: unknown) {
     console.warn(`[wordpress] Slug lookup failed (non-fatal, will create): ${lookupErr instanceof Error ? lookupErr.message : String(lookupErr)}`);
