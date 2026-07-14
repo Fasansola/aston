@@ -36,6 +36,15 @@ interface SocialComment {
   url?: string;
 }
 
+interface TokenStatus {
+  platform: string;
+  source: "store" | "env" | "none";
+  hasRefreshToken: boolean;
+  expiresAt?: number;
+  expiresInDays?: number;
+  lastRefreshError?: string;
+}
+
 const card = "rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur p-5";
 const input =
   "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white/90 placeholder:text-white/30 focus:outline-none focus:border-gold/60";
@@ -77,6 +86,22 @@ export default function SocialPage() {
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   const [rootReply, setRootReply] = useState("");
 
+  // OAuth token store (Connections)
+  const [tokenStatuses, setTokenStatuses] = useState<TokenStatus[]>([]);
+  const [seedPlatform, setSeedPlatform] = useState("linkedin");
+  const [seedToken, setSeedToken] = useState("");
+  const [seedRefresh, setSeedRefresh] = useState("");
+  const [seedExpires, setSeedExpires] = useState("");
+  const [tokenMsg, setTokenMsg] = useState("");
+  const [tokenBusy, setTokenBusy] = useState(false);
+
+  function loadTokens() {
+    fetch("/api/social/tokens")
+      .then((r) => r.json())
+      .then((d) => setTokenStatuses(d.statuses ?? []))
+      .catch(() => {});
+  }
+
   useEffect(() => {
     fetch("/api/social/targets")
       .then((r) => r.json())
@@ -86,7 +111,68 @@ export default function SocialPage() {
         setSelected(Object.fromEntries(t.map((x) => [x.key, x.connected])));
       })
       .catch(() => {});
+    loadTokens();
   }, []);
+
+  async function seedTokenSubmit() {
+    if (!seedToken.trim()) return;
+    setTokenBusy(true);
+    setTokenMsg("");
+    try {
+      const res = await fetch("/api/social/tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: seedPlatform,
+          accessToken: seedToken.trim(),
+          refreshToken: seedRefresh.trim() || undefined,
+          expiresInSeconds: seedExpires.trim() ? Number(seedExpires.trim()) : undefined,
+        }),
+      });
+      const d = await res.json();
+      setTokenMsg(res.ok ? `Saved ${seedPlatform} token` : d.error || "Failed to save");
+      if (res.ok) {
+        setSeedToken("");
+        setSeedRefresh("");
+        setSeedExpires("");
+        loadTokens();
+      }
+    } catch (e) {
+      setTokenMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTokenBusy(false);
+    }
+  }
+
+  async function refreshTokensNow() {
+    setTokenBusy(true);
+    setTokenMsg("");
+    try {
+      const res = await fetch("/api/social/tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "refresh" }),
+      });
+      const d = await res.json();
+      const refreshed = (d.results ?? []).filter((r: { refreshed: boolean }) => r.refreshed).map((r: { platform: string }) => r.platform);
+      setTokenMsg(refreshed.length ? `Refreshed: ${refreshed.join(", ")}` : "Nothing needed refreshing");
+      loadTokens();
+    } catch (e) {
+      setTokenMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTokenBusy(false);
+    }
+  }
+
+  async function clearToken(platform: string) {
+    setTokenBusy(true);
+    try {
+      await fetch(`/api/social/tokens?platform=${platform}`, { method: "DELETE" });
+      loadTokens();
+    } finally {
+      setTokenBusy(false);
+    }
+  }
 
   async function generate() {
     const chosen = targets.filter((t) => selected[t.key]).map((t) => t.key);
@@ -256,6 +342,70 @@ export default function SocialPage() {
             {targets.length === 0 && (
               <p className="text-sm text-white/40">No targets loaded — are you signed in to the studio?</p>
             )}
+          </div>
+        </section>
+
+        {/* Connections — OAuth token store for the gated platforms */}
+        <section className={card}>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs uppercase tracking-[0.2em] text-gold/70">Connections</h2>
+            <button className={btnGhost} onClick={refreshTokensNow} disabled={tokenBusy}>
+              Refresh now
+            </button>
+          </div>
+          <p className="text-xs text-white/40 mb-3">
+            Seeded tokens are stored and auto-refreshed daily, so you don&apos;t rotate env tokens every ~60 days. Platforms fall back to their env token until seeded.
+          </p>
+
+          <div className="space-y-2 mb-4">
+            {tokenStatuses.map((s) => (
+              <div key={s.platform} className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-white/90 capitalize">{s.platform}</span>
+                    <span
+                      className={`text-[10px] ${s.source === "store" ? "text-emerald-400" : s.source === "env" ? "text-amber-400" : "text-white/30"}`}
+                    >
+                      {s.source === "store" ? "stored" : s.source === "env" ? "env token" : "not set"}
+                    </span>
+                    {s.hasRefreshToken && <span className="text-[10px] text-white/30">· refreshable</span>}
+                  </div>
+                  <p className="text-[10px] text-white/30 mt-0.5">
+                    {s.expiresInDays !== undefined
+                      ? `expires in ${s.expiresInDays}d`
+                      : s.source === "store"
+                        ? "no expiry recorded"
+                        : "—"}
+                    {s.lastRefreshError ? ` · last refresh error: ${s.lastRefreshError}` : ""}
+                  </p>
+                </div>
+                {s.source === "store" && (
+                  <button className={btnGhost} onClick={() => clearToken(s.platform)} disabled={tokenBusy}>
+                    Clear
+                  </button>
+                )}
+              </div>
+            ))}
+            {tokenStatuses.length === 0 && <p className="text-sm text-white/40">No stored-token platforms.</p>}
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-2">
+            <select className={input} value={seedPlatform} onChange={(e) => setSeedPlatform(e.target.value)}>
+              {tokenStatuses.map((s) => (
+                <option key={s.platform} value={s.platform} className="bg-[#1a1a1a]">
+                  {s.platform}
+                </option>
+              ))}
+            </select>
+            <input className={input} placeholder="Expires in (seconds, optional)" value={seedExpires} onChange={(e) => setSeedExpires(e.target.value)} />
+            <input className={input} placeholder="Access token" value={seedToken} onChange={(e) => setSeedToken(e.target.value)} />
+            <input className={input} placeholder="Refresh token (optional)" value={seedRefresh} onChange={(e) => setSeedRefresh(e.target.value)} />
+          </div>
+          <div className="flex items-center gap-3 mt-3">
+            <button className={btn} onClick={seedTokenSubmit} disabled={tokenBusy || !seedToken.trim()}>
+              Save token
+            </button>
+            {tokenMsg && <span className="text-xs text-white/60">{tokenMsg}</span>}
           </div>
         </section>
 

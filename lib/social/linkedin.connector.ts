@@ -17,10 +17,12 @@ import type {
   SocialComment,
 } from "@/lib/social/types";
 
+import { resolveAccessToken } from "@/lib/social/tokenRefresh";
+
 const API = "https://api.linkedin.com/rest";
 
-function resolve(config: Record<string, string>) {
-  const token = config.accessToken || process.env.LINKEDIN_ACCESS_TOKEN || "";
+async function resolve(config: Record<string, string>) {
+  const token = await resolveAccessToken("linkedin", config.accessToken, process.env.LINKEDIN_ACCESS_TOKEN);
   // e.g. "urn:li:organization:12345" (Page) or "urn:li:person:abc" (member)
   const authorUrn = config.authorUrn || process.env.LINKEDIN_AUTHOR_URN || "";
   const version = config.version || process.env.LINKEDIN_VERSION || "202411";
@@ -46,7 +48,7 @@ export default class LinkedInConnector implements SocialConnector {
 
   async validateConfig(config: Record<string, string>): Promise<{ ok: boolean; errors: string[] }> {
     const errors: string[] = [];
-    const { token, authorUrn } = resolve(config);
+    const { token, authorUrn } = await resolve(config);
     if (!token) errors.push("LinkedIn access token is required");
     if (!authorUrn) errors.push("LinkedIn author URN is required (urn:li:organization:… or urn:li:person:…)");
     if (!authorUrn.startsWith("urn:li:")) errors.push("authorUrn must look like urn:li:organization:123 or urn:li:person:abc");
@@ -78,7 +80,7 @@ export default class LinkedInConnector implements SocialConnector {
 
   async publish(input: SocialPublishRequest): Promise<SocialPublishResult> {
     const { post, target } = input;
-    const { token, authorUrn, version } = resolve(input.targetConfig);
+    const { token, authorUrn, version } = await resolve(input.targetConfig);
     const commentary = escapeCommentary(post.link ? `${post.text}\n\n${post.link}` : post.text);
 
     let status: SocialPublishResult["status"] = "passed";
@@ -130,7 +132,7 @@ export default class LinkedInConnector implements SocialConnector {
   async listComments(
     input: ListCommentsRequest
   ): Promise<{ ok: boolean; comments: SocialComment[]; message?: string }> {
-    const { token, version } = resolve(input.targetConfig);
+    const { token, version } = await resolve(input.targetConfig);
     try {
       const res = await fetch(`${API}/socialActions/${encodeURIComponent(input.postId)}/comments`, {
         headers: headers(token, version),
@@ -152,7 +154,7 @@ export default class LinkedInConnector implements SocialConnector {
   }
 
   async reply(input: ReplyRequest): Promise<SocialPublishResult> {
-    const { token, authorUrn, version } = resolve(input.targetConfig);
+    const { token, authorUrn, version } = await resolve(input.targetConfig);
     try {
       const res = await fetch(`${API}/socialActions/${encodeURIComponent(input.postId)}/comments`, {
         method: "POST",

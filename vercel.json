@@ -2,12 +2,14 @@
   "functions": {
     "app/api/generate/route.ts":      { "maxDuration": 300 },
     "app/api/cron/route.ts":          { "maxDuration": 800 },
-    "app/api/cron-publish/route.ts":  { "maxDuration": 60 }
+    "app/api/cron-publish/route.ts":  { "maxDuration": 60 },
+    "app/api/cron-social-tokens/route.ts": { "maxDuration": 60 }
   },
   "crons": [
     { "path": "/api/cron",             "schedule": "0 8 * * *"  },
     { "path": "/api/cron-performance", "schedule": "0 3 * * 1"  },
     { "path": "/api/cron-publish",     "schedule": "0 9 * * *"  },
+    { "path": "/api/cron-social-tokens", "schedule": "0 4 * * *" },
     { "path": "/api/spotify-sync",     "schedule": "0 * * * *" }
   ]
 }

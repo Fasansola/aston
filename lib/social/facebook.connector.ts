@@ -16,10 +16,11 @@ import type {
   SocialComment,
 } from "@/lib/social/types";
 import { graphCall, FB_GRAPH_BASE } from "@/lib/social/metaGraph";
+import { resolveAccessToken } from "@/lib/social/tokenRefresh";
 
-function resolve(config: Record<string, string>) {
+async function resolve(config: Record<string, string>) {
   const pageId = config.pageId || process.env.FACEBOOK_PAGE_ID || "";
-  const token = config.accessToken || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || "";
+  const token = await resolveAccessToken("facebook", config.accessToken, process.env.FACEBOOK_PAGE_ACCESS_TOKEN);
   return { pageId, token };
 }
 
@@ -28,7 +29,7 @@ export default class FacebookConnector implements SocialConnector {
 
   async validateConfig(config: Record<string, string>): Promise<{ ok: boolean; errors: string[] }> {
     const errors: string[] = [];
-    const { pageId, token } = resolve(config);
+    const { pageId, token } = await resolve(config);
     if (!pageId) errors.push("Facebook Page ID is required");
     if (!token) errors.push("Facebook Page access token is required");
     if (errors.length) return { ok: false, errors };
@@ -42,7 +43,7 @@ export default class FacebookConnector implements SocialConnector {
 
   async publish(input: SocialPublishRequest): Promise<SocialPublishResult> {
     const { post, target } = input;
-    const { pageId, token } = resolve(input.targetConfig);
+    const { pageId, token } = await resolve(input.targetConfig);
     const message = post.link ? `${post.text}\n\n${post.link}` : post.text;
     const image = post.mediaUrls?.[0];
 
@@ -82,7 +83,7 @@ export default class FacebookConnector implements SocialConnector {
   async listComments(
     input: ListCommentsRequest
   ): Promise<{ ok: boolean; comments: SocialComment[]; message?: string }> {
-    const { token } = resolve(input.targetConfig);
+    const { token } = await resolve(input.targetConfig);
     try {
       const data = await graphCall<{
         data: Array<{ id: string; message: string; created_time: string; from?: { name: string } }>;
@@ -103,7 +104,7 @@ export default class FacebookConnector implements SocialConnector {
   }
 
   async reply(input: ReplyRequest): Promise<SocialPublishResult> {
-    const { token } = resolve(input.targetConfig);
+    const { token } = await resolve(input.targetConfig);
     try {
       // Commenting on a post OR a comment id both use the /{object-id}/comments edge.
       const data = await graphCall<{ id: string }>(

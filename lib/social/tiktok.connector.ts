@@ -21,10 +21,12 @@ import type {
   ReplyRequest,
 } from "@/lib/social/types";
 
+import { resolveAccessToken } from "@/lib/social/tokenRefresh";
+
 const API = "https://open.tiktokapis.com/v2";
 
-function resolve(config: Record<string, string>) {
-  const token = config.accessToken || process.env.TIKTOK_ACCESS_TOKEN || "";
+async function resolve(config: Record<string, string>) {
+  const token = await resolveAccessToken("tiktok", config.accessToken, process.env.TIKTOK_ACCESS_TOKEN);
   // Unaudited apps must use SELF_ONLY; PUBLIC_TO_EVERYONE requires audit.
   const privacyLevel = config.privacyLevel || process.env.TIKTOK_PRIVACY_LEVEL || "SELF_ONLY";
   return { token, privacyLevel };
@@ -38,14 +40,14 @@ export default class TikTokConnector implements SocialConnector {
 
   async validateConfig(config: Record<string, string>): Promise<{ ok: boolean; errors: string[] }> {
     const errors: string[] = [];
-    const { token } = resolve(config);
+    const { token } = await resolve(config);
     if (!token) errors.push("TikTok access token is required");
     return { ok: errors.length === 0, errors };
   }
 
   async publish(input: SocialPublishRequest): Promise<SocialPublishResult> {
     const { post, target } = input;
-    const { token, privacyLevel } = resolve(input.targetConfig);
+    const { token, privacyLevel } = await resolve(input.targetConfig);
     const videoUrl = post.mediaUrls?.[0];
 
     if (!videoUrl) {

@@ -250,7 +250,7 @@ async function fileSet<T>(key: string, value: T): Promise<void> {
 
 // ── Generic get / set ─────────────────────────────────────────
 
-async function kget<T>(key: string, fallback: T): Promise<T> {
+export async function kget<T>(key: string, fallback: T): Promise<T> {
   const redis = await getAdapter();
   if (redis) {
     try {
@@ -264,7 +264,7 @@ async function kget<T>(key: string, fallback: T): Promise<T> {
   return fileGet(key, fallback);
 }
 
-async function kset<T>(key: string, value: T): Promise<void> {
+export async function kset<T>(key: string, value: T): Promise<void> {
   const redis = await getAdapter();
   if (redis) {
     try {

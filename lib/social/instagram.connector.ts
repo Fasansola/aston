@@ -19,15 +19,16 @@ import type {
   SocialComment,
 } from "@/lib/social/types";
 import { graphCall, FB_GRAPH_BASE } from "@/lib/social/metaGraph";
+import { resolveAccessToken } from "@/lib/social/tokenRefresh";
 
-function resolve(config: Record<string, string>) {
+async function resolve(config: Record<string, string>) {
   const igUserId = config.igUserId || process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID || "";
   // IG uses the linked Page/User access token; fall back to the Facebook one.
-  const token =
-    config.accessToken ||
-    process.env.INSTAGRAM_ACCESS_TOKEN ||
-    process.env.FACEBOOK_PAGE_ACCESS_TOKEN ||
-    "";
+  const token = await resolveAccessToken(
+    "instagram",
+    config.accessToken,
+    process.env.INSTAGRAM_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN
+  );
   return { igUserId, token };
 }
 
@@ -36,7 +37,7 @@ export default class InstagramConnector implements SocialConnector {
 
   async validateConfig(config: Record<string, string>): Promise<{ ok: boolean; errors: string[] }> {
     const errors: string[] = [];
-    const { igUserId, token } = resolve(config);
+    const { igUserId, token } = await resolve(config);
     if (!igUserId) errors.push("Instagram Business account ID is required");
     if (!token) errors.push("Instagram/Facebook access token is required");
     if (errors.length) return { ok: false, errors };
@@ -50,7 +51,7 @@ export default class InstagramConnector implements SocialConnector {
 
   async publish(input: SocialPublishRequest): Promise<SocialPublishResult> {
     const { post, target } = input;
-    const { igUserId, token } = resolve(input.targetConfig);
+    const { igUserId, token } = await resolve(input.targetConfig);
     const image = post.mediaUrls?.[0];
 
     if (!image) {
@@ -107,7 +108,7 @@ export default class InstagramConnector implements SocialConnector {
   async listComments(
     input: ListCommentsRequest
   ): Promise<{ ok: boolean; comments: SocialComment[]; message?: string }> {
-    const { token } = resolve(input.targetConfig);
+    const { token } = await resolve(input.targetConfig);
     try {
       const data = await graphCall<{
         data: Array<{ id: string; text: string; username?: string; timestamp: string }>;
@@ -128,7 +129,7 @@ export default class InstagramConnector implements SocialConnector {
   }
 
   async reply(input: ReplyRequest): Promise<SocialPublishResult> {
-    const { token } = resolve(input.targetConfig);
+    const { token } = await resolve(input.targetConfig);
     try {
       // Reply to a comment id via its /replies edge.
       const data = await graphCall<{ id: string }>(

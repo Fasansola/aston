@@ -16,10 +16,11 @@ import type {
   SocialComment,
 } from "@/lib/social/types";
 import { graphCall, THREADS_GRAPH_BASE } from "@/lib/social/metaGraph";
+import { resolveAccessToken } from "@/lib/social/tokenRefresh";
 
-function resolve(config: Record<string, string>) {
+async function resolve(config: Record<string, string>) {
   const userId = config.userId || process.env.THREADS_USER_ID || "";
-  const token = config.accessToken || process.env.THREADS_ACCESS_TOKEN || "";
+  const token = await resolveAccessToken("threads", config.accessToken, process.env.THREADS_ACCESS_TOKEN);
   return { userId, token };
 }
 
@@ -28,7 +29,7 @@ export default class ThreadsConnector implements SocialConnector {
 
   async validateConfig(config: Record<string, string>): Promise<{ ok: boolean; errors: string[] }> {
     const errors: string[] = [];
-    const { userId, token } = resolve(config);
+    const { userId, token } = await resolve(config);
     if (!userId) errors.push("Threads user ID is required");
     if (!token) errors.push("Threads access token is required");
     if (errors.length) return { ok: false, errors };
@@ -63,7 +64,7 @@ export default class ThreadsConnector implements SocialConnector {
 
   async publish(input: SocialPublishRequest): Promise<SocialPublishResult> {
     const { post, target } = input;
-    const { userId, token } = resolve(input.targetConfig);
+    const { userId, token } = await resolve(input.targetConfig);
     const text = post.link ? `${post.text}\n\n${post.link}` : post.text;
     const image = post.mediaUrls?.[0];
 
@@ -101,7 +102,7 @@ export default class ThreadsConnector implements SocialConnector {
   async listComments(
     input: ListCommentsRequest
   ): Promise<{ ok: boolean; comments: SocialComment[]; message?: string }> {
-    const { token } = resolve(input.targetConfig);
+    const { token } = await resolve(input.targetConfig);
     try {
       const data = await graphCall<{
         data: Array<{ id: string; text: string; username?: string; timestamp: string; permalink?: string }>;
@@ -123,7 +124,7 @@ export default class ThreadsConnector implements SocialConnector {
   }
 
   async reply(input: ReplyRequest): Promise<SocialPublishResult> {
-    const { userId, token } = resolve(input.targetConfig);
+    const { userId, token } = await resolve(input.targetConfig);
     try {
       const threadId = await this.createAndPublish(userId, token, {
         media_type: "TEXT",
