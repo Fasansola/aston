@@ -911,7 +911,7 @@ export default function HomePage() {
   const [publishResults, setPublishResults]         = useState<PublishResultItem[]>([]);
 
   // Social cross-posting alongside the scheduled blog publish
-  const [socialShare, setSocialShare]     = useState<{ mastodon: boolean; bluesky: boolean }>({ mastodon: false, bluesky: false });
+  const [socialShare, setSocialShare]     = useState<{ mastodon: boolean; bluesky: boolean; linkedin: boolean }>({ mastodon: false, bluesky: false, linkedin: false });
   const [socialCaptions, setSocialCaptions] = useState<Record<string, string>>({});
   const [socialGenStatus, setSocialGenStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
 
@@ -1193,7 +1193,7 @@ export default function HomePage() {
   };
 
   const selectedSocialTargets = () =>
-    (Object.entries(socialShare) as Array<["mastodon" | "bluesky", boolean]>)
+    (Object.entries(socialShare) as Array<["mastodon" | "bluesky" | "linkedin", boolean]>)
       .filter(([, on]) => on)
       .map(([target]) => target);
 
@@ -2957,7 +2957,7 @@ export default function HomePage() {
                           <div className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3 space-y-2.5">
                             <p className="text-[10px] uppercase tracking-[0.18em] text-[#C9A84C]/70">Also share on social</p>
                             <div className="flex flex-wrap gap-2">
-                              {(["mastodon", "bluesky"] as const).map((p) => (
+                              {(["mastodon", "bluesky", "linkedin"] as const).map((p) => (
                                 <label key={p} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border cursor-pointer text-[11px] capitalize transition-colors ${socialShare[p] ? "border-[#C9A84C]/50 text-[#C9A84C] bg-[#C9A84C]/[0.06]" : "border-white/10 text-white/45"}`}>
                                   <input type="checkbox" className="accent-[#C9A84C] w-3 h-3" checked={socialShare[p]} onChange={(e) => setSocialShare((s) => ({ ...s, [p]: e.target.checked }))} />
                                   {p}
@@ -2974,7 +2974,7 @@ export default function HomePage() {
                                 </button>
                               )}
                             </div>
-                            {(["mastodon", "bluesky"] as const)
+                            {(["mastodon", "bluesky", "linkedin"] as const)
                               .filter((p) => socialShare[p] && socialCaptions[p] !== undefined)
                               .map((p) => (
                                 <textarea

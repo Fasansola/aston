@@ -11,6 +11,8 @@ import BlueskyConnector from "@/lib/social/bluesky.connector";
 import FacebookConnector from "@/lib/social/facebook.connector";
 import InstagramConnector from "@/lib/social/instagram.connector";
 import ThreadsConnector from "@/lib/social/threads.connector";
+import LinkedInConnector from "@/lib/social/linkedin.connector";
+import TikTokConnector from "@/lib/social/tiktok.connector";
 
 const connectors: Record<SocialTarget, SocialConnector> = {
   mastodon: new MastodonConnector(),
@@ -18,9 +20,11 @@ const connectors: Record<SocialTarget, SocialConnector> = {
   facebook: new FacebookConnector(),
   instagram: new InstagramConnector(),
   threads: new ThreadsConnector(),
+  linkedin: new LinkedInConnector(),
+  tiktok: new TikTokConnector(),
 };
 
-const TARGET_KEYS: SocialTarget[] = ["mastodon", "bluesky", "facebook", "instagram", "threads"];
+const TARGET_KEYS: SocialTarget[] = ["mastodon", "bluesky", "facebook", "instagram", "threads", "linkedin", "tiktok"];
 
 export function getSocialConnector(target: SocialTarget): SocialConnector {
   return connectors[target];
@@ -36,6 +40,8 @@ export function getAvailableSocialTargets(): AvailableSocialTarget[] {
   const facebookOk = !!(process.env.FACEBOOK_PAGE_ID && process.env.FACEBOOK_PAGE_ACCESS_TOKEN);
   const instagramOk = !!(process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID && (process.env.INSTAGRAM_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN));
   const threadsOk = !!(process.env.THREADS_USER_ID && process.env.THREADS_ACCESS_TOKEN);
+  const linkedinOk = !!(process.env.LINKEDIN_ACCESS_TOKEN && process.env.LINKEDIN_AUTHOR_URN);
+  const tiktokOk = !!process.env.TIKTOK_ACCESS_TOKEN;
 
   return [
     {
@@ -50,6 +56,7 @@ export function getAvailableSocialTargets(): AvailableSocialTarget[] {
           : "missing_token",
       charLimit: connectors.mastodon.charLimit,
       supportsMedia: true,
+      requiresMedia: false,
       supportsComments: true,
       configFields: [
         { key: "instanceUrl", label: "Instance URL", type: "text", required: false, placeholder: "Leave blank to use MASTODON_INSTANCE_URL" },
@@ -76,6 +83,7 @@ export function getAvailableSocialTargets(): AvailableSocialTarget[] {
           : "config_incomplete",
       charLimit: connectors.bluesky.charLimit,
       supportsMedia: true,
+      requiresMedia: false,
       supportsComments: true,
       configFields: [
         { key: "identifier", label: "Handle", type: "text", required: false, placeholder: "Leave blank to use BLUESKY_IDENTIFIER (e.g. aston.bsky.social)" },
@@ -91,6 +99,7 @@ export function getAvailableSocialTargets(): AvailableSocialTarget[] {
       connectionState: facebookOk ? "connected" : !process.env.FACEBOOK_PAGE_ID ? "config_incomplete" : "missing_token",
       charLimit: connectors.facebook.charLimit,
       supportsMedia: true,
+      requiresMedia: false,
       supportsComments: true,
       configFields: [
         { key: "pageId", label: "Page ID", type: "text", required: false, placeholder: "Leave blank to use FACEBOOK_PAGE_ID" },
@@ -105,6 +114,7 @@ export function getAvailableSocialTargets(): AvailableSocialTarget[] {
       connectionState: instagramOk ? "connected" : !process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID ? "config_incomplete" : "missing_token",
       charLimit: connectors.instagram.charLimit,
       supportsMedia: true,
+      requiresMedia: true,
       supportsComments: true,
       configFields: [
         { key: "igUserId", label: "IG Business account ID", type: "text", required: false, placeholder: "Leave blank to use INSTAGRAM_BUSINESS_ACCOUNT_ID" },
@@ -119,10 +129,47 @@ export function getAvailableSocialTargets(): AvailableSocialTarget[] {
       connectionState: threadsOk ? "connected" : !process.env.THREADS_USER_ID ? "config_incomplete" : "missing_token",
       charLimit: connectors.threads.charLimit,
       supportsMedia: true,
+      requiresMedia: false,
       supportsComments: true,
       configFields: [
         { key: "userId", label: "Threads user ID", type: "text", required: false, placeholder: "Leave blank to use THREADS_USER_ID" },
         { key: "accessToken", label: "Access token", type: "text", required: false, placeholder: "Leave blank to use THREADS_ACCESS_TOKEN", isSecret: true },
+      ],
+    },
+    {
+      key: "linkedin",
+      label: "LinkedIn",
+      description: "Member or organisation Page — needs a reviewed LinkedIn app (high B2B value)",
+      connected: linkedinOk,
+      connectionState: linkedinOk ? "connected" : !process.env.LINKEDIN_ACCESS_TOKEN ? "missing_token" : "config_incomplete",
+      charLimit: connectors.linkedin.charLimit,
+      supportsMedia: true,
+      requiresMedia: false,
+      supportsComments: true,
+      configFields: [
+        { key: "authorUrn", label: "Author URN", type: "text", required: false, placeholder: "urn:li:organization:123 or urn:li:person:abc (else LINKEDIN_AUTHOR_URN)" },
+        { key: "accessToken", label: "Access token", type: "text", required: false, placeholder: "Leave blank to use LINKEDIN_ACCESS_TOKEN", isSecret: true },
+      ],
+    },
+    {
+      key: "tiktok",
+      label: "TikTok",
+      description: "Video-first — needs app audit for public posts; no comments API",
+      connected: tiktokOk,
+      connectionState: tiktokOk ? "connected" : "missing_token",
+      charLimit: connectors.tiktok.charLimit,
+      supportsMedia: true,
+      requiresMedia: true,
+      supportsComments: false,
+      configFields: [
+        { key: "accessToken", label: "Access token", type: "text", required: false, placeholder: "Leave blank to use TIKTOK_ACCESS_TOKEN", isSecret: true },
+        {
+          key: "privacyLevel", label: "Privacy", type: "select", required: false, default: "SELF_ONLY",
+          options: [
+            { value: "SELF_ONLY", label: "Private (no audit needed)" },
+            { value: "PUBLIC_TO_EVERYONE", label: "Public (requires app audit)" },
+          ],
+        },
       ],
     },
   ];

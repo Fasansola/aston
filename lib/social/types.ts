@@ -8,7 +8,14 @@
  * platform actually wants.
  */
 
-export type SocialTarget = "mastodon" | "bluesky" | "facebook" | "instagram" | "threads";
+export type SocialTarget =
+  | "mastodon"
+  | "bluesky"
+  | "facebook"
+  | "instagram"
+  | "threads"
+  | "linkedin"
+  | "tiktok";
 
 /** One piece of social content, before per-platform adaptation. */
 export interface SocialPost {
@@ -87,6 +94,8 @@ export interface AvailableSocialTarget {
   connectionState: "connected" | "missing_token" | "config_incomplete";
   charLimit: number;
   supportsMedia: boolean;
+  /** True when the platform cannot post without a media asset (Instagram, TikTok). */
+  requiresMedia: boolean;
   supportsComments: boolean;
   configFields: Array<{
     key: string;

@@ -1,0 +1,171 @@
+/**
+ * lib/social/linkedin.connector.ts
+ * LinkedIn connector — posts to a member profile or an organisation Page via the
+ * versioned Posts API, and reads/writes comments via the Community Management
+ * (socialActions) API. Requires an OAuth access token with w_member_social (and,
+ * for org posts, w_organization_social) from a reviewed LinkedIn app.
+ *
+ * Docs: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api
+ */
+
+import type {
+  SocialConnector,
+  SocialPublishRequest,
+  SocialPublishResult,
+  ListCommentsRequest,
+  ReplyRequest,
+  SocialComment,
+} from "@/lib/social/types";
+
+const API = "https://api.linkedin.com/rest";
+
+function resolve(config: Record<string, string>) {
+  const token = config.accessToken || process.env.LINKEDIN_ACCESS_TOKEN || "";
+  // e.g. "urn:li:organization:12345" (Page) or "urn:li:person:abc" (member)
+  const authorUrn = config.authorUrn || process.env.LINKEDIN_AUTHOR_URN || "";
+  const version = config.version || process.env.LINKEDIN_VERSION || "202411";
+  return { token, authorUrn, version };
+}
+
+/** LinkedIn "Little Text" requires these characters to be backslash-escaped in commentary. */
+function escapeCommentary(text: string): string {
+  return text.replace(/[\\<>~|@[\]()#*_{}]/g, (c) => `\\${c}`);
+}
+
+function headers(token: string, version: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    "LinkedIn-Version": version,
+    "X-Restli-Protocol-Version": "2.0.0",
+  };
+}
+
+export default class LinkedInConnector implements SocialConnector {
+  readonly charLimit = 3000;
+
+  async validateConfig(config: Record<string, string>): Promise<{ ok: boolean; errors: string[] }> {
+    const errors: string[] = [];
+    const { token, authorUrn } = resolve(config);
+    if (!token) errors.push("LinkedIn access token is required");
+    if (!authorUrn) errors.push("LinkedIn author URN is required (urn:li:organization:… or urn:li:person:…)");
+    if (!authorUrn.startsWith("urn:li:")) errors.push("authorUrn must look like urn:li:organization:123 or urn:li:person:abc");
+    return { ok: errors.length === 0, errors };
+  }
+
+  /** Register + upload an image, returning its URN, or throw. */
+  private async uploadImage(token: string, version: string, authorUrn: string, url: string): Promise<string> {
+    const init = await fetch(`${API}/images?action=initializeUpload`, {
+      method: "POST",
+      headers: headers(token, version),
+      body: JSON.stringify({ initializeUploadRequest: { owner: authorUrn } }),
+    });
+    if (!init.ok) throw new Error(`image init failed (${init.status}): ${await init.text()}`);
+    const { value } = (await init.json()) as { value: { uploadUrl: string; image: string } };
+
+    const img = await fetch(url);
+    if (!img.ok) throw new Error(`could not fetch media ${url} (${img.status})`);
+    const bytes = Buffer.from(await img.arrayBuffer());
+
+    const up = await fetch(value.uploadUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: bytes,
+    });
+    if (!up.ok) throw new Error(`image upload failed (${up.status})`);
+    return value.image;
+  }
+
+  async publish(input: SocialPublishRequest): Promise<SocialPublishResult> {
+    const { post, target } = input;
+    const { token, authorUrn, version } = resolve(input.targetConfig);
+    const commentary = escapeCommentary(post.link ? `${post.text}\n\n${post.link}` : post.text);
+
+    let status: SocialPublishResult["status"] = "passed";
+    let note = "";
+    let imageUrn: string | undefined;
+    if (post.mediaUrls?.[0]) {
+      try {
+        imageUrn = await this.uploadImage(token, version, authorUrn, post.mediaUrls[0]);
+      } catch (e) {
+        status = "warning";
+        note = ` (image skipped: ${e instanceof Error ? e.message : String(e)})`;
+      }
+    }
+
+    const body: Record<string, unknown> = {
+      author: authorUrn,
+      commentary,
+      visibility: "PUBLIC",
+      distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
+      lifecycleState: "PUBLISHED",
+      isReshareDisabledByAuthor: false,
+      ...(imageUrn ? { content: { media: { id: imageUrn, title: post.text.slice(0, 60) } } } : {}),
+    };
+
+    try {
+      const res = await fetch(`${API}/posts`, {
+        method: "POST",
+        headers: headers(token, version),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        return { target, ok: false, status: "failed", message: `LinkedIn rejected the post (${res.status}): ${await res.text()}` };
+      }
+      // The created post URN comes back in the x-restli-id header.
+      const postUrn = res.headers.get("x-restli-id") || "";
+      return {
+        target,
+        ok: true,
+        status,
+        message: `Posted to LinkedIn${note}`,
+        externalUrl: postUrn ? `https://www.linkedin.com/feed/update/${postUrn}` : undefined,
+        platformPostId: postUrn,
+      };
+    } catch (e) {
+      return { target, ok: false, status: "failed", message: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async listComments(
+    input: ListCommentsRequest
+  ): Promise<{ ok: boolean; comments: SocialComment[]; message?: string }> {
+    const { token, version } = resolve(input.targetConfig);
+    try {
+      const res = await fetch(`${API}/socialActions/${encodeURIComponent(input.postId)}/comments`, {
+        headers: headers(token, version),
+      });
+      if (!res.ok) return { ok: false, comments: [], message: `LinkedIn returned ${res.status}` };
+      const data = (await res.json()) as {
+        elements?: Array<{ id?: string; actor?: string; message?: { text?: string }; created?: { time?: number } }>;
+      };
+      const comments: SocialComment[] = (data.elements ?? []).map((c) => ({
+        id: c.id ?? "",
+        author: c.actor ?? "LinkedIn member",
+        text: c.message?.text ?? "",
+        createdAt: c.created?.time ? new Date(c.created.time).toISOString() : undefined,
+      }));
+      return { ok: true, comments };
+    } catch (e) {
+      return { ok: false, comments: [], message: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async reply(input: ReplyRequest): Promise<SocialPublishResult> {
+    const { token, authorUrn, version } = resolve(input.targetConfig);
+    try {
+      const res = await fetch(`${API}/socialActions/${encodeURIComponent(input.postId)}/comments`, {
+        method: "POST",
+        headers: headers(token, version),
+        body: JSON.stringify({ actor: authorUrn, message: { text: input.text } }),
+      });
+      if (!res.ok) {
+        return { target: input.target, ok: false, status: "failed", message: `LinkedIn rejected the reply (${res.status}): ${await res.text()}` };
+      }
+      const id = res.headers.get("x-restli-id") || undefined;
+      return { target: input.target, ok: true, status: "passed", message: "Reply posted to LinkedIn", platformPostId: id };
+    } catch (e) {
+      return { target: input.target, ok: false, status: "failed", message: e instanceof Error ? e.message : String(e) };
+    }
+  }
+}
