@@ -18,7 +18,8 @@ import { getDuePublishItems, updatePublishQueueItem } from "@/lib/storage";
 import { getConnector } from "@/lib/publishers/registry";
 import { htmlToMarkdown } from "@/lib/publishers/htmlToMarkdown";
 import type { PublishRequest } from "@/lib/publishers/types";
-import type { PublishQueueTarget } from "@/lib/storage";
+import type { PublishQueueTarget, PublishQueueResult } from "@/lib/storage";
+import { crossPostQueueItem } from "@/lib/social/crossPost";
 
 export const maxDuration = 60;
 
@@ -93,10 +94,19 @@ export async function GET(req: NextRequest) {
       const allPassed = results.every((r) => r.ok);
       const newStatus = allPassed ? "published" : results.some((r) => r.ok) ? "published" : "failed";
 
+      // Once the blog is live, cross-post to any configured social targets.
+      let socialResults: PublishQueueResult[] = [];
+      if (newStatus === "published" && (item.socialTargets?.length ?? 0) > 0) {
+        socialResults = await crossPostQueueItem({ ...item, results });
+        const ok = socialResults.filter((r) => r.ok).length;
+        console.log(`[cron-publish:${runId}] social: ${ok}/${socialResults.length} posted for "${item.title}"`);
+      }
+
       await updatePublishQueueItem(item.id, {
         status:      newStatus,
         processedAt: new Date().toISOString(),
         results,
+        socialResults,
         lastError:   allPassed ? null : results.filter((r) => !r.ok).map((r) => r.message).join("; "),
       });
 

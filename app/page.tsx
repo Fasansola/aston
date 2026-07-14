@@ -910,6 +910,11 @@ export default function HomePage() {
   const [publishStatus, setPublishStatus]           = useState<"idle" | "publishing" | "done" | "error">("idle");
   const [publishResults, setPublishResults]         = useState<PublishResultItem[]>([]);
 
+  // Social cross-posting alongside the scheduled blog publish
+  const [socialShare, setSocialShare]     = useState<{ mastodon: boolean; bluesky: boolean }>({ mastodon: false, bluesky: false });
+  const [socialCaptions, setSocialCaptions] = useState<Record<string, string>>({});
+  const [socialGenStatus, setSocialGenStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
+
   const [videoStatus, setVideoStatus]     = useState<"idle" | "generating" | "rendering" | "ready" | "uploading" | "uploaded" | "error">("idle");
   const [videoProgress, setVideoProgress] = useState("");
   const [videoElapsed, setVideoElapsed]   = useState(0);
@@ -1187,12 +1192,49 @@ export default function HomePage() {
     }
   };
 
+  const selectedSocialTargets = () =>
+    (Object.entries(socialShare) as Array<["mastodon" | "bluesky", boolean]>)
+      .filter(([, on]) => on)
+      .map(([target]) => target);
+
+  const handleGenerateSocialCaptions = async () => {
+    if (!result) return;
+    const targets = selectedSocialTargets();
+    if (targets.length === 0) return;
+    setSocialGenStatus("generating");
+    try {
+      const res = await fetch("/api/social/captions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: result.title,
+          summary: result.metaDescription || result.excerpt || result.seoTitle || result.title,
+          focusKeyword: result.focusKeyword ?? undefined,
+          link: result.previewUrl ?? undefined,
+          targets,
+        }),
+      });
+      const data = await res.json();
+      if (data.captions) {
+        setSocialCaptions((c) => ({ ...c, ...data.captions }));
+        setSocialGenStatus("done");
+      } else {
+        setSocialGenStatus("error");
+      }
+    } catch {
+      setSocialGenStatus("error");
+    }
+  };
+
   const handleQueuePublish = async () => {
     if (!result?.articleHtml || queuePublishStatus === "adding") return;
     const selectedTargets = Object.entries(publishingTargets)
       .filter(([, v]) => v.enabled)
       .map(([target, v]) => ({ target, config: v.config }));
     if (selectedTargets.length === 0) return;
+
+    // Social targets cross-post after the blog goes live (handled by the publish worker).
+    const socialTargets = selectedSocialTargets().map((target) => ({ target, config: {} }));
 
     setQueuePublishStatus("adding");
     try {
@@ -1214,6 +1256,7 @@ export default function HomePage() {
           wordCount:       result.wordCount,
           targets:         selectedTargets,
           scheduledFor:    queueScheduledFor ? new Date(queueScheduledFor).toISOString() : null,
+          ...(socialTargets.length ? { socialTargets, socialCaptions } : {}),
         }),
       });
       if (!res.ok) throw new Error("Failed to queue");
@@ -2909,6 +2952,45 @@ export default function HomePage() {
                               className="bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40 transition-colors w-full sm:w-auto"
                             />
                           </div>
+
+                          {/* Also share on social — cross-posts after the blog goes live */}
+                          <div className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3 space-y-2.5">
+                            <p className="text-[10px] uppercase tracking-[0.18em] text-[#C9A84C]/70">Also share on social</p>
+                            <div className="flex flex-wrap gap-2">
+                              {(["mastodon", "bluesky"] as const).map((p) => (
+                                <label key={p} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border cursor-pointer text-[11px] capitalize transition-colors ${socialShare[p] ? "border-[#C9A84C]/50 text-[#C9A84C] bg-[#C9A84C]/[0.06]" : "border-white/10 text-white/45"}`}>
+                                  <input type="checkbox" className="accent-[#C9A84C] w-3 h-3" checked={socialShare[p]} onChange={(e) => setSocialShare((s) => ({ ...s, [p]: e.target.checked }))} />
+                                  {p}
+                                </label>
+                              ))}
+                              {(socialShare.mastodon || socialShare.bluesky) && (
+                                <button
+                                  type="button"
+                                  onClick={handleGenerateSocialCaptions}
+                                  disabled={socialGenStatus === "generating"}
+                                  className="text-[11px] px-2.5 py-1 rounded-full border border-white/10 text-white/60 hover:text-white hover:border-white/25 disabled:opacity-40 transition-colors"
+                                >
+                                  {socialGenStatus === "generating" ? "Writing…" : "Generate captions"}
+                                </button>
+                              )}
+                            </div>
+                            {(["mastodon", "bluesky"] as const)
+                              .filter((p) => socialShare[p] && socialCaptions[p] !== undefined)
+                              .map((p) => (
+                                <textarea
+                                  key={p}
+                                  value={socialCaptions[p] ?? ""}
+                                  onChange={(e) => setSocialCaptions((c) => ({ ...c, [p]: e.target.value }))}
+                                  className="w-full bg-black/30 border border-white/10 rounded-md px-2.5 py-2 text-[11px] text-white/80 focus:outline-none focus:border-[#C9A84C]/40 min-h-[52px] resize-y"
+                                  placeholder={`${p} caption`}
+                                />
+                              ))}
+                            {socialGenStatus === "error" && <p className="text-[10px] text-red-400">Caption generation failed — you can still schedule; the excerpt will be used.</p>}
+                            {(socialShare.mastodon || socialShare.bluesky) && (
+                              <p className="text-[10px] text-white/25">Posts fire automatically once the blog is published. Captions left blank fall back to the excerpt.</p>
+                            )}
+                          </div>
+
                           {queuePublishStatus === "error" && (
                             <div className="flex items-center gap-2 rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2">
                               <svg className="w-3.5 h-3.5 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

@@ -174,6 +174,14 @@ export interface PublishQueueItem {
   retryCount: number;
   lastError: string | null;
   results: PublishQueueResult[];
+  // ── Social cross-posting (optional; fired after the blog targets publish) ──
+  featuredImageUrl?: string;
+  /** Social platforms to cross-post to once the blog is live (e.g. mastodon, bluesky). */
+  socialTargets?: PublishQueueTarget[];
+  /** Per-platform captions, generated up front at enqueue time. */
+  socialCaptions?: Record<string, string>;
+  /** Results of the social cross-post, populated by the publish worker. */
+  socialResults?: PublishQueueResult[];
 }
 
 // ── Redis keys ────────────────────────────────────────────────
@@ -601,7 +609,7 @@ export async function savePublishQueue(items: PublishQueueItem[]): Promise<void>
 }
 
 export async function addPublishQueueItem(
-  data: Omit<PublishQueueItem, "id" | "createdAt" | "processedAt" | "retryCount" | "lastError" | "results" | "status">
+  data: Omit<PublishQueueItem, "id" | "createdAt" | "processedAt" | "retryCount" | "lastError" | "results" | "status" | "socialResults">
 ): Promise<PublishQueueItem> {
   const item: PublishQueueItem = {
     ...data,
@@ -612,6 +620,7 @@ export async function addPublishQueueItem(
     retryCount: 0,
     lastError: null,
     results: [],
+    socialResults: [],
   };
   const queue = await getPublishQueue();
   queue.push(item);

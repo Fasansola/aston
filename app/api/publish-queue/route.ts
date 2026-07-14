@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
       title, slug, focusKeyword = "", articleHtml, excerpt = "", tags = [],
       seoTitle = "", metaDescription = "", canonicalUrl, wordCount, wpPostId,
       targets, scheduledFor = null,
+      featuredImageUrl, socialTargets = [], socialCaptions,
     } = body;
 
     if (!title?.trim()) return NextResponse.json({ error: "title is required" }, { status: 400 });
@@ -53,8 +54,10 @@ export async function POST(req: NextRequest) {
       title, slug: slug ?? "", focusKeyword, articleHtml, excerpt, tags,
       seoTitle, metaDescription, canonicalUrl, wordCount, wpPostId,
       targets, scheduledFor,
+      featuredImageUrl, socialTargets, socialCaptions,
     });
-    console.log(`[publish-queue] Added item ${item.id} — "${title}" → ${targets.map((t: { target: string }) => t.target).join(", ")} (scheduled: ${scheduledFor ?? "ASAP"})`);
+    const socialLabel = socialTargets.length ? ` + social[${socialTargets.map((t: { target: string }) => t.target).join(", ")}]` : "";
+    console.log(`[publish-queue] Added item ${item.id} — "${title}" → ${targets.map((t: { target: string }) => t.target).join(", ")}${socialLabel} (scheduled: ${scheduledFor ?? "ASAP"})`);
     return NextResponse.json({ item }, { status: 201 });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Failed" }, { status: 500 });
