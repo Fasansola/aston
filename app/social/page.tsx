@@ -60,6 +60,14 @@ export default function SocialPage() {
   const [publishing, setPublishing] = useState(false);
   const [results, setResults] = useState<SocialPublishResult[]>([]);
 
+  // Auto-caption from a blog post
+  const [srcTitle, setSrcTitle] = useState("");
+  const [srcSummary, setSrcSummary] = useState("");
+  const [srcKeyword, setSrcKeyword] = useState("");
+  const [genLoading, setGenLoading] = useState(false);
+  const [genMsg, setGenMsg] = useState("");
+  const [captions, setCaptions] = useState<Record<string, string>>({});
+
   // Comments module
   const [cTarget, setCTarget] = useState<"mastodon" | "bluesky">("mastodon");
   const [cPostId, setCPostId] = useState("");
@@ -80,17 +88,55 @@ export default function SocialPage() {
       .catch(() => {});
   }, []);
 
+  async function generate() {
+    const chosen = targets.filter((t) => selected[t.key]).map((t) => t.key);
+    if (chosen.length === 0) {
+      setGenMsg("Select at least one target first.");
+      return;
+    }
+    setGenLoading(true);
+    setGenMsg("");
+    try {
+      const res = await fetch("/api/social/captions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: srcTitle,
+          summary: srcSummary,
+          focusKeyword: srcKeyword.trim() || undefined,
+          link: link.trim() || undefined,
+          targets: chosen,
+        }),
+      });
+      const data = await res.json();
+      if (data.captions) {
+        setCaptions(data.captions);
+        setGenMsg(`Generated ${Object.keys(data.captions).length} caption(s) — edit below, then cross-post.`);
+      } else {
+        setGenMsg(data.error || "Caption generation failed.");
+      }
+    } catch (e) {
+      setGenMsg(String(e));
+    } finally {
+      setGenLoading(false);
+    }
+  }
+
   async function publish() {
     setPublishing(true);
     setResults([]);
     try {
-      const chosen = targets.filter((t) => selected[t.key]).map((t) => ({ target: t.key }));
+      // Per-platform caption override falls back to the shared caption.
+      const chosen = targets
+        .filter((t) => selected[t.key])
+        .map((t) => ({ target: t.key, ...(captions[t.key]?.trim() ? { text: captions[t.key] } : {}) }));
       const res = await fetch("/api/social/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           post: {
-            text,
+            // Base caption; per-target overrides above take precedence.
+            text: text.trim() || Object.values(captions).find(Boolean) || "",
             link: link.trim() || undefined,
             mediaUrls: mediaUrls.split(",").map((s) => s.trim()).filter(Boolean),
             altTexts: altTexts.split(",").map((s) => s.trim()),
@@ -160,6 +206,10 @@ export default function SocialPage() {
   }
 
   const anySelected = targets.some((t) => selected[t.key]);
+  // Publishable if there's a shared caption, or every selected target has its own.
+  const hasCaption =
+    !!text.trim() ||
+    (anySelected && targets.filter((t) => selected[t.key]).every((t) => captions[t.key]?.trim()));
   const minCharLimit = Math.min(...targets.filter((t) => selected[t.key]).map((t) => t.charLimit), Infinity);
 
   return (
@@ -209,12 +259,63 @@ export default function SocialPage() {
           </div>
         </section>
 
+        {/* Auto-caption from a blog post */}
+        <section className={card}>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs uppercase tracking-[0.2em] text-gold/70">Auto-write from a post</h2>
+            <span className="text-[10px] text-white/30">gpt-5.5 · British English · per-platform</span>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <input className={input} placeholder="Article title" value={srcTitle} onChange={(e) => setSrcTitle(e.target.value)} />
+            <input className={input} placeholder="Focus keyword (optional)" value={srcKeyword} onChange={(e) => setSrcKeyword(e.target.value)} />
+          </div>
+          <textarea
+            className={`${input} min-h-[80px] resize-y mt-3`}
+            placeholder="Summary / key takeaways of the article…"
+            value={srcSummary}
+            onChange={(e) => setSrcSummary(e.target.value)}
+          />
+          <div className="flex items-center gap-3 mt-3">
+            <button className={btn} disabled={genLoading || !srcTitle.trim() || !srcSummary.trim() || !anySelected} onClick={generate}>
+              {genLoading ? "Writing…" : "Generate captions"}
+            </button>
+            {genMsg && <span className="text-xs text-white/50">{genMsg}</span>}
+          </div>
+        </section>
+
         {/* Composer */}
         <section className={card}>
           <h2 className="text-xs uppercase tracking-[0.2em] text-gold/70 mb-3">Compose</h2>
+
+          {/* Per-platform captions (shown once generated / for selected targets) */}
+          {targets.filter((t) => selected[t.key] && captions[t.key] !== undefined).length > 0 && (
+            <div className="space-y-3 mb-4">
+              {targets
+                .filter((t) => selected[t.key] && captions[t.key] !== undefined)
+                .map((t) => (
+                  <div key={t.key}>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-medium text-white/60 capitalize">{t.label} caption</label>
+                      <span className={`text-[10px] ${(captions[t.key]?.length ?? 0) > t.charLimit ? "text-rose-400" : "text-white/30"}`}>
+                        {captions[t.key]?.length ?? 0} / {t.charLimit}
+                      </span>
+                    </div>
+                    <textarea
+                      className={`${input} min-h-[70px] resize-y`}
+                      value={captions[t.key] ?? ""}
+                      onChange={(e) => setCaptions((c) => ({ ...c, [t.key]: e.target.value }))}
+                    />
+                  </div>
+                ))}
+            </div>
+          )}
+
+          <label className="text-[11px] font-medium text-white/50 block mb-1">
+            Shared caption <span className="text-white/30">(used for any target without its own caption above)</span>
+          </label>
           <textarea
-            className={`${input} min-h-[110px] resize-y`}
-            placeholder="Write your caption…"
+            className={`${input} min-h-[90px] resize-y`}
+            placeholder="Write a shared caption…"
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
@@ -233,7 +334,7 @@ export default function SocialPage() {
           </div>
           <input className={`${input} mt-3`} placeholder="Alt texts, comma-separated (matches image order)" value={altTexts} onChange={(e) => setAltTexts(e.target.value)} />
           <div className="mt-4">
-            <button className={btn} disabled={publishing || !text.trim() || !anySelected} onClick={publish}>
+            <button className={btn} disabled={publishing || !anySelected || !hasCaption} onClick={publish}>
               {publishing ? "Posting…" : "Cross-post"}
             </button>
           </div>

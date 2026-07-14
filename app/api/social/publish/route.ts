@@ -27,7 +27,8 @@ export async function POST(req: NextRequest) {
       targets,
     }: {
       post: SocialPost;
-      targets: Array<{ target: SocialTarget; config?: Record<string, string> }>;
+      /** `text`, when present, overrides post.text for that target (per-platform captions). */
+      targets: Array<{ target: SocialTarget; config?: Record<string, string>; text?: string }>;
     } = body;
 
     if (!post?.text?.trim()) {
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
     console.log(`[social/publish] Posting to ${targets.map((t) => t.target).join(", ")}`);
 
     const results: SocialPublishResult[] = await Promise.all(
-      targets.map(async ({ target, config = {} }) => {
+      targets.map(async ({ target, config = {}, text }) => {
         const connector = getSocialConnector(target);
         const validation = await connector.validateConfig(config);
         if (!validation.ok) {
@@ -55,7 +56,9 @@ export async function POST(req: NextRequest) {
             message: validation.errors.join("; "),
           };
         }
-        const result = await connector.publish({ post, target, targetConfig: config });
+        // Per-platform caption override, if the dashboard supplied one.
+        const targetPost = text?.trim() ? { ...post, text } : post;
+        const result = await connector.publish({ post: targetPost, target, targetConfig: config });
         console.log(
           `[social/publish] ${target}: ${result.status}${result.externalUrl ? ` → ${result.externalUrl}` : ""}`
         );
