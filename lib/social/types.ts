@@ -8,7 +8,7 @@
  * platform actually wants.
  */
 
-export type SocialTarget = "mastodon" | "bluesky";
+export type SocialTarget = "mastodon" | "bluesky" | "facebook" | "instagram" | "threads";
 
 /** One piece of social content, before per-platform adaptation. */
 export interface SocialPost {

@@ -10,7 +10,7 @@ import React, { useState, useEffect } from "react";
 import StudioNav from "../components/StudioNav";
 
 interface AvailableSocialTarget {
-  key: "mastodon" | "bluesky";
+  key: string;
   label: string;
   description: string;
   connected: boolean;
@@ -69,7 +69,7 @@ export default function SocialPage() {
   const [captions, setCaptions] = useState<Record<string, string>>({});
 
   // Comments module
-  const [cTarget, setCTarget] = useState<"mastodon" | "bluesky">("mastodon");
+  const [cTarget, setCTarget] = useState<string>("mastodon");
   const [cPostId, setCPostId] = useState("");
   const [comments, setComments] = useState<SocialComment[]>([]);
   const [cLoading, setCLoading] = useState(false);
@@ -365,9 +365,10 @@ export default function SocialPage() {
           <div className="grid sm:grid-cols-[160px_1fr_auto] gap-3 items-end">
             <div>
               <label className="text-[11px] text-white/40 block mb-1">Platform</label>
-              <select className={input} value={cTarget} onChange={(e) => setCTarget(e.target.value as "mastodon" | "bluesky")}>
-                <option value="mastodon">Mastodon</option>
-                <option value="bluesky">Bluesky</option>
+              <select className={input} value={cTarget} onChange={(e) => setCTarget(e.target.value)}>
+                {(targets.length ? targets.filter((t) => t.supportsComments) : [{ key: "mastodon", label: "Mastodon" }, { key: "bluesky", label: "Bluesky" }]).map((t) => (
+                  <option key={t.key} value={t.key}>{t.label}</option>
+                ))}
               </select>
             </div>
             <div>

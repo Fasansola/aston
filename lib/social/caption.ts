@@ -27,6 +27,9 @@ export type PlatformCaptions = Partial<Record<SocialTarget, string>>;
 const STYLE: Record<SocialTarget, string> = {
   mastodon: "Thoughtful and informative. A short hook then one or two sentences of substance. 2–4 relevant hashtags at the end.",
   bluesky: "Punchy and conversational. One sharp hook. 1–3 hashtags at the end.",
+  facebook: "Warm and accessible for a broad professional audience. A hook plus a sentence of context. 1–3 hashtags.",
+  instagram: "Visual-first and engaging. A strong hook, then value. 3–6 relevant hashtags at the end.",
+  threads: "Conversational and current. One crisp hook. 1–3 hashtags.",
 };
 
 /** Characters the connector will spend on the appended link (URL + two newlines). */
