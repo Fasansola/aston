@@ -15,6 +15,7 @@ const LINKS = [
   { href: "/media", label: "Add media" },
   { href: "/podcast", label: "Podcast" },
   { href: "/video", label: "Video" },
+  { href: "/social", label: "Social" },
   { href: "/alt-text", label: "Alt text" },
 ];
 
