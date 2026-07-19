@@ -8,7 +8,7 @@
  * variations, read them side by side, and keep the strongest hook.
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import StudioNav from "../components/StudioNav";
 
 interface ReelScript {
@@ -19,6 +19,22 @@ interface ReelScript {
   wordCount: number;
   estimatedSeconds: number;
   topic: string;
+}
+
+interface ReelRenderJob {
+  id: string;
+  status: "processing" | "completed" | "failed";
+  title: string;
+  videoUrl?: string;
+  thumbnailUrl?: string;
+  durationSecs?: number;
+  error?: string;
+  createdAt: string;
+}
+
+/** How long a job has been rendering, in whole seconds. */
+function elapsed(job: ReelRenderJob): number {
+  return Math.max(0, Math.round((Date.now() - new Date(job.createdAt).getTime()) / 1000));
 }
 
 const card = "rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur p-5";
@@ -50,6 +66,22 @@ export default function StudioPage() {
   const [scripts, setScripts] = useState<ReelScript[]>([]);
   const [copied, setCopied] = useState<number | null>(null);
 
+  // Render state, keyed by script variation index.
+  const [jobs, setJobs] = useState<Record<number, ReelRenderJob>>({});
+  const [starting, setStarting] = useState<Record<number, boolean>>({});
+  const [library, setLibrary] = useState<ReelRenderJob[]>([]);
+
+  function loadLibrary() {
+    fetch("/api/social/reel-render")
+      .then((r) => r.json())
+      .then((d) => setLibrary(d.jobs ?? []))
+      .catch(() => {});
+  }
+
+  useEffect(() => {
+    loadLibrary();
+  }, []);
+
   async function generate() {
     if (!topic.trim()) return;
     setLoading(true);
@@ -79,6 +111,53 @@ export default function StudioPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  // ── Rendering ────────────────────────────────────────────────
+  // Each render costs HeyGen credits, so it only ever runs on an explicit click.
+  // The POST returns once HeyGen accepts the job; the render then takes 3–8
+  // minutes, so we poll until it reaches a terminal state.
+
+  function pollJob(index: number, id: string) {
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/social/reel-render?id=${encodeURIComponent(id)}`);
+        const data = await res.json();
+        if (!data.job) return;
+        setJobs((j) => ({ ...j, [index]: data.job }));
+        if (data.job.status === "processing") {
+          setTimeout(tick, 15000);
+        } else {
+          loadLibrary();
+        }
+      } catch {
+        setTimeout(tick, 20000); // transient network error — keep watching
+      }
+    };
+    setTimeout(tick, 15000);
+  }
+
+  async function renderReel(index: number, s: ReelScript) {
+    setStarting((v) => ({ ...v, [index]: true }));
+    setError("");
+    try {
+      const res = await fetch("/api/social/reel-render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script: s.script, title: s.onScreenTitle || s.topic }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || `Render failed to start (${res.status})`);
+        return;
+      }
+      setJobs((j) => ({ ...j, [index]: data.job }));
+      pollJob(index, data.job.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setStarting((v) => ({ ...v, [index]: false }));
     }
   }
 
@@ -202,16 +281,122 @@ export default function StudioPage() {
                   </p>
                 )}
               </div>
-              <button className={btnGhost} onClick={() => copyScript(i, s)}>
-                {copied === i ? "Copied" : "Copy"}
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button className={btnGhost} onClick={() => copyScript(i, s)}>
+                  {copied === i ? "Copied" : "Copy"}
+                </button>
+                <button
+                  className={btn}
+                  onClick={() => renderReel(i, s)}
+                  disabled={starting[i] || jobs[i]?.status === "processing"}
+                >
+                  {starting[i]
+                    ? "Starting…"
+                    : jobs[i]?.status === "processing"
+                      ? "Rendering…"
+                      : jobs[i]?.status === "completed"
+                        ? "Render again"
+                        : "Render reel"}
+                </button>
+              </div>
             </div>
 
             <div className="rounded-xl border border-white/10 bg-black/25 p-4">
               <p className="text-sm text-white/85 whitespace-pre-line leading-relaxed">{s.script}</p>
             </div>
+
+            {/* Render output */}
+            {jobs[i] && (
+              <div className="mt-4">
+                {jobs[i].status === "processing" && (
+                  <div className="rounded-xl border border-gold/25 bg-gold/[0.04] px-4 py-3">
+                    <p className="text-sm text-white/80">
+                      Rendering the avatar video — this normally takes 3&ndash;8 minutes.
+                    </p>
+                    <p className="text-[11px] text-white/40 mt-1">
+                      {elapsed(jobs[i])}s elapsed · you can leave this page, it keeps rendering.
+                    </p>
+                  </div>
+                )}
+
+                {jobs[i].status === "failed" && (
+                  <div className="rounded-xl border border-rose-500/30 bg-rose-500/[0.06] px-4 py-3">
+                    <p className="text-sm text-rose-300">Render failed — {jobs[i].error}</p>
+                  </div>
+                )}
+
+                {jobs[i].status === "completed" && jobs[i].videoUrl && (
+                  <div className="flex items-start gap-4 flex-wrap">
+                    <video
+                      src={jobs[i].videoUrl}
+                      controls
+                      playsInline
+                      className="rounded-xl border border-white/10 bg-black w-[240px] aspect-[9/16] object-cover"
+                    />
+                    <div className="text-xs text-white/50 space-y-1.5 pt-1">
+                      <p className="text-emerald-400">Reel ready</p>
+                      {jobs[i].durationSecs ? <p>{Math.round(jobs[i].durationSecs!)}s · 1080×1920</p> : null}
+                      <a
+                        href={jobs[i].videoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-block text-gold/80 hover:text-gold underline underline-offset-2"
+                      >
+                        Open / download
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
         ))}
+
+        {/* Reel library */}
+        {library.length > 0 && (
+          <section className={card}>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-gold/70 mb-3">Recent reels</h2>
+            <div className="space-y-2">
+              {library.map((j) => (
+                <div
+                  key={j.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm text-white/85 truncate">{j.title}</p>
+                    <p className="text-[10px] text-white/35 mt-0.5">
+                      {new Date(j.createdAt).toLocaleString("en-GB")}
+                      {j.durationSecs ? ` · ${Math.round(j.durationSecs)}s` : ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span
+                      className={`text-[10px] ${
+                        j.status === "completed"
+                          ? "text-emerald-400"
+                          : j.status === "failed"
+                            ? "text-rose-400"
+                            : "text-amber-400"
+                      }`}
+                    >
+                      {j.status}
+                    </span>
+                    {j.videoUrl && (
+                      <a
+                        href={j.videoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={btnGhost}
+                      >
+                        Open
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {!loading && scripts.length === 0 && !error && (
           <p className="text-sm text-white/35 px-1">

@@ -405,7 +405,9 @@ async function checkAvatarVSupport(avatarId: string): Promise<boolean> {
  */
 export async function createHeyGenVideo(
   audioBuffer: Buffer,
-  title?: string
+  title?: string,
+  /** "16:9" for long-form YouTube (default), "9:16" for vertical social reels. */
+  aspectRatio: "16:9" | "9:16" = "16:9"
 ): Promise<string> {
   const avatarId = process.env.HEYGEN_AVATAR_ID!;
 
@@ -420,13 +422,13 @@ export async function createHeyGenVideo(
     type:            "avatar",
     avatar_id:       avatarId,
     audio_asset_id:  assetId,
-    aspect_ratio:    "16:9",
+    aspect_ratio:    aspectRatio,
     resolution:      "1080p",
     title:           title?.slice(0, 100) ?? "Aston VIP Video",
     engine,
   };
 
-  console.log(`[heygen] Creating v3 video — engine: ${engine.type}, resolution: 1080p, avatar: ${avatarId}`);
+  console.log(`[heygen] Creating v3 video — engine: ${engine.type}, ${aspectRatio} 1080p, avatar: ${avatarId}`);
 
   const res = await fetch(`${HEYGEN_BASE}/v3/videos`, {
     method: "POST",
@@ -465,6 +467,38 @@ interface HeyGenV3StatusResponse {
     duration?: number | null;
     failure_code?: string | null;
     failure_message?: string | null;
+  };
+}
+
+/**
+ * Single-shot status check — no waiting. Used by the social studio's reel
+ * pipeline, which submits the render and checks back later rather than holding
+ * a serverless function open for the 5–8 minutes a 1080p render can take.
+ */
+export async function getHeyGenVideoStatus(videoId: string): Promise<{
+  status: HeyGenStatus;
+  videoUrl?: string;
+  thumbnailUrl?: string;
+  duration?: number;
+  error?: string;
+}> {
+  const res = await fetch(`${HEYGEN_BASE}/v3/videos/${videoId}`, {
+    headers: heygenHeaders(),
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  const json = (await res.json()) as HeyGenV3StatusResponse;
+  const data = json.data;
+  if (!res.ok || !data) {
+    throw new Error(`HeyGen status check failed (${res.status}): ${JSON.stringify(json).slice(0, 200)}`);
+  }
+
+  return {
+    status: data.status,
+    videoUrl: data.video_url ?? undefined,
+    thumbnailUrl: data.thumbnail_url ?? undefined,
+    duration: data.duration ?? undefined,
+    error: data.failure_message ?? data.failure_code ?? undefined,
   };
 }
 
