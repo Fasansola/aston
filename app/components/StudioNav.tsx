@@ -16,6 +16,7 @@ const LINKS = [
   { href: "/podcast", label: "Podcast" },
   { href: "/video", label: "Video" },
   { href: "/social", label: "Social" },
+  { href: "/studio", label: "Studio" },
   { href: "/alt-text", label: "Alt text" },
 ];
 
