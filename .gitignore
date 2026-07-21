@@ -44,3 +44,10 @@ next-env.d.ts
 scripts/alt-text-progress.json
 .claude/
 sample.json
+
+# Local dev runtime state (Redis file-adapter fallback) — never commit.
+# NB: data/aston_links.json is intentionally tracked (seed data), so list the
+# runtime files explicitly rather than globbing data/aston_*.json.
+data/aston_queue.json
+data/aston_publish_queue.json
+data/aston_scheduler_settings.json
