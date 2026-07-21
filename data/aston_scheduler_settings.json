@@ -1,0 +1,16 @@
+{
+  "enabled": false,
+  "blogsPerDay": 3,
+  "publishMode": "draft_only",
+  "maxRetries": 2,
+  "blockOnQaWarning": false,
+  "maxPerRun": 1,
+  "runHour": 8,
+  "imageModel": "gpt-image-2",
+  "mediaOutputs": {
+    "audio": false,
+    "video": false,
+    "podcast": false
+  },
+  "podcastLength": 30
+}

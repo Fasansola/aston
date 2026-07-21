@@ -9,11 +9,8 @@
  */
 
 export type SocialTarget =
-  | "mastodon"
-  | "bluesky"
   | "facebook"
   | "instagram"
-  | "threads"
   | "linkedin"
   | "tiktok";
 
@@ -44,7 +41,7 @@ export interface SocialPublishResult {
   externalUrl?: string;
   /**
    * Opaque platform id used later to fetch comments or reply.
-   * Mastodon: the numeric status id. Bluesky: `${uri}|${cid}`.
+   * Facebook/Instagram: the post/media id. LinkedIn: the post URN.
    */
   platformPostId?: string;
   technicalDetails?: unknown;

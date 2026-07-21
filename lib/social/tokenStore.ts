@@ -30,11 +30,10 @@ export interface OAuthTokenRecord {
   lastRefreshError?: string;
 }
 
-/** Platforms that use the OAuth token store (mastodon/bluesky do not). */
+/** Platforms that use the OAuth token store. */
 export const STORED_PLATFORMS: SocialTarget[] = [
   "facebook",
   "instagram",
-  "threads",
   "linkedin",
   "tiktok",
 ];
@@ -102,8 +101,6 @@ function envTokenPresent(platform: SocialTarget): boolean {
       return !!process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
     case "instagram":
       return !!(process.env.INSTAGRAM_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN);
-    case "threads":
-      return !!process.env.THREADS_ACCESS_TOKEN;
     case "linkedin":
       return !!process.env.LINKEDIN_ACCESS_TOKEN;
     case "tiktok":

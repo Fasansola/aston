@@ -13,7 +13,6 @@
  *
  * Refresh flows differ per platform:
  *  - linkedin / tiktok : standard OAuth2 refresh_token grant (needs client creds)
- *  - threads           : long-lived token self-refresh (th_refresh_token)
  *  - facebook/instagram: fb_exchange_token extension of the long-lived token
  *
  * Concurrency note: the daily cron is the primary refresher (single run). Inline
@@ -92,17 +91,6 @@ const refreshers: Partial<Record<SocialTarget, Refresher>> = {
       expiresInSeconds: Number(data.expires_in) || undefined,
       refreshTokenExpiresInSeconds: Number(data.refresh_expires_in) || undefined,
     };
-  },
-
-  // Long-lived Threads token self-refresh — no client secret, extends by ~60 days.
-  threads: async (rec) => {
-    const url = new URL("https://graph.threads.net/refresh_access_token");
-    url.searchParams.set("grant_type", "th_refresh_token");
-    url.searchParams.set("access_token", rec.accessToken);
-    const res = await fetch(url);
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!res.ok) throw new Error(`Threads refresh ${res.status}: ${JSON.stringify(data)}`);
-    return { accessToken: String(data.access_token), expiresInSeconds: Number(data.expires_in) || undefined };
   },
 
   // Meta long-lived token extension. A Page token derived from a long-lived user

@@ -176,7 +176,7 @@ export interface PublishQueueItem {
   results: PublishQueueResult[];
   // ── Social cross-posting (optional; fired after the blog targets publish) ──
   featuredImageUrl?: string;
-  /** Social platforms to cross-post to once the blog is live (e.g. mastodon, bluesky). */
+  /** Social platforms to cross-post to once the blog is live (e.g. linkedin, facebook). */
   socialTargets?: PublishQueueTarget[];
   /** Per-platform captions, generated up front at enqueue time. */
   socialCaptions?: Record<string, string>;

@@ -2,8 +2,9 @@
 
 /**
  * /social — standalone QA + demo page for the social cross-posting system.
- * Compose one caption, cross-post to Mastodon + Bluesky, then list and reply to
- * comments from here. Mirrors the project's other standalone test pages (e.g. /podcast).
+ * Compose one caption, cross-post to the connected platforms (Facebook,
+ * Instagram, LinkedIn, TikTok), then list and reply to comments from here.
+ * Mirrors the project's other standalone test pages (e.g. /podcast).
  */
 
 import React, { useState, useEffect } from "react";
@@ -78,7 +79,7 @@ export default function SocialPage() {
   const [captions, setCaptions] = useState<Record<string, string>>({});
 
   // Comments module
-  const [cTarget, setCTarget] = useState<string>("mastodon");
+  const [cTarget, setCTarget] = useState<string>("linkedin");
   const [cPostId, setCPostId] = useState("");
   const [comments, setComments] = useState<SocialComment[]>([]);
   const [cLoading, setCLoading] = useState(false);
@@ -305,7 +306,7 @@ export default function SocialPage() {
         <div>
           <h1 className="font-display text-2xl font-semibold text-white/95">Social cross-posting</h1>
           <p className="text-sm text-white/45 mt-1">
-            Phase 1 proof of concept — Mastodon &amp; Bluesky. Compose once, post everywhere, and reply to
+            Compose once, cross-post to Facebook, Instagram, LinkedIn and TikTok, and reply to
             comments from here.
           </p>
         </div>
@@ -516,7 +517,7 @@ export default function SocialPage() {
             <div>
               <label className="text-[11px] text-white/40 block mb-1">Platform</label>
               <select className={input} value={cTarget} onChange={(e) => setCTarget(e.target.value)}>
-                {(targets.length ? targets.filter((t) => t.supportsComments) : [{ key: "mastodon", label: "Mastodon" }, { key: "bluesky", label: "Bluesky" }]).map((t) => (
+                {(targets.length ? targets.filter((t) => t.supportsComments) : [{ key: "facebook", label: "Facebook" }, { key: "linkedin", label: "LinkedIn" }]).map((t) => (
                   <option key={t.key} value={t.key}>{t.label}</option>
                 ))}
               </select>
