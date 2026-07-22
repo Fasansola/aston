@@ -32,8 +32,8 @@ const FONTS = join(process.cwd(), "assets", "fonts");
 
 /** Vertical navy gradient — lighter at the top, darker at the bottom. */
 const BG = `gradients=s=${W}x${H}:c0=0x152339:c1=0x0a1322:x0=${W / 2}:y0=0:x1=${W / 2}:y1=${H}:d=0.1`;
-/** Intro photo occupies the top; the navy band below holds the title. */
-const IMG_H = 810;
+/** Intro photo occupies the top; the navy band below holds the title + subtitle. */
+const IMG_H = 760;
 
 function esc(text: string): string {
   return text.replace(/[{}]/g, "").replace(/\r?\n/g, " ");
@@ -142,19 +142,27 @@ function buildPoint(slide: Slide, contentNo: number, position: number, total: nu
   return { ass: [ASS_HEAD, ...styles, EVENTS_HEAD, ...events].join("\n"), boxes };
 }
 
-/** Intro slide ASS — kicker + title live in the navy band below the photo. */
-function buildIntroAss(hook: string): string {
-  const title = wrapTitle(hook, 18);
+/** Intro slide ASS — kicker + topic title + a "what it covers" subtitle. */
+function buildIntroAss(hook: string, subtitle: string): string {
+  const titleLh = 92;
+  const title = wrapTitle(hook, 19);
+  const sub = subtitle.trim() ? wrapBody(esc(subtitle), 42) : null;
+
+  const kickerY = IMG_H + 42; // 802
+  const titleY = IMG_H + 104; // 864
+  const subY = titleY + title.lines * titleLh + 36;
+
   const styles = [
     `Style: Kicker,Lato,40,${GOLD},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
-    `Style: Title,Anton,90,${WHITE},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+    `Style: Title,Anton,80,${WHITE},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+    `Style: Sub,Lato,40,&H00D8D8D8,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: Footer,Lato,34,&H00A8A8A8,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
   ];
-  const titleY = 932; // fixed; the band has room down to the SWIPE marker for 3 lines
   const events = [
-    `Dialogue: 0,0:00:00.00,0:00:01.00,Kicker,,0,0,0,,{\\an7\\pos(80,858)\\fsp6}ASTON VIP`,
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Kicker,,0,0,0,,{\\an7\\pos(80,${kickerY})\\fsp6}ASTON VIP`,
     `Dialogue: 0,0:00:00.00,0:00:01.00,Title,,0,0,0,,{\\an7\\pos(80,${titleY})}${title.text}`,
-    `Dialogue: 0,0:00:00.00,0:00:01.00,Footer,,0,0,0,,{\\an9\\pos(1000,1290)\\c${GOLD}\\fsp2}SWIPE`,
+    ...(sub ? [`Dialogue: 0,0:00:00.00,0:00:01.00,Sub,,0,0,0,,{\\an7\\pos(80,${subY})}${sub.text}`] : []),
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Footer,,0,0,0,,{\\an9\\pos(1000,1300)\\c${GOLD}\\fsp2}SWIPE`,
   ];
   return [ASS_HEAD, ...styles, EVENTS_HEAD, ...events].join("\n");
 }
@@ -187,6 +195,7 @@ function buildContactAss(total: number): string {
  */
 export async function renderCarousel(input: {
   hook: string;
+  subtitle?: string;
   slides: Slide[];
   introImage?: Buffer;
   logo?: Buffer;
@@ -213,7 +222,7 @@ export async function renderCarousel(input: {
     // composites with a SINGLE filterchain (no ';', no named pad labels). The
     // multi-chain filter_complex form parses on some ffmpeg builds but is
     // rejected by ffmpeg 7.0.2 on Vercel, so we avoid it entirely.
-    await writeFile(join(dir, "intro.ass"), buildIntroAss(input.hook));
+    await writeFile(join(dir, "intro.ass"), buildIntroAss(input.hook, input.subtitle ?? ""));
     if (input.introImage) {
       await writeFile(join(dir, "intro_src.png"), input.introImage);
       await execFileAsync(
@@ -237,7 +246,7 @@ export async function renderCarousel(input: {
       // No photo — fall back to a navy title slide (gold bar + title in the band).
       out.push(
         await run(
-          ["-f", "lavfi", "-i", BG, "-vf", `drawbox=x=80:y=868:w=140:h=8:color=0xC9A84C:t=fill,ass=intro.ass:fontsdir=.`, "-frames:v", "1", "-y", "intro.png"],
+          ["-f", "lavfi", "-i", BG, "-vf", `drawbox=x=80:y=${IMG_H - 20}:w=140:h=8:color=0xC9A84C:t=fill,ass=intro.ass:fontsdir=.`, "-frames:v", "1", "-y", "intro.png"],
           "intro.png"
         )
       );

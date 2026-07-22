@@ -27,8 +27,10 @@ export interface Slide {
 
 export interface SlideDeck {
   topic: string;
-  /** Intro slide headline (the hook). May contain one *asterisked* emphasis word. */
+  /** Intro slide title — names the actual subject. May contain one *asterisked* emphasis word. */
   hook: string;
+  /** Intro slide subtitle — one line on what the carousel covers. */
+  subtitle: string;
   /** A text-free visual scene for the intro image (GPT Image 2). */
   imageBrief: string;
   /** The middle point slides. */
@@ -53,7 +55,8 @@ ${COMPLIANCE_BLOCK}
 A carousel is a swipeable argument. The deck opens on an IMAGE slide (a photo with a title banner), then ${points} point slides each land ONE idea, then a fixed contact slide closes it. You write: the intro hook, a brief for the intro photo, and the ${points} point slides. You do NOT write the contact slide.
 
 ═══ WHAT TO RETURN ═══
-- hook: the intro slide headline. Max 8 words. A scroll-stopping truth, mistake or blunt statement — never the topic restated. Mark the single strongest word with *asterisks* (rendered gold).
+- hook: the intro slide TITLE. Max 9 words. It must clearly name what THIS carousel is about — the actual subject, so a viewer instantly knows the topic. Specific, not an abstract teaser. Mark the single key word with *asterisks* (rendered gold). e.g. for a topic on bank rejections: "Why *banks* reject new companies".
+- subtitle: one line under the title saying what the carousel covers or what the viewer will take away. Max 12 words. Plain and concrete — e.g. "What compliance teams check, and how to get approved".
 - imageBrief: a short description of a professional, editorial PHOTO for the intro background — relevant to the topic, corporate/business world, Dubai or London setting where it fits. It MUST contain no text, no words, no logos, no charts. Describe scene, subject, lighting, mood only.
 - slides: ${points} point slides. Each: title (max 6 words, mark one word with *asterisks*) + body (max 22 words of genuinely useful substance — slides are glanced at, not read). Sequence them so they build.
 
@@ -64,7 +67,7 @@ A carousel is a swipeable argument. The deck opens on an IMAGE slide (a photo wi
 
 ═══ OUTPUT ═══
 Return ONLY this JSON:
-{ "hook": "...", "imageBrief": "...", "slides": [ { "title": "...", "body": "..." } ] }`;
+{ "hook": "...", "subtitle": "...", "imageBrief": "...", "slides": [ { "title": "...", "body": "..." } ] }`;
 
   const user = [
     `Topic: ${req.topic}`,
@@ -82,10 +85,12 @@ Return ONLY this JSON:
     { label: "slideDeck", timeoutMs: 90_000 }
   );
   const raw = assertCompleted(res, "slideDeck");
-  const parsed = extractJson<{ hook?: string; imageBrief?: string; slides?: Array<{ title?: string; body?: string }> }>(
-    raw,
-    "slideDeck"
-  );
+  const parsed = extractJson<{
+    hook?: string;
+    subtitle?: string;
+    imageBrief?: string;
+    slides?: Array<{ title?: string; body?: string }>;
+  }>(raw, "slideDeck");
 
   const slides: Slide[] = (parsed.slides ?? [])
     .filter((s) => s?.title?.trim())
@@ -96,6 +101,7 @@ Return ONLY this JSON:
   return {
     topic: req.topic,
     hook: parsed.hook.trim(),
+    subtitle: parsed.subtitle?.trim() || "",
     imageBrief: parsed.imageBrief?.trim() || `A professional, editorial photograph representing ${req.topic}. Corporate business setting, no text.`,
     slides,
   };

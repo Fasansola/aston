@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
       fetchLogo(),
     ]);
 
-    const pngs = await renderCarousel({ hook: deck.hook, slides: deck.slides, introImage, logo });
+    const pngs = await renderCarousel({ hook: deck.hook, subtitle: deck.subtitle, slides: deck.slides, introImage, logo });
 
     const batch = `carousel_${Date.now()}`;
     const imageUrls = await Promise.all(
