@@ -309,6 +309,9 @@ export default function SocialPage() {
             Compose once, cross-post to Facebook, Instagram, LinkedIn and TikTok, and reply to
             comments from here.
           </p>
+          <a href="/social/connect" className="inline-block mt-2 text-sm text-gold/80 hover:text-gold underline underline-offset-2">
+            How to connect each account →
+          </a>
         </div>
 
         {/* Targets */}
