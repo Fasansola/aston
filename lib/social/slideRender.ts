@@ -28,7 +28,40 @@ const H = 1350;
 /** ASS colours are &HAABBGGRR (BGR!). Brand gold #C9A84C → 4CA8C9. */
 const GOLD = "&H004CA8C9";
 const WHITE = "&H00FFFFFF";
+/** Navy used for text sitting on the gold footer band. */
+const NAVY_TEXT = "&H00122036";
 const FONTS = join(process.cwd(), "assets", "fonts");
+
+/** Faint grid texture. Needs rgb24 first (drawgrid rejects some pixel formats). */
+const GRID = "format=rgb24,drawgrid=width=54:height=54:thickness=1:color=0xffffff@0.028";
+/** Footer-text style, shared by every slide (navy, sits on the gold band). */
+const FNAV_STYLE = `Style: Fnav,Lato,34,${NAVY_TEXT},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`;
+const BAR_Y = 1216;
+const BAND_Y = 1286;
+
+/**
+ * The shared bottom system: swipe-progress bars (one per slide, active = gold)
+ * and the solid gold footer band with the wordmark + page number. `withBars`
+ * is off for the intro, whose band is busier.
+ */
+function footerSystem(position: number, total: number, withBars: boolean): { boxes: string[]; events: string[] } {
+  const boxes: string[] = [];
+  if (withBars) {
+    const barW = 70;
+    const gap = 86;
+    for (let i = 0; i < total; i++) {
+      const x = 80 + i * gap;
+      if (x + barW > 1000) break;
+      boxes.push(`drawbox=x=${x}:y=${BAR_Y}:w=${barW}:h=8:color=${i === position - 1 ? "0xC9A84C" : "0xffffff@0.16"}:t=fill`);
+    }
+  }
+  boxes.push(`drawbox=x=0:y=${BAND_Y}:w=${W}:h=64:color=0xC9A84C:t=fill`);
+  const events = [
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Fnav,,0,0,0,,{\\an4\\pos(80,1318)\\fsp3}ASTON VIP`,
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Fnav,,0,0,0,,{\\an6\\pos(1000,1318)}${position} / ${total}`,
+  ];
+  return { boxes, events };
+}
 
 /** Vertical navy gradient — lighter at the top, darker at the bottom. */
 const BG = `gradients=s=${W}x${H}:c0=0x152339:c1=0x0a1322:x0=${W / 2}:y0=0:x1=${W / 2}:y1=${H}:d=0.1`;
@@ -100,92 +133,93 @@ function wrapBody(text: string, maxChars: number): { text: string; lines: number
 }
 
 /** Build the ASS + ffmpeg drawbox list for one point slide. */
-function buildPoint(slide: Slide, contentNo: number, position: number, total: number) {
-  const titleFs = 104;
+function buildPoint(slide: Slide, position: number, total: number) {
   const titleLh = 110;
-  const bodyFs = 56;
-  const bodyLh = 80;
+  const bodyLh = 64;
 
   const title = wrapTitle(slide.title, 17);
   const body = slide.body?.trim() ? wrapBody(slide.body, 36) : null;
 
-  const ruleGap = 46;
-  const ruleH = 6;
-  const postRule = 64;
-  const blockH = title.lines * titleLh + (body ? ruleGap + ruleH + postRule + body.lines * bodyLh : 0);
-  const zoneTop = 280;
-  const zoneBottom = 1210;
-  const titleY = zoneTop + Math.max(0, Math.round((zoneBottom - zoneTop - blockH) * 0.4));
-  const ruleY = titleY + title.lines * titleLh + ruleGap;
-  const bodyY = ruleY + ruleH + postRule;
+  const titleY = 440;
+  // Body sits in a card panel below the title; the card sizes to the copy.
+  const cardTop = titleY + title.lines * titleLh + 46;
+  const cardPad = 44;
+  const cardH = body ? body.lines * bodyLh + cardPad * 2 : 0;
 
   const events = [
-    `Dialogue: 0,0:00:00.00,0:00:01.00,Ghost,,0,0,0,,{\\an9\\pos(1052,44)}${String(contentNo).padStart(2, "0")}`,
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Num,,0,0,0,,{\\an9\\pos(1045,50)}${String(position).padStart(2, "0")}`,
     `Dialogue: 0,0:00:00.00,0:00:01.00,Kicker,,0,0,0,,{\\an7\\pos(80,150)\\fsp6}ASTON VIP`,
     `Dialogue: 0,0:00:00.00,0:00:01.00,Title,,0,0,0,,{\\an7\\pos(80,${titleY})}${title.text}`,
-    ...(body ? [`Dialogue: 0,0:00:00.00,0:00:01.00,Body,,0,0,0,,{\\an7\\pos(80,${bodyY})}${body.text}`] : []),
-    `Dialogue: 0,0:00:00.00,0:00:01.00,Footer,,0,0,0,,{\\an7\\pos(80,1272)}aston.ae`,
-    `Dialogue: 0,0:00:00.00,0:00:01.00,Footer,,0,0,0,,{\\an9\\pos(1000,1272)\\c${GOLD}\\fsp2}${position}/${total}`,
+    ...(body ? [`Dialogue: 0,0:00:00.00,0:00:01.00,Body,,0,0,0,,{\\an7\\pos(112,${cardTop + cardPad})}${body.text}`] : []),
   ];
 
   const styles = [
-    `Style: Ghost,Anton,400,&HE2FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,9,0,0,0,1`,
+    // Hollow gold numeral: invisible fill (alpha FF), gold outline.
+    `Style: Num,Anton,290,&HFF000000,&H000000FF,${GOLD},&H00000000,0,0,0,0,100,100,0,0,1,4,0,9,0,0,0,1`,
     `Style: Kicker,Lato,40,${GOLD},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
-    `Style: Title,Anton,${titleFs},${WHITE},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
-    `Style: Body,Lato,${bodyFs},&H00F0F0F0,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
-    `Style: Footer,Lato,34,&H00A8A8A8,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+    `Style: Title,Anton,96,${WHITE},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+    `Style: Body,Lato,50,&H00ECECEC,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+    FNAV_STYLE,
   ];
 
   const boxes = [`drawbox=x=80:y=104:w=140:h=8:color=0xC9A84C:t=fill`];
-  if (body) boxes.push(`drawbox=x=80:y=${ruleY}:w=110:h=${ruleH}:color=0xC9A84C:t=fill`);
+  if (body) {
+    boxes.push(`drawbox=x=60:y=${cardTop}:w=960:h=${cardH}:color=0xffffff@0.04:t=fill`);
+    boxes.push(`drawbox=x=60:y=${cardTop}:w=6:h=${cardH}:color=0xC9A84C:t=fill`);
+  }
+  const footer = footerSystem(position, total, true);
 
-  return { ass: [ASS_HEAD, ...styles, EVENTS_HEAD, ...events].join("\n"), boxes };
+  return { ass: [ASS_HEAD, ...styles, EVENTS_HEAD, ...events, ...footer.events].join("\n"), boxes: [...boxes, ...footer.boxes] };
 }
 
 /** Intro slide ASS — kicker + topic title + a "what it covers" subtitle. */
-function buildIntroAss(hook: string, subtitle: string): string {
+function buildIntroAss(hook: string, subtitle: string, total: number) {
   const titleLh = 92;
   const title = wrapTitle(hook, 19);
   const sub = subtitle.trim() ? wrapBody(esc(subtitle), 42) : null;
 
   const kickerY = IMG_H + 42; // 802
-  const titleY = IMG_H + 104; // 864
-  const subY = titleY + title.lines * titleLh + 36;
+  const titleY = IMG_H + 100; // 860
+  const subY = titleY + title.lines * titleLh + 34;
 
   const styles = [
     `Style: Kicker,Lato,40,${GOLD},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: Title,Anton,80,${WHITE},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: Sub,Lato,40,&H00D8D8D8,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
-    `Style: Footer,Lato,34,&H00A8A8A8,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+    FNAV_STYLE,
   ];
+  const footer = footerSystem(1, total, false);
   const events = [
     `Dialogue: 0,0:00:00.00,0:00:01.00,Kicker,,0,0,0,,{\\an7\\pos(80,${kickerY})\\fsp6}ASTON VIP`,
     `Dialogue: 0,0:00:00.00,0:00:01.00,Title,,0,0,0,,{\\an7\\pos(80,${titleY})}${title.text}`,
     ...(sub ? [`Dialogue: 0,0:00:00.00,0:00:01.00,Sub,,0,0,0,,{\\an7\\pos(80,${subY})}${sub.text}`] : []),
-    `Dialogue: 0,0:00:00.00,0:00:01.00,Footer,,0,0,0,,{\\an9\\pos(1000,1300)\\c${GOLD}\\fsp2}SWIPE`,
+    ...footer.events,
   ];
-  return [ASS_HEAD, ...styles, EVENTS_HEAD, ...events].join("\n");
+  return { ass: [ASS_HEAD, ...styles, EVENTS_HEAD, ...events].join("\n"), boxes: footer.boxes };
 }
 
 /** Contact slide ASS — centred block ported from the video end screen. */
-function buildContactAss(total: number): string {
+function buildContactAss(total: number) {
   const styles = [
     `Style: Kicker,Lato,38,${GOLD},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,8,0,0,0,1`,
     `Style: Lead,Anton,64,${WHITE},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,8,0,0,0,1`,
     `Style: Label,Lato,32,${GOLD},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,8,0,0,0,1`,
     `Style: Value,Lato,50,${WHITE},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,8,0,0,0,1`,
     `Style: Site,Anton,72,${GOLD},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,8,0,0,0,1`,
-    `Style: Footer,Lato,34,&H00A8A8A8,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+    FNAV_STYLE,
   ];
+  const footer = footerSystem(total, total, true);
   const events = [
     `Dialogue: 0,0:00:00.00,0:00:01.00,Kicker,,0,0,0,,{\\an8\\pos(540,506)\\fsp8}${CONTACT.tagline.toUpperCase()}`,
     `Dialogue: 0,0:00:00.00,0:00:01.00,Lead,,0,0,0,,{\\an8\\pos(540,572)}${esc(CONTACT.cta).toUpperCase()}`,
     `Dialogue: 0,0:00:00.00,0:00:01.00,Label,,0,0,0,,{\\an8\\pos(540,724)\\fsp4}${CONTACT.whatsappLabel.toUpperCase()}`,
     `Dialogue: 0,0:00:00.00,0:00:01.00,Value,,0,0,0,,{\\an8\\pos(540,772)}${esc(CONTACT.whatsapp)}`,
     `Dialogue: 0,0:00:00.00,0:00:01.00,Site,,0,0,0,,{\\an8\\pos(540,892)}${CONTACT.site}`,
-    `Dialogue: 0,0:00:00.00,0:00:01.00,Footer,,0,0,0,,{\\an9\\pos(1000,1272)\\c${GOLD}\\fsp2}${total}/${total}`,
+    ...footer.events,
   ];
-  return [ASS_HEAD, ...styles, EVENTS_HEAD, ...events].join("\n");
+  // Divider rule under the logo, then the shared footer boxes.
+  const boxes = [`drawbox=x=500:y=470:w=80:h=4:color=0xC9A84C:t=fill`, ...footer.boxes];
+  return { ass: [ASS_HEAD, ...styles, EVENTS_HEAD, ...events].join("\n"), boxes };
 }
 
 /**
@@ -222,7 +256,8 @@ export async function renderCarousel(input: {
     // composites with a SINGLE filterchain (no ';', no named pad labels). The
     // multi-chain filter_complex form parses on some ffmpeg builds but is
     // rejected by ffmpeg 7.0.2 on Vercel, so we avoid it entirely.
-    await writeFile(join(dir, "intro.ass"), buildIntroAss(input.hook, input.subtitle ?? ""));
+    const intro = buildIntroAss(input.hook, input.subtitle ?? "", total);
+    await writeFile(join(dir, "intro.ass"), intro.ass);
     if (input.introImage) {
       await writeFile(join(dir, "intro_src.png"), input.introImage);
       await execFileAsync(
@@ -236,7 +271,7 @@ export async function renderCarousel(input: {
             "-f", "lavfi", "-i", BG,
             "-i", "photo.png",
             "-filter_complex",
-            `[0:v][1:v]overlay=0:0,drawbox=x=0:y=${IMG_H}:w=${W}:h=4:color=0xC9A84C:t=fill,ass=intro.ass:fontsdir=.`,
+            `[0:v][1:v]overlay=0:0,drawbox=x=0:y=${IMG_H}:w=${W}:h=4:color=0xC9A84C:t=fill,${intro.boxes.join(",")},ass=intro.ass:fontsdir=.`,
             "-frames:v", "1", "-y", "intro.png",
           ],
           "intro.png"
@@ -246,7 +281,7 @@ export async function renderCarousel(input: {
       // No photo — fall back to a navy title slide (gold bar + title in the band).
       out.push(
         await run(
-          ["-f", "lavfi", "-i", BG, "-vf", `drawbox=x=80:y=${IMG_H - 20}:w=140:h=8:color=0xC9A84C:t=fill,ass=intro.ass:fontsdir=.`, "-frames:v", "1", "-y", "intro.png"],
+          ["-f", "lavfi", "-i", BG, "-vf", `drawbox=x=80:y=${IMG_H - 20}:w=140:h=8:color=0xC9A84C:t=fill,${intro.boxes.join(",")},ass=intro.ass:fontsdir=.`, "-frames:v", "1", "-y", "intro.png"],
           "intro.png"
         )
       );
@@ -254,19 +289,20 @@ export async function renderCarousel(input: {
 
     // ── Point slides ───────────────────────────────────────────
     for (let i = 0; i < input.slides.length; i++) {
-      const { ass, boxes } = buildPoint(input.slides[i], i + 1, i + 2, total);
+      const { ass, boxes } = buildPoint(input.slides[i], i + 2, total);
       await writeFile(join(dir, `p${i}.ass`), ass);
       out.push(
         await run(
-          ["-f", "lavfi", "-i", BG, "-vf", `${boxes.join(",")},ass=p${i}.ass:fontsdir=.`, "-frames:v", "1", "-y", `p${i}.png`],
+          ["-f", "lavfi", "-i", BG, "-vf", `${GRID},${boxes.join(",")},ass=p${i}.ass:fontsdir=.`, "-frames:v", "1", "-y", `p${i}.png`],
           `p${i}.png`
         )
       );
     }
 
     // ── Contact slide ──────────────────────────────────────────
-    await writeFile(join(dir, "contact.ass"), buildContactAss(total));
-    const rules = `drawbox=x=500:y=470:w=80:h=4:color=0xC9A84C:t=fill,drawbox=x=500:y=1000:w=80:h=4:color=0xC9A84C:t=fill`;
+    const ct = buildContactAss(total);
+    await writeFile(join(dir, "contact.ass"), ct.ass);
+    const ctBoxes = ct.boxes.join(",");
 
     let contact: Buffer | undefined;
     if (input.logo) {
@@ -285,7 +321,7 @@ export async function renderCarousel(input: {
             "-f", "lavfi", "-i", BG,
             "-i", "logo150.png",
             "-filter_complex",
-            `[0:v][1:v]overlay=(W-w)/2:250,${rules},ass=contact.ass:fontsdir=.`,
+            `[0:v][1:v]overlay=(W-w)/2:250,${GRID},${ctBoxes},ass=contact.ass:fontsdir=.`,
             "-frames:v", "1", "-y", "contact.png",
           ],
           "contact.png"
@@ -296,7 +332,7 @@ export async function renderCarousel(input: {
     }
     if (!contact) {
       contact = await run(
-        ["-f", "lavfi", "-i", BG, "-vf", `${rules},ass=contact.ass:fontsdir=.`, "-frames:v", "1", "-y", "contact_t.png"],
+        ["-f", "lavfi", "-i", BG, "-vf", `${GRID},${ctBoxes},ass=contact.ass:fontsdir=.`, "-frames:v", "1", "-y", "contact_t.png"],
         "contact_t.png"
       );
     }
