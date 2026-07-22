@@ -78,6 +78,13 @@ export default function StudioPage() {
   const [postCaptions, setPostCaptions] = useState<Record<number, Record<string, string>>>({});
   const [captionLoading, setCaptionLoading] = useState<Record<number, boolean>>({});
 
+  // Posting the finished reel. Keyed "index:platform" for the busy flag; results
+  // keyed by script index.
+  const [posting, setPosting] = useState<Record<string, boolean>>({});
+  const [postResults, setPostResults] = useState<
+    Record<number, Array<{ target: string; ok: boolean; status: string; message: string; externalUrl?: string }>>
+  >({});
+
   function loadLibrary() {
     fetch("/api/social/reel-render")
       .then((r) => r.json())
@@ -202,6 +209,45 @@ export default function StudioPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setCaptionLoading((v) => ({ ...v, [index]: false }));
+    }
+  }
+
+  // Platforms that can take a reel video today (video-native). Instagram,
+  // Facebook and LinkedIn need video-upload paths added to their connectors first.
+  const POST_TARGETS = ["tiktok", "youtube"];
+
+  async function postReel(index: number, platform: string) {
+    const job = jobs[index];
+    if (!job?.videoUrl) return;
+    const caption = postCaptions[index]?.[platform] || job.title || scripts[index].onScreenTitle || scripts[index].topic;
+
+    setPosting((v) => ({ ...v, [`${index}:${platform}`]: true }));
+    setError("");
+    try {
+      const res = await fetch("/api/social/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          post: { text: caption, mediaUrls: [job.videoUrl] },
+          targets: [{ target: platform, text: caption }],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || `Post failed (${res.status})`);
+        return;
+      }
+      const result = (data.results ?? [])[0];
+      if (result) {
+        setPostResults((r) => ({
+          ...r,
+          [index]: [...(r[index] ?? []).filter((x) => x.target !== platform), result],
+        }));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPosting((v) => ({ ...v, [`${index}:${platform}`]: false }));
     }
   }
 
@@ -449,6 +495,52 @@ export default function StudioPage() {
                         Open / download
                       </a>
                     </div>
+                  </div>
+                )}
+
+                {/* Share the finished reel — video-native platforms only for now */}
+                {jobs[i].status === "completed" && jobs[i].videoUrl && (
+                  <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[11px] uppercase tracking-[0.15em] text-white/40 mr-1">Share reel</span>
+                      {POST_TARGETS.map((p) => (
+                        <button
+                          key={p}
+                          className={btnGhost}
+                          onClick={() => postReel(i, p)}
+                          disabled={posting[`${i}:${p}`]}
+                        >
+                          {posting[`${i}:${p}`] ? "Posting…" : `Post to ${PLATFORM_LABEL[p]}`}
+                        </button>
+                      ))}
+                      {!postCaptions[i] && (
+                        <span className="text-[10px] text-white/30">
+                          Tip: generate the post caption first so it goes out with hashtags.
+                        </span>
+                      )}
+                    </div>
+
+                    {(postResults[i] ?? []).map((r) => (
+                      <p
+                        key={r.target}
+                        className={`text-[11px] mt-2 ${r.ok ? "text-emerald-400" : "text-rose-400"}`}
+                      >
+                        {PLATFORM_LABEL[r.target] ?? r.target}: {r.message}
+                        {r.externalUrl && (
+                          <>
+                            {" "}
+                            <a
+                              href={r.externalUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-gold/80 hover:text-gold underline underline-offset-2"
+                            >
+                              view
+                            </a>
+                          </>
+                        )}
+                      </p>
+                    ))}
                   </div>
                 )}
               </div>
