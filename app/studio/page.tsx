@@ -85,6 +85,17 @@ export default function StudioPage() {
     Record<number, Array<{ target: string; ok: boolean; status: string; message: string; externalUrl?: string }>>
   >({});
 
+  // Image carousel (text-on-image slides) — the non-video alternative.
+  const [slideCount, setSlideCount] = useState(6);
+  const [carousel, setCarousel] = useState<{ slides: Array<{ kind: string; title: string }>; imageUrls: string[] } | null>(null);
+  const [carouselLoading, setCarouselLoading] = useState(false);
+  const [carouselCaptions, setCarouselCaptions] = useState<Record<string, string> | null>(null);
+  const [carouselCapLoading, setCarouselCapLoading] = useState(false);
+  const [carouselPosting, setCarouselPosting] = useState<Record<string, boolean>>({});
+  const [carouselResults, setCarouselResults] = useState<
+    Array<{ target: string; ok: boolean; message: string; externalUrl?: string }>
+  >([]);
+
   function loadLibrary() {
     fetch("/api/social/reel-render")
       .then((r) => r.json())
@@ -251,6 +262,86 @@ export default function StudioPage() {
     }
   }
 
+  // Image posts work everywhere except YouTube (Community posts have no API).
+  const CAROUSEL_TARGETS = ["tiktok", "instagram", "facebook", "linkedin"];
+
+  async function generateCarousel() {
+    if (!topic.trim()) return;
+    setCarouselLoading(true);
+    setError("");
+    setCarousel(null);
+    setCarouselCaptions(null);
+    setCarouselResults([]);
+    try {
+      const res = await fetch("/api/social/slides", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: topic.trim(), angle: angle.trim() || undefined, slideCount }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || `Carousel generation failed (${res.status})`);
+        return;
+      }
+      setCarousel({ slides: data.deck?.slides ?? [], imageUrls: data.imageUrls ?? [] });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCarouselLoading(false);
+    }
+  }
+
+  async function generateCarouselCaptions() {
+    if (!carousel) return;
+    setCarouselCapLoading(true);
+    try {
+      const res = await fetch("/api/social/captions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: topic.trim(),
+          summary: carousel.slides.map((s) => s.title).join(". "),
+          focusKeyword: topic.trim(),
+          targets: CAROUSEL_TARGETS,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) setError(data.error || "Caption generation failed");
+      else setCarouselCaptions(data.captions ?? {});
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCarouselCapLoading(false);
+    }
+  }
+
+  async function postCarousel(platform: string) {
+    if (!carousel?.imageUrls.length) return;
+    const caption = carouselCaptions?.[platform] || topic.trim();
+    setCarouselPosting((v) => ({ ...v, [platform]: true }));
+    setError("");
+    try {
+      const res = await fetch("/api/social/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          post: { text: caption, mediaUrls: carousel.imageUrls },
+          targets: [{ target: platform, text: caption }],
+        }),
+      });
+      const data = await res.json();
+      const result = (data.results ?? [])[0];
+      if (!res.ok) setError(data.error || `Post failed (${res.status})`);
+      else if (result) {
+        setCarouselResults((r) => [...r.filter((x) => x.target !== platform), result]);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCarouselPosting((v) => ({ ...v, [platform]: false }));
+    }
+  }
+
   async function copyText(text: string) {
     try {
       await navigator.clipboard.writeText(text);
@@ -368,6 +459,88 @@ export default function StudioPage() {
             )}
             {error && <span className="text-xs text-rose-400">{error}</span>}
           </div>
+        </section>
+
+        {/* Image carousel — the non-video alternative, same brief */}
+        <section className={card}>
+          <h2 className="text-xs uppercase tracking-[0.2em] text-gold/70 mb-2">Image carousel</h2>
+          <p className="text-xs text-white/40 mb-4">
+            Turns the same topic into 5&ndash;7 branded text slides — for when you&apos;d rather post images than a
+            reel. Shares to TikTok, Instagram, Facebook and LinkedIn (YouTube has no image-post API).
+          </p>
+
+          <div className="flex items-end gap-3 flex-wrap">
+            <div>
+              <label className={label}>Slides</label>
+              <select className={input} value={slideCount} onChange={(e) => setSlideCount(Number(e.target.value))}>
+                {[5, 6, 7].map((n) => (
+                  <option key={n} value={n} className="bg-[#1a1a1a]">
+                    {n} slides
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button className={btn} onClick={generateCarousel} disabled={carouselLoading || !topic.trim()}>
+              {carouselLoading ? "Rendering…" : "Generate carousel"}
+            </button>
+            {!topic.trim() && <span className="text-[10px] text-white/30 pb-2.5">Uses the topic from the reel brief above.</span>}
+          </div>
+
+          {carousel && (
+            <>
+              <div className="flex gap-2 mt-4 overflow-x-auto pb-1">
+                {carousel.imageUrls.map((url, i) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={url}
+                    src={url}
+                    alt={carousel.slides[i]?.title ?? `Slide ${i + 1}`}
+                    className="w-[150px] aspect-[4/5] rounded-lg border border-white/10 object-cover shrink-0"
+                  />
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap mt-4">
+                <button className={btnGhost} onClick={generateCarouselCaptions} disabled={carouselCapLoading}>
+                  {carouselCapLoading ? "Writing…" : carouselCaptions ? "Regenerate captions" : "Generate post captions"}
+                </button>
+                {CAROUSEL_TARGETS.map((p) => (
+                  <button key={p} className={btnGhost} onClick={() => postCarousel(p)} disabled={carouselPosting[p]}>
+                    {carouselPosting[p] ? "Posting…" : `Post to ${PLATFORM_LABEL[p]}`}
+                  </button>
+                ))}
+              </div>
+
+              {carouselCaptions && (
+                <div className="space-y-2 mt-3">
+                  {CAROUSEL_TARGETS.filter((p) => carouselCaptions[p]).map((p) => (
+                    <div key={p} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <span className="text-[11px] font-medium text-gold/70">{PLATFORM_LABEL[p]}</span>
+                      <textarea
+                        value={carouselCaptions[p]}
+                        onChange={(e) => setCarouselCaptions((c) => ({ ...(c ?? {}), [p]: e.target.value }))}
+                        className="w-full bg-transparent text-sm text-white/85 focus:outline-none resize-y min-h-[56px] leading-relaxed mt-1"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {carouselResults.map((r) => (
+                <p key={r.target} className={`text-[11px] mt-2 ${r.ok ? "text-emerald-400" : "text-rose-400"}`}>
+                  {PLATFORM_LABEL[r.target] ?? r.target}: {r.message}
+                  {r.externalUrl && (
+                    <>
+                      {" "}
+                      <a href={r.externalUrl} target="_blank" rel="noopener noreferrer" className="text-gold/80 hover:text-gold underline underline-offset-2">
+                        view
+                      </a>
+                    </>
+                  )}
+                </p>
+              ))}
+            </>
+          )}
         </section>
 
         {/* Results */}

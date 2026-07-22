@@ -47,6 +47,15 @@ export default class YouTubeConnector implements SocialConnector {
         message: "YouTube requires a video — pass the reel URL as the first media URL.",
       };
     }
+    if (!/\.(mp4|mov|m4v|webm)(\?|$)/i.test(videoUrl)) {
+      return {
+        target,
+        ok: false,
+        status: "failed",
+        message:
+          "YouTube can't take image posts — Community posts have no public API. Share the carousel to the other platforms instead.",
+      };
+    }
 
     // Title from the first non-empty line; #Shorts nudges YouTube to file a
     // vertical <60s clip as a Short. Description carries the full caption + link.

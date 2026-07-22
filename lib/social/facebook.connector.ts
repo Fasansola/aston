@@ -60,6 +60,25 @@ export default class FacebookConnector implements SocialConnector {
           "POST"
         );
         postId = data.id;
+      } else if (media && (post.mediaUrls?.length ?? 0) > 1) {
+        // Multi-photo post — upload each photo unpublished, then attach them all
+        // to a single feed post.
+        const photoIds: string[] = [];
+        for (const url of post.mediaUrls!.slice(0, 10)) {
+          const p = await graphCall<{ id: string }>(
+            FB_GRAPH_BASE,
+            `${pageId}/photos`,
+            { url, published: "false", access_token: token },
+            "POST"
+          );
+          photoIds.push(p.id);
+        }
+        const params: Record<string, string> = { message, access_token: token };
+        photoIds.forEach((id, i) => {
+          params[`attached_media[${i}]`] = JSON.stringify({ media_fbid: id });
+        });
+        const data = await graphCall<{ id: string }>(FB_GRAPH_BASE, `${pageId}/feed`, params, "POST");
+        postId = data.id;
       } else if (media) {
         // Photo post — caption goes in `message`.
         const data = await graphCall<{ id: string; post_id?: string }>(

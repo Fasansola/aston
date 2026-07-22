@@ -37,6 +37,8 @@ const nextConfig: NextConfig = {
     // The reel poll route burns captions with ffmpeg + the bundled Anton font;
     // both are referenced via runtime paths Next's tracer can't auto-detect.
     "/api/social/reel-render": ["./node_modules/ffmpeg-static/**/*", "./assets/fonts/**/*"],
+    // The carousel route renders slide PNGs with the same ffmpeg + fonts.
+    "/api/social/slides": ["./node_modules/ffmpeg-static/**/*", "./assets/fonts/**/*"],
   },
 };
 

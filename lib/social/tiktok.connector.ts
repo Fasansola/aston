@@ -48,34 +48,57 @@ export default class TikTokConnector implements SocialConnector {
   async publish(input: SocialPublishRequest): Promise<SocialPublishResult> {
     const { post, target } = input;
     const { token, privacyLevel } = await resolve(input.targetConfig);
-    const videoUrl = post.mediaUrls?.[0];
+    const media = post.mediaUrls ?? [];
+    const isVideo = !!media[0] && /\.(mp4|mov|m4v)(\?|$)/i.test(media[0]);
 
-    if (!videoUrl) {
+    if (!media.length) {
       return {
         target,
         ok: false,
         status: "failed",
-        message: "TikTok requires a video — pass the video URL as the first media URL.",
+        message: "TikTok requires media — a video URL, or image URLs for a photo post.",
       };
     }
 
     const title = (post.link ? `${post.text}\n\n${post.link}` : post.text).slice(0, this.charLimit);
 
     try {
-      const res = await fetch(`${API}/post/publish/video/init/`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
-        body: JSON.stringify({
-          post_info: {
-            title,
-            privacy_level: privacyLevel,
-            disable_comment: false,
-            disable_duet: false,
-            disable_stitch: false,
-          },
-          source_info: { source: "PULL_FROM_URL", video_url: videoUrl },
-        }),
-      });
+      // Videos use the video init endpoint; images post as a photo carousel via
+      // the content init endpoint (both PULL_FROM_URL, both async on TikTok's side).
+      const res = isVideo
+        ? await fetch(`${API}/post/publish/video/init/`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
+            body: JSON.stringify({
+              post_info: {
+                title,
+                privacy_level: privacyLevel,
+                disable_comment: false,
+                disable_duet: false,
+                disable_stitch: false,
+              },
+              source_info: { source: "PULL_FROM_URL", video_url: media[0] },
+            }),
+          })
+        : await fetch(`${API}/post/publish/content/init/`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
+            body: JSON.stringify({
+              post_info: {
+                title: title.slice(0, 90), // photo post titles are shorter
+                description: title,
+                privacy_level: privacyLevel,
+                disable_comment: false,
+              },
+              source_info: {
+                source: "PULL_FROM_URL",
+                photo_cover_index: 0,
+                photo_images: media.slice(0, 35), // TikTok's carousel cap
+              },
+              post_mode: "DIRECT_POST",
+              media_type: "PHOTO",
+            }),
+          });
       const data = (await res.json()) as {
         data?: { publish_id?: string };
         error?: { code?: string; message?: string };

@@ -66,21 +66,47 @@ export default class InstagramConnector implements SocialConnector {
     const caption = post.link ? `${post.text}\n\n${post.link}` : post.text;
     const isVideo = /\.(mp4|mov|m4v)(\?|$)/i.test(media);
 
+    const images = (post.mediaUrls ?? []).filter((u) => !/\.(mp4|mov|m4v)(\?|$)/i.test(u));
+    const isCarousel = !isVideo && images.length > 1;
+
     try {
       // Step 1: create the media container. A video posts as a REELS container,
       // whose processing is async — an image container is ready immediately.
-      const container = await graphCall<{ id: string }>(
-        FB_GRAPH_BASE,
-        `${igUserId}/media`,
-        isVideo
-          ? { media_type: "REELS", video_url: media, caption, access_token: token }
-          : { image_url: media, caption, access_token: token },
-        "POST"
-      );
+      // Multiple images become a CAROUSEL: one child container per image, then
+      // a parent that references the children.
+      let container: { id: string };
+      if (isCarousel) {
+        const children: string[] = [];
+        for (const url of images.slice(0, 10)) {
+          // 10 is Instagram's carousel cap
+          const child = await graphCall<{ id: string }>(
+            FB_GRAPH_BASE,
+            `${igUserId}/media`,
+            { image_url: url, is_carousel_item: "true", access_token: token },
+            "POST"
+          );
+          children.push(child.id);
+        }
+        container = await graphCall<{ id: string }>(
+          FB_GRAPH_BASE,
+          `${igUserId}/media`,
+          { media_type: "CAROUSEL", children: children.join(","), caption, access_token: token },
+          "POST"
+        );
+      } else {
+        container = await graphCall<{ id: string }>(
+          FB_GRAPH_BASE,
+          `${igUserId}/media`,
+          isVideo
+            ? { media_type: "REELS", video_url: media, caption, access_token: token }
+            : { image_url: media, caption, access_token: token },
+          "POST"
+        );
+      }
 
-      // Step 1b (video only): Instagram must finish downloading + transcoding the
-      // reel before it can be published, so poll the container until it is ready.
-      if (isVideo) {
+      // Step 1b: reel and carousel containers are processed asynchronously —
+      // poll until Instagram reports them ready before publishing.
+      if (isVideo || isCarousel) {
         const ready = await this.waitForContainer(container.id, token);
         if (!ready.ok) return { target, ok: false, status: "failed", message: ready.message };
       }
@@ -108,7 +134,7 @@ export default class InstagramConnector implements SocialConnector {
         target,
         ok: true,
         status: "passed",
-        message: isVideo ? "Posted reel to Instagram" : "Posted to Instagram",
+        message: isVideo ? "Posted reel to Instagram" : isCarousel ? `Posted ${Math.min(images.length, 10)}-slide carousel to Instagram` : "Posted to Instagram",
         externalUrl: permalink,
         platformPostId: published.id,
       };

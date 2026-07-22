@@ -144,21 +144,37 @@ export default class LinkedInConnector implements SocialConnector {
     const media = post.mediaUrls?.[0];
     const isVideo = !!media && /\.(mp4|mov|m4v)(\?|$)/i.test(media);
 
+    const images = (post.mediaUrls ?? []).filter((u) => !/\.(mp4|mov|m4v)(\?|$)/i.test(u));
+
     let status: SocialPublishResult["status"] = "passed";
     let note = "";
-    let mediaUrn: string | undefined;
+    let content: Record<string, unknown> | undefined;
     if (media) {
       if (isVideo) {
         // A reel is pointless without its video, so a video failure is fatal
         // (unlike an image, which degrades to a text post below).
         try {
-          mediaUrn = await this.uploadVideo(token, version, authorUrn, media);
+          const urn = await this.uploadVideo(token, version, authorUrn, media);
+          content = { media: { id: urn, title: post.text.slice(0, 60) } };
         } catch (e) {
           return { target, ok: false, status: "failed", message: `LinkedIn video upload failed: ${e instanceof Error ? e.message : String(e)}` };
         }
+      } else if (images.length > 1) {
+        // Carousel-style multi-image post — upload each, reference them together.
+        try {
+          const urns: string[] = [];
+          for (const url of images.slice(0, 20)) {
+            urns.push(await this.uploadImage(token, version, authorUrn, url));
+          }
+          content = { multiImage: { images: urns.map((id) => ({ id })) } };
+        } catch (e) {
+          status = "warning";
+          note = ` (images skipped: ${e instanceof Error ? e.message : String(e)})`;
+        }
       } else {
         try {
-          mediaUrn = await this.uploadImage(token, version, authorUrn, media);
+          const urn = await this.uploadImage(token, version, authorUrn, media);
+          content = { media: { id: urn, title: post.text.slice(0, 60) } };
         } catch (e) {
           status = "warning";
           note = ` (image skipped: ${e instanceof Error ? e.message : String(e)})`;
@@ -173,7 +189,7 @@ export default class LinkedInConnector implements SocialConnector {
       distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
       lifecycleState: "PUBLISHED",
       isReshareDisabledByAuthor: false,
-      ...(mediaUrn ? { content: { media: { id: mediaUrn, title: post.text.slice(0, 60) } } } : {}),
+      ...(content ? { content } : {}),
     };
 
     try {
