@@ -15,6 +15,8 @@ interface Platform {
   statusLabel: string;
   need: string;
   steps?: string[];
+  /** Exactly where in the platform's dashboard each value comes from. */
+  where?: Array<{ what: string; at: string }>;
   envLabel: string;
   env: Array<{ key: string; note?: string }>;
   footnote?: string;
@@ -33,6 +35,10 @@ const PLATFORMS: Platform[] = [
     status: "ready",
     statusLabel: "Ready — nothing to do",
     need: "nothing. It already uses the same account as your blog videos.",
+    where: [
+      { what: "Client ID & secret", at: "console.cloud.google.com → APIs & Services → Credentials → your OAuth 2.0 Client ID." },
+      { what: "Refresh token", at: "Already generated once via the sign-in script — nothing to redo." },
+    ],
     envLabel: "Already set",
     env: [{ key: "YOUTUBE_CLIENT_ID" }, { key: "YOUTUBE_CLIENT_SECRET" }, { key: "YOUTUBE_REFRESH_TOKEN" }],
     footnote: "A vertical video under 60 seconds is posted as a Short automatically.",
@@ -48,6 +54,10 @@ const PLATFORMS: Platform[] = [
       "Copy your Page's numeric ID and generate a Page access token.",
       "Put both into the keys below and redeploy.",
     ],
+    where: [
+      { what: "Page ID", at: "Your Facebook Page → About tab (scroll to the bottom for the numeric Page ID)." },
+      { what: "Access token", at: "developers.facebook.com/tools/explorer (Graph API Explorer) → pick your app and Page, add the permissions, click Generate Access Token. Then extend it to a long-lived token in the Access Token Debugger (developers.facebook.com/tools/debug/accesstoken → Extend)." },
+    ],
     envLabel: "Set these",
     env: [{ key: "FACEBOOK_PAGE_ID" }, { key: "FACEBOOK_PAGE_ACCESS_TOKEN" }],
   },
@@ -61,6 +71,10 @@ const PLATFORMS: Platform[] = [
       "On the Meta app, add instagram_basic, instagram_content_publish and instagram_manage_comments.",
       "Find your Instagram Business account ID.",
       "Set the ID below. The token can reuse your Facebook Page token, or set its own.",
+    ],
+    where: [
+      { what: "Business account ID", at: "In Graph API Explorer, query  me/accounts?fields=instagram_business_account  — the id it returns is your IG Business account ID." },
+      { what: "Access token", at: "The same Facebook Page token works. To make a dedicated one, generate it in Graph API Explorer with the instagram_ permissions." },
     ],
     envLabel: "Set these",
     env: [
@@ -79,6 +93,11 @@ const PLATFORMS: Platform[] = [
       "Run the sign-in flow to get an access token and a refresh token.",
       "For the author, use urn:li:organization:YOUR_ID to post as the company.",
     ],
+    where: [
+      { what: "Client ID & secret", at: "linkedin.com/developers → your app → Auth tab (Application credentials)." },
+      { what: "Access & refresh token", at: "Same Auth tab → use the OAuth 2.0 token generator (or run the authorisation-code flow) with the scopes above. The response returns both tokens." },
+      { what: "Author URN", at: "Your Company Page's numeric ID — visible in the admin URL: linkedin.com/company/NUMBER/. Use urn:li:organization:NUMBER." },
+    ],
     envLabel: "Set these",
     env: [
       { key: "LINKEDIN_CLIENT_ID" },
@@ -96,6 +115,10 @@ const PLATFORMS: Platform[] = [
       "Go to developers.tiktok.com, create an app and add the Content Posting API.",
       "Verify your media domain — TikTok pulls the reel or images from their URL, so the domain must be approved.",
       "Get an access token and set the keys below.",
+    ],
+    where: [
+      { what: "Client key & secret", at: "developers.tiktok.com → Manage apps → your app → Basic information (App credentials)." },
+      { what: "Access token", at: "Returned when you authorise the app for your TikTok account through the Login Kit OAuth flow (there's no copy-paste field — it comes from the sign-in redirect)." },
     ],
     envLabel: "Set these",
     env: [{ key: "TIKTOK_CLIENT_KEY" }, { key: "TIKTOK_CLIENT_SECRET" }, { key: "TIKTOK_ACCESS_TOKEN" }],
@@ -176,6 +199,19 @@ export default function ConnectGuidePage() {
                   </li>
                 ))}
               </ol>
+            )}
+
+            {p.where && (
+              <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 mb-3">
+                <div className="text-[10.5px] uppercase tracking-[0.16em] text-white/35 font-bold mb-2.5">Where to find it</div>
+                <ul className="space-y-2.5">
+                  {p.where.map((w) => (
+                    <li key={w.what} className="text-sm text-white/60 leading-relaxed">
+                      <span className="text-white/85 font-semibold">{w.what}:</span> {w.at}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
 
             <div className="rounded-xl border border-white/10 border-l-[3px] border-l-gold/40 bg-black/25 px-4 py-3 overflow-x-auto">
