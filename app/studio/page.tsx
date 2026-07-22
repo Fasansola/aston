@@ -73,6 +73,11 @@ export default function StudioPage() {
   const [starting, setStarting] = useState<Record<number, boolean>>({});
   const [library, setLibrary] = useState<ReelRenderJob[]>([]);
 
+  // Post captions (the feed text + hashtags, separate from the on-screen/spoken
+  // captions), keyed by script variation index → { platform: caption }.
+  const [postCaptions, setPostCaptions] = useState<Record<number, Record<string, string>>>({});
+  const [captionLoading, setCaptionLoading] = useState<Record<number, boolean>>({});
+
   function loadLibrary() {
     fetch("/api/social/reel-render")
       .then((r) => r.json())
@@ -160,6 +165,51 @@ export default function StudioPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setStarting((v) => ({ ...v, [index]: false }));
+    }
+  }
+
+  // Reel-capable platforms — the feed caption is written for each of these.
+  const CAPTION_PLATFORMS = ["tiktok", "instagram", "youtube", "facebook", "linkedin"];
+  const PLATFORM_LABEL: Record<string, string> = {
+    tiktok: "TikTok",
+    instagram: "Instagram",
+    youtube: "YouTube",
+    facebook: "Facebook",
+    linkedin: "LinkedIn",
+  };
+
+  async function generatePostCaptions(index: number, s: ReelScript) {
+    setCaptionLoading((v) => ({ ...v, [index]: true }));
+    setError("");
+    try {
+      const res = await fetch("/api/social/captions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: s.onScreenTitle || s.topic,
+          summary: s.script,
+          focusKeyword: s.topic,
+          targets: CAPTION_PLATFORMS,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || `Caption generation failed (${res.status})`);
+        return;
+      }
+      setPostCaptions((c) => ({ ...c, [index]: data.captions ?? {} }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCaptionLoading((v) => ({ ...v, [index]: false }));
+    }
+  }
+
+  async function copyText(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* clipboard unavailable — non-critical */
     }
   }
 
@@ -318,6 +368,42 @@ export default function StudioPage() {
 
             <div className="rounded-xl border border-white/10 bg-black/25 p-4">
               <p className="text-sm text-white/85 whitespace-pre-line leading-relaxed">{s.script}</p>
+            </div>
+
+            {/* Post caption + hashtags — the feed text, separate from the spoken/on-screen words */}
+            <div className="mt-4">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="text-[11px] uppercase tracking-[0.15em] text-white/40">Post caption &amp; hashtags</span>
+                <button className={btnGhost} onClick={() => generatePostCaptions(i, s)} disabled={captionLoading[i]}>
+                  {captionLoading[i]
+                    ? "Writing…"
+                    : postCaptions[i]
+                      ? "Regenerate"
+                      : "Generate post caption"}
+                </button>
+              </div>
+
+              {postCaptions[i] && (
+                <div className="space-y-2">
+                  {CAPTION_PLATFORMS.filter((p) => postCaptions[i][p]).map((p) => (
+                    <div key={p} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[11px] font-medium text-gold/70">{PLATFORM_LABEL[p]}</span>
+                        <button className={btnGhost} onClick={() => copyText(postCaptions[i][p])}>
+                          Copy
+                        </button>
+                      </div>
+                      <textarea
+                        value={postCaptions[i][p]}
+                        onChange={(e) =>
+                          setPostCaptions((c) => ({ ...c, [i]: { ...c[i], [p]: e.target.value } }))
+                        }
+                        className="w-full bg-transparent text-sm text-white/85 focus:outline-none resize-y min-h-[64px] leading-relaxed"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Render output */}
