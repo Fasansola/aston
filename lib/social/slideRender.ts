@@ -1,15 +1,15 @@
 /**
  * lib/social/slideRender.ts
- * Renders carousel slides as 1080×1350 PNGs in the "Editorial" direction the
- * user picked from rendered mockups (2026-07-20): navy gradient, gold bar +
- * kicker, tight left-aligned Anton titles with ONE gold emphasis word, a ghost
- * slide numeral top-right on point slides, a short gold rule between title and
- * body, and a vertically balanced content block (no dead bottom half).
+ * Renders a carousel to 1080×1350 PNGs in the "Editorial" direction:
  *
- * Text is laid out via ASS rendered by ffmpeg + libass onto a single frame
- * (same vendored-font mechanism as burnCaptions.ts — Vercel has no system
- * fonts). Placement is fully deterministic: JS word-wrap with explicit \N
- * breaks (WrapStyle 2) and \pos on every block.
+ *   [ intro image + navy title banner ]  ← GPT Image 2 photo, brand navy band
+ *   [ point slides … ]                    ← navy gradient, gold emphasis word
+ *   [ contact slide ]                     ← logo + contact info (video end screen)
+ *
+ * Text is laid out via ASS rendered by ffmpeg + libass onto a single frame (the
+ * vendored-font mechanism from burnCaptions.ts — Vercel has no system fonts).
+ * Placement is deterministic: JS word-wrap with explicit \N (WrapStyle 2) and
+ * \pos on every block.
  */
 
 import { execFile } from "child_process";
@@ -19,6 +19,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import ffmpegPath from "ffmpeg-static";
 import type { Slide } from "@/lib/social/slideDeck";
+import { CONTACT } from "@/lib/social/persona";
 
 const execFileAsync = promisify(execFile);
 
@@ -31,27 +32,34 @@ const FONTS = join(process.cwd(), "assets", "fonts");
 
 /** Vertical navy gradient — lighter at the top, darker at the bottom. */
 const BG = `gradients=s=${W}x${H}:c0=0x152339:c1=0x0a1322:x0=${W / 2}:y0=0:x1=${W / 2}:y1=${H}:d=0.1`;
+/** Intro photo occupies the top; the navy band below holds the title. */
+const IMG_H = 810;
 
 function esc(text: string): string {
   return text.replace(/[{}]/g, "").replace(/\r?\n/g, " ");
 }
 
-/**
- * Greedy word wrap with one word rendered gold. The deck model marks the
- * emphasis word with *asterisks*; if it didn't, the last word goes gold so the
- * design element is always present. `allGold` (CTA titles) skips per-word tags.
- */
-function wrapTitle(
-  raw: string,
-  maxChars: number,
-  allGold: boolean
-): { text: string; lines: number } {
+const ASS_HEAD = [
+  "[Script Info]",
+  "ScriptType: v4.00+",
+  `PlayResX: ${W}`,
+  `PlayResY: ${H}`,
+  "WrapStyle: 2",
+  "",
+  "[V4+ Styles]",
+  "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+].join("\n");
+
+const EVENTS_HEAD = ["", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"].join("\n");
+
+/** Greedy title wrap; one word rendered gold. `allGold` skips per-word tags. */
+function wrapTitle(raw: string, maxChars: number, allGold = false): { text: string; lines: number } {
   const marked = raw.match(/\*([^*]+)\*/)?.[1]?.trim().split(/\s+/)[0];
   const words = esc(raw).replace(/\*/g, "").toUpperCase().split(/\s+/).filter(Boolean);
   let emphIdx = -1;
   if (!allGold && words.length) {
     const found = marked ? words.findIndex((w) => w === marked.toUpperCase()) : -1;
-    emphIdx = found !== -1 ? found : words.length - 1; // fallback: last word gold
+    emphIdx = found !== -1 ? found : words.length - 1;
   }
 
   const lines: string[][] = [];
@@ -69,19 +77,10 @@ function wrapTitle(
   if (line.length) lines.push(line);
 
   let i = 0;
-  const rendered = lines
-    .map((ws) =>
-      ws
-        .map((w) => {
-          const out = !allGold && i === emphIdx ? `{\\c${GOLD}}${w}{\\c${WHITE}}` : w;
-          i++;
-          return out;
-        })
-        .join(" ")
-    )
+  const text = lines
+    .map((ws) => ws.map((w) => (i++ === emphIdx ? `{\\c${GOLD}}${w}{\\c${WHITE}}` : w)).join(" "))
     .join("\\N");
-
-  return { text: rendered, lines: lines.length };
+  return { text, lines: lines.length };
 }
 
 function wrapBody(text: string, maxChars: number): { text: string; lines: number } {
@@ -100,107 +99,181 @@ function wrapBody(text: string, maxChars: number): { text: string; lines: number
   return { text: lines.join("\\N"), lines: lines.length };
 }
 
-function buildSlide(slide: Slide, index: number, total: number) {
-  const isCover = slide.kind === "cover";
-  const isCta = slide.kind === "cta";
+/** Build the ASS + ffmpeg drawbox list for one point slide. */
+function buildPoint(slide: Slide, contentNo: number, position: number, total: number) {
+  const titleFs = 104;
+  const titleLh = 110;
+  const bodyFs = 56;
+  const bodyLh = 80;
 
-  const titleFs = isCover ? 136 : 104;
-  const titleLh = isCover ? 144 : 110; // tight — Anton is a poster font
-  const bodyFs = isCover ? 60 : 56;
-  const bodyLh = isCover ? 86 : 80;
+  const title = wrapTitle(slide.title, 17);
+  const body = slide.body?.trim() ? wrapBody(slide.body, 36) : null;
 
-  const title = wrapTitle(slide.title, isCover ? 13 : 17, isCta);
-  const body = slide.body?.trim() ? wrapBody(slide.body, isCover ? 30 : 36) : null;
-
-  // Vertically balance the content block inside the zone between header and
-  // footer, sitting it slightly above true centre (optically better).
   const ruleGap = 46;
   const ruleH = 6;
   const postRule = 64;
-  const blockH =
-    title.lines * titleLh + (body ? ruleGap + ruleH + postRule + body.lines * bodyLh : 0);
+  const blockH = title.lines * titleLh + (body ? ruleGap + ruleH + postRule + body.lines * bodyLh : 0);
   const zoneTop = 280;
   const zoneBottom = 1210;
   const titleY = zoneTop + Math.max(0, Math.round((zoneBottom - zoneTop - blockH) * 0.4));
   const ruleY = titleY + title.lines * titleLh + ruleGap;
   const bodyY = ruleY + ruleH + postRule;
 
-  const kicker = isCta ? "ASTON VIP · ASTON.AE" : "ASTON VIP";
-  const events: string[] = [];
+  const events = [
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Ghost,,0,0,0,,{\\an9\\pos(1052,44)}${String(contentNo).padStart(2, "0")}`,
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Kicker,,0,0,0,,{\\an7\\pos(80,150)\\fsp6}ASTON VIP`,
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Title,,0,0,0,,{\\an7\\pos(80,${titleY})}${title.text}`,
+    ...(body ? [`Dialogue: 0,0:00:00.00,0:00:01.00,Body,,0,0,0,,{\\an7\\pos(80,${bodyY})}${body.text}`] : []),
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Footer,,0,0,0,,{\\an7\\pos(80,1272)}aston.ae`,
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Footer,,0,0,0,,{\\an9\\pos(1000,1272)\\c${GOLD}\\fsp2}${position}/${total}`,
+  ];
 
-  // Ghost slide numeral fills the top-right on point slides.
-  if (slide.kind === "point") {
-    events.push(`Dialogue: 0,0:00:00.00,0:00:01.00,Ghost,,0,0,0,,{\\an9\\pos(1052,44)}${String(index).padStart(2, "0")}`);
-  }
-  events.push(`Dialogue: 0,0:00:00.00,0:00:01.00,Kicker,,0,0,0,,{\\an7\\pos(80,150)\\fsp6}${kicker}`);
-  events.push(
-    `Dialogue: 0,0:00:00.00,0:00:01.00,${isCover ? "Cover" : "Title"},,0,0,0,,{\\an7\\pos(80,${titleY})${isCta ? `\\c${GOLD}` : ""}}${title.text}`
-  );
-  if (body) {
-    events.push(`Dialogue: 0,0:00:00.00,0:00:01.00,Body,,0,0,0,,{\\an7\\pos(80,${bodyY})}${body.text}`);
-  }
-  events.push(`Dialogue: 0,0:00:00.00,0:00:01.00,Footer,,0,0,0,,{\\an7\\pos(80,1272)}aston.ae`);
-  events.push(
-    `Dialogue: 0,0:00:00.00,0:00:01.00,Footer,,0,0,0,,{\\an9\\pos(1000,1272)\\c${GOLD}\\fsp2}${
-      isCover ? `1/${total}  ·  SWIPE` : `${index}/${total}`
-    }`
-  );
-
-  const ass = [
-    "[Script Info]",
-    "ScriptType: v4.00+",
-    `PlayResX: ${W}`,
-    `PlayResY: ${H}`,
-    "WrapStyle: 2",
-    "",
-    "[V4+ Styles]",
-    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    // ~12% white — the translucent numeral.
+  const styles = [
     `Style: Ghost,Anton,400,&HE2FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,9,0,0,0,1`,
     `Style: Kicker,Lato,40,${GOLD},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
-    `Style: Cover,Anton,${titleFs},${WHITE},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: Title,Anton,${titleFs},${WHITE},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: Body,Lato,${bodyFs},&H00F0F0F0,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
     `Style: Footer,Lato,34,&H00A8A8A8,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
-    "",
-    "[Events]",
-    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-    ...events,
-  ].join("\n");
+  ];
 
-  // Header bar always; the short gold rule only when there's a body under it.
   const boxes = [`drawbox=x=80:y=104:w=140:h=8:color=0xC9A84C:t=fill`];
   if (body) boxes.push(`drawbox=x=80:y=${ruleY}:w=110:h=${ruleH}:color=0xC9A84C:t=fill`);
 
-  return { ass, boxes };
+  return { ass: [ASS_HEAD, ...styles, EVENTS_HEAD, ...events].join("\n"), boxes };
 }
 
-/** Render every slide of a deck to PNG buffers, in order. */
-export async function renderSlideImages(slides: Slide[]): Promise<Buffer[]> {
+/** Intro slide ASS — kicker + title live in the navy band below the photo. */
+function buildIntroAss(hook: string): string {
+  const title = wrapTitle(hook, 18);
+  const styles = [
+    `Style: Kicker,Lato,40,${GOLD},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+    `Style: Title,Anton,90,${WHITE},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+    `Style: Footer,Lato,34,&H00A8A8A8,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+  ];
+  const titleY = 932; // fixed; the band has room down to the SWIPE marker for 3 lines
+  const events = [
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Kicker,,0,0,0,,{\\an7\\pos(80,858)\\fsp6}ASTON VIP`,
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Title,,0,0,0,,{\\an7\\pos(80,${titleY})}${title.text}`,
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Footer,,0,0,0,,{\\an9\\pos(1000,1290)\\c${GOLD}\\fsp2}SWIPE`,
+  ];
+  return [ASS_HEAD, ...styles, EVENTS_HEAD, ...events].join("\n");
+}
+
+/** Contact slide ASS — centred block ported from the video end screen. */
+function buildContactAss(total: number): string {
+  const styles = [
+    `Style: Kicker,Lato,38,${GOLD},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,8,0,0,0,1`,
+    `Style: Lead,Anton,64,${WHITE},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,8,0,0,0,1`,
+    `Style: Label,Lato,32,${GOLD},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,8,0,0,0,1`,
+    `Style: Value,Lato,50,${WHITE},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,8,0,0,0,1`,
+    `Style: Site,Anton,72,${GOLD},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,8,0,0,0,1`,
+    `Style: Footer,Lato,34,&H00A8A8A8,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1`,
+  ];
+  const events = [
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Kicker,,0,0,0,,{\\an8\\pos(540,506)\\fsp8}${CONTACT.tagline.toUpperCase()}`,
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Lead,,0,0,0,,{\\an8\\pos(540,572)}${esc(CONTACT.cta).toUpperCase()}`,
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Label,,0,0,0,,{\\an8\\pos(540,724)\\fsp4}${CONTACT.whatsappLabel.toUpperCase()}`,
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Value,,0,0,0,,{\\an8\\pos(540,772)}${esc(CONTACT.whatsapp)}`,
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Site,,0,0,0,,{\\an8\\pos(540,892)}${CONTACT.site}`,
+    `Dialogue: 0,0:00:00.00,0:00:01.00,Footer,,0,0,0,,{\\an9\\pos(1000,1272)\\c${GOLD}\\fsp2}${total}/${total}`,
+  ];
+  return [ASS_HEAD, ...styles, EVENTS_HEAD, ...events].join("\n");
+}
+
+/**
+ * Render an entire carousel: intro image slide → point slides → contact slide.
+ * `introImage` and `logo` are optional — each degrades to a clean text-only
+ * treatment if absent so a carousel is never blocked on an asset.
+ */
+export async function renderCarousel(input: {
+  hook: string;
+  slides: Slide[];
+  introImage?: Buffer;
+  logo?: Buffer;
+}): Promise<Buffer[]> {
   if (!ffmpegPath) throw new Error("ffmpeg-static binary not found");
-  const dir = await mkdtemp(join(tmpdir(), "slides-"));
+  const total = input.slides.length + 2;
+  const dir = await mkdtemp(join(tmpdir(), "carousel-"));
+
+  const run = async (args: string[], outName: string): Promise<Buffer> => {
+    await execFileAsync(ffmpegPath!, args, { cwd: dir, timeout: 60_000, maxBuffer: 1 << 26 });
+    const png = await readFile(join(dir, outName));
+    if (png.length < 1024) throw new Error(`${outName} rendered empty`);
+    return png;
+  };
+
   try {
     await copyFile(join(FONTS, "Anton-Regular.ttf"), join(dir, "Anton-Regular.ttf"));
     await copyFile(join(FONTS, "Lato-Regular.ttf"), join(dir, "Lato-Regular.ttf"));
 
     const out: Buffer[] = [];
-    for (let i = 0; i < slides.length; i++) {
-      const { ass, boxes } = buildSlide(slides[i], i + 1, slides.length);
-      const assFile = `s${i}.ass`;
-      await writeFile(join(dir, assFile), ass);
-      await execFileAsync(
-        ffmpegPath,
-        [
-          "-f", "lavfi", "-i", BG,
-          "-vf", `${boxes.join(",")},ass=${assFile}:fontsdir=.`,
-          "-frames:v", "1", "-y", `s${i}.png`,
-        ],
-        { cwd: dir, timeout: 60_000, maxBuffer: 1 << 26 }
+
+    // ── Intro slide ────────────────────────────────────────────
+    await writeFile(join(dir, "intro.ass"), buildIntroAss(input.hook));
+    if (input.introImage) {
+      await writeFile(join(dir, "intro_src.png"), input.introImage);
+      out.push(
+        await run(
+          [
+            "-f", "lavfi", "-i", BG,
+            "-i", "intro_src.png",
+            "-filter_complex",
+            `[1:v]scale=${W}:${IMG_H}:force_original_aspect_ratio=increase,crop=${W}:${IMG_H}[img];` +
+              `[0:v][img]overlay=0:0[b];` +
+              `[b]drawbox=x=0:y=${IMG_H}:w=${W}:h=4:color=0xC9A84C:t=fill,ass=intro.ass:fontsdir=.[out]`,
+            "-map", "[out]", "-frames:v", "1", "-y", "intro.png",
+          ],
+          "intro.png"
+        )
       );
-      const png = await readFile(join(dir, `s${i}.png`));
-      if (png.length < 1024) throw new Error(`slide ${i + 1} rendered empty`);
-      out.push(png);
+    } else {
+      // No photo — fall back to a navy title slide (gold bar + title in the band).
+      out.push(
+        await run(
+          ["-f", "lavfi", "-i", BG, "-vf", `drawbox=x=80:y=868:w=140:h=8:color=0xC9A84C:t=fill,ass=intro.ass:fontsdir=.`, "-frames:v", "1", "-y", "intro.png"],
+          "intro.png"
+        )
+      );
     }
+
+    // ── Point slides ───────────────────────────────────────────
+    for (let i = 0; i < input.slides.length; i++) {
+      const { ass, boxes } = buildPoint(input.slides[i], i + 1, i + 2, total);
+      await writeFile(join(dir, `p${i}.ass`), ass);
+      out.push(
+        await run(
+          ["-f", "lavfi", "-i", BG, "-vf", `${boxes.join(",")},ass=p${i}.ass:fontsdir=.`, "-frames:v", "1", "-y", `p${i}.png`],
+          `p${i}.png`
+        )
+      );
+    }
+
+    // ── Contact slide ──────────────────────────────────────────
+    await writeFile(join(dir, "contact.ass"), buildContactAss(total));
+    const rules = `drawbox=x=500:y=470:w=80:h=4:color=0xC9A84C:t=fill,drawbox=x=500:y=1000:w=80:h=4:color=0xC9A84C:t=fill`;
+    if (input.logo) {
+      await writeFile(join(dir, "logo.png"), input.logo);
+      out.push(
+        await run(
+          [
+            "-f", "lavfi", "-i", BG,
+            "-i", "logo.png",
+            "-filter_complex",
+            `[1:v]scale=-1:150[logo];[0:v][logo]overlay=(W-w)/2:250[b];[b]${rules},ass=contact.ass:fontsdir=.[out]`,
+            "-map", "[out]", "-frames:v", "1", "-y", "contact.png",
+          ],
+          "contact.png"
+        )
+      );
+    } else {
+      out.push(
+        await run(
+          ["-f", "lavfi", "-i", BG, "-vf", `${rules},ass=contact.ass:fontsdir=.`, "-frames:v", "1", "-y", "contact.png"],
+          "contact.png"
+        )
+      );
+    }
+
     return out;
   } finally {
     await rm(dir, { recursive: true, force: true });

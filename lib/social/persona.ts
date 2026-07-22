@@ -20,6 +20,18 @@ export const PRESENTER = {
   ].join(" "),
 } as const;
 
+/**
+ * Contact details shown on the carousel's closing slide. Kept identical to the
+ * YouTube video generator's end screen (CtaEndScreen in the Remotion comp).
+ */
+export const CONTACT = {
+  tagline: "Corporate Advisory",
+  cta: "Speak with our advisers today",
+  whatsappLabel: "WhatsApp Business",
+  whatsapp: "+1 (555) 710-9807",
+  site: "aston.ae",
+} as const;
+
 export const FIRM = {
   name: "Aston VIP",
   site: "aston.ae",

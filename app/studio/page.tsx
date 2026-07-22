@@ -86,8 +86,8 @@ export default function StudioPage() {
   >({});
 
   // Image carousel (text-on-image slides) — the non-video alternative.
-  const [slideCount, setSlideCount] = useState(6);
-  const [carousel, setCarousel] = useState<{ slides: Array<{ kind: string; title: string }>; imageUrls: string[] } | null>(null);
+  const [slideCount, setSlideCount] = useState(5);
+  const [carousel, setCarousel] = useState<{ hook?: string; slides: Array<{ title: string }>; imageUrls: string[] } | null>(null);
   const [carouselLoading, setCarouselLoading] = useState(false);
   const [carouselCaptions, setCarouselCaptions] = useState<Record<string, string> | null>(null);
   const [carouselCapLoading, setCarouselCapLoading] = useState(false);
@@ -283,7 +283,7 @@ export default function StudioPage() {
         setError(data.error || `Carousel generation failed (${res.status})`);
         return;
       }
-      setCarousel({ slides: data.deck?.slides ?? [], imageUrls: data.imageUrls ?? [] });
+      setCarousel({ hook: data.deck?.hook, slides: data.deck?.slides ?? [], imageUrls: data.imageUrls ?? [] });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -299,8 +299,8 @@ export default function StudioPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: topic.trim(),
-          summary: carousel.slides.map((s) => s.title).join(". "),
+          title: carousel.hook || topic.trim(),
+          summary: [carousel.hook, ...carousel.slides.map((s) => s.title)].filter(Boolean).join(". "),
           focusKeyword: topic.trim(),
           targets: CAROUSEL_TARGETS,
         }),
@@ -465,17 +465,18 @@ export default function StudioPage() {
         <section className={card}>
           <h2 className="text-xs uppercase tracking-[0.2em] text-gold/70 mb-2">Image carousel</h2>
           <p className="text-xs text-white/40 mb-4">
-            Turns the same topic into 5&ndash;7 branded text slides — for when you&apos;d rather post images than a
-            reel. Shares to TikTok, Instagram, Facebook and LinkedIn (YouTube has no image-post API).
+            Turns the same topic into a branded carousel — for when you&apos;d rather post images than a reel. Every
+            deck gets an AI-image intro and a contact slide added automatically, so {slideCount} content slides ={" "}
+            {slideCount + 2} images total. Shares to TikTok, Instagram, Facebook and LinkedIn (YouTube has no image-post API).
           </p>
 
           <div className="flex items-end gap-3 flex-wrap">
             <div>
-              <label className={label}>Slides</label>
+              <label className={label}>Content slides</label>
               <select className={input} value={slideCount} onChange={(e) => setSlideCount(Number(e.target.value))}>
-                {[5, 6, 7].map((n) => (
+                {[4, 5, 6, 7, 8].map((n) => (
                   <option key={n} value={n} className="bg-[#1a1a1a]">
-                    {n} slides
+                    {n} + intro & contact
                   </option>
                 ))}
               </select>

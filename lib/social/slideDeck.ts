@@ -1,39 +1,47 @@
 /**
  * lib/social/slideDeck.ts
- * Writes the COPY for a text-on-image carousel (5–7 slides) in Aston's voice.
+ * Writes the COPY for a text-on-image carousel and generates the intro image.
  * The images themselves are rendered programmatically (slideRender.ts) — the
  * model never draws text, it only writes it, so nothing is ever misspelled.
  *
- * Deck shape: a scroll-stopping cover, one idea per middle slide, and a CTA
- * close. Per the account's model constraints, gpt-5.x is called WITHOUT a
- * temperature.
+ * Deck shape: an image intro slide (GPT Image 2 photo + a navy title banner),
+ * N one-idea point slides, and a fixed contact slide. The model writes the
+ * intro hook, an image brief for the photo, and the point copy; the contact
+ * slide is fixed (ported from the video generator's end screen).
+ *
+ * Per the account's model constraints, gpt-5.x is called WITHOUT a temperature.
  */
 
 import OpenAI from "openai";
 import { chatWithRetry, assertCompleted, extractJson } from "@/lib/llm";
+import { generateImage } from "@/lib/openai";
 import { PERSONA_BLOCK, COMPLIANCE_BLOCK, FIRM } from "@/lib/social/persona";
 
 export interface Slide {
-  kind: "cover" | "point" | "cta";
-  /** Big display headline. Cover ≤ 8 words; point/cta ≤ 6. Rendered in caps. */
+  kind: "point";
+  /** Big display headline, ≤ 6 words. Rendered in caps with one gold word. */
   title: string;
-  /** Supporting sentence(s), ≤ 40 words. Cover may omit it. */
+  /** Supporting sentence(s), ≤ 22 words. */
   body?: string;
 }
 
 export interface SlideDeck {
   topic: string;
+  /** Intro slide headline (the hook). May contain one *asterisked* emphasis word. */
+  hook: string;
+  /** A text-free visual scene for the intro image (GPT Image 2). */
+  imageBrief: string;
+  /** The middle point slides. */
   slides: Slide[];
 }
 
 export async function generateSlideDeck(req: {
   topic: string;
   angle?: string;
-  /** Total slides including cover and CTA. Clamped 5–7. */
+  /** Number of CONTENT (point) slides. The intro + contact bookends are added on top. Clamped 4–8. */
   slideCount?: number;
 }): Promise<SlideDeck> {
-  const total = Math.min(7, Math.max(5, req.slideCount ?? 6));
-  const points = total - 2; // minus cover + cta
+  const points = Math.min(8, Math.max(4, req.slideCount ?? 5));
 
   const system = `You write carousel slide copy for ${FIRM.name}'s social channels (TikTok photo posts, Instagram carousels, Facebook, LinkedIn).
 
@@ -42,15 +50,12 @@ ${PERSONA_BLOCK}
 ${COMPLIANCE_BLOCK}
 
 ═══ THE JOB ═══
-A carousel is a swipeable argument: the cover earns the swipe, each middle slide lands ONE idea, the last slide invites action. Written copy only — the design is rendered separately, so never mention visuals, arrows or emoji.
+A carousel is a swipeable argument. The deck opens on an IMAGE slide (a photo with a title banner), then ${points} point slides each land ONE idea, then a fixed contact slide closes it. You write: the intro hook, a brief for the intro photo, and the ${points} point slides. You do NOT write the contact slide.
 
-═══ DECK SHAPE (exactly ${total} slides) ═══
-1. COVER — kind "cover". A scroll-stopping headline, max 8 words. A truth, mistake or blunt statement — never the topic restated. Optional body of ONE short line (max 8 words) that sharpens it.
-2–${total - 1}. POINTS — kind "point", ${points} slides. One idea each. Title max 6 words; body max 22 words of genuinely useful substance — slides are glanced at, not read. Sequence them so they build.
-${total}. CTA — kind "cta". Title max 6 words. Body warmly invites a free call at ${FIRM.site} — no pitch, no pressure. Never salesy. Max 20 words.
-
-═══ EMPHASIS ═══
-In every cover and point title, mark the single word that carries the weight by wrapping it in *asterisks* (e.g. "Banks read *structure* first"). Exactly one marked word per title — it is rendered in gold.
+═══ WHAT TO RETURN ═══
+- hook: the intro slide headline. Max 8 words. A scroll-stopping truth, mistake or blunt statement — never the topic restated. Mark the single strongest word with *asterisks* (rendered gold).
+- imageBrief: a short description of a professional, editorial PHOTO for the intro background — relevant to the topic, corporate/business world, Dubai or London setting where it fits. It MUST contain no text, no words, no logos, no charts. Describe scene, subject, lighting, mood only.
+- slides: ${points} point slides. Each: title (max 6 words, mark one word with *asterisks*) + body (max 22 words of genuinely useful substance — slides are glanced at, not read). Sequence them so they build.
 
 ═══ LANGUAGE ═══
 - British English only.
@@ -59,13 +64,13 @@ In every cover and point title, mark the single word that carries the weight by 
 
 ═══ OUTPUT ═══
 Return ONLY this JSON:
-{ "slides": [ { "kind": "cover|point|cta", "title": "...", "body": "..." } ] }`;
+{ "hook": "...", "imageBrief": "...", "slides": [ { "title": "...", "body": "..." } ] }`;
 
   const user = [
     `Topic: ${req.topic}`,
     req.angle ? `Angle / marketing goal: ${req.angle}` : "",
     "",
-    `Write the ${total}-slide deck. Respect the word limits exactly — titles are rendered large and cannot wrap far.`,
+    `Write the hook, the intro image brief, and the ${points} point slides. Respect the word limits exactly — titles are rendered large and cannot wrap far.`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -77,9 +82,34 @@ Return ONLY this JSON:
     { label: "slideDeck", timeoutMs: 90_000 }
   );
   const raw = assertCompleted(res, "slideDeck");
-  const parsed = extractJson<{ slides?: Slide[] }>(raw, "slideDeck");
+  const parsed = extractJson<{ hook?: string; imageBrief?: string; slides?: Array<{ title?: string; body?: string }> }>(
+    raw,
+    "slideDeck"
+  );
 
-  const slides = (parsed.slides ?? []).filter((s) => s?.title?.trim());
+  const slides: Slide[] = (parsed.slides ?? [])
+    .filter((s) => s?.title?.trim())
+    .map((s) => ({ kind: "point" as const, title: s.title!.trim(), body: s.body?.trim() }));
   if (slides.length < 3) throw new Error("slideDeck: model returned too few slides");
-  return { topic: req.topic, slides };
+  if (!parsed.hook?.trim()) throw new Error("slideDeck: model returned no hook");
+
+  return {
+    topic: req.topic,
+    hook: parsed.hook.trim(),
+    imageBrief: parsed.imageBrief?.trim() || `A professional, editorial photograph representing ${req.topic}. Corporate business setting, no text.`,
+    slides,
+  };
+}
+
+/**
+ * Generate the intro background photo with GPT Image 2. Text is overlaid later,
+ * so the prompt hard-forbids any text in the image.
+ */
+export async function generateIntroImage(imageBrief: string): Promise<Buffer> {
+  const prompt = [
+    imageBrief,
+    "Editorial, cinematic corporate photography. Muted, sophisticated palette with deep navy and subtle warm tones. Shallow depth of field, natural light, premium and understated.",
+    "ABSOLUTELY NO text, no words, no letters, no numbers, no logos, no watermarks, no charts, no graphs, no captions anywhere in the image.",
+  ].join(" ");
+  return generateImage(prompt, "gpt-image-2");
 }
