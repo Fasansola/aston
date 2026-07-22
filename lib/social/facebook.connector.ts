@@ -45,16 +45,27 @@ export default class FacebookConnector implements SocialConnector {
     const { post, target } = input;
     const { pageId, token } = await resolve(input.targetConfig);
     const message = post.link ? `${post.text}\n\n${post.link}` : post.text;
-    const image = post.mediaUrls?.[0];
+    const media = post.mediaUrls?.[0];
+    const isVideo = !!media && /\.(mp4|mov|m4v)(\?|$)/i.test(media);
 
     try {
       let postId: string;
-      if (image) {
+      if (isVideo) {
+        // Video post — Facebook fetches the file itself via file_url, so no
+        // download here. The caption goes in `description`.
+        const data = await graphCall<{ id: string }>(
+          FB_GRAPH_BASE,
+          `${pageId}/videos`,
+          { file_url: media!, description: message, access_token: token },
+          "POST"
+        );
+        postId = data.id;
+      } else if (media) {
         // Photo post — caption goes in `message`.
         const data = await graphCall<{ id: string; post_id?: string }>(
           FB_GRAPH_BASE,
           `${pageId}/photos`,
-          { url: image, message, access_token: token },
+          { url: media, message, access_token: token },
           "POST"
         );
         postId = data.post_id || data.id;
@@ -71,7 +82,7 @@ export default class FacebookConnector implements SocialConnector {
         target,
         ok: true,
         status: "passed",
-        message: "Posted to Facebook Page",
+        message: isVideo ? "Posted video to Facebook Page (processing)" : "Posted to Facebook Page",
         externalUrl: `https://www.facebook.com/${postId}`,
         platformPostId: postId,
       };

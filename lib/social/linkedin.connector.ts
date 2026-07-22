@@ -78,20 +78,91 @@ export default class LinkedInConnector implements SocialConnector {
     return value.image;
   }
 
+  /**
+   * Register + upload a video, returning its URN, or throw. Three steps:
+   * initializeUpload → PUT the bytes to each returned instruction (collecting the
+   * ETags) → finalizeUpload. Single-part covers short reels; large multi-part
+   * files would need chunk parallelism we don't do here.
+   */
+  private async uploadVideo(token: string, version: string, authorUrn: string, url: string): Promise<string> {
+    const vid = await fetch(url);
+    if (!vid.ok) throw new Error(`could not fetch media ${url} (${vid.status})`);
+    const bytes = Buffer.from(await vid.arrayBuffer());
+
+    const init = await fetch(`${API}/videos?action=initializeUpload`, {
+      method: "POST",
+      headers: headers(token, version),
+      body: JSON.stringify({
+        initializeUploadRequest: {
+          owner: authorUrn,
+          fileSizeBytes: bytes.length,
+          uploadCaptions: false,
+          uploadThumbnail: false,
+        },
+      }),
+    });
+    if (!init.ok) throw new Error(`video init failed (${init.status}): ${await init.text()}`);
+    const { value } = (await init.json()) as {
+      value: {
+        video: string;
+        uploadToken?: string;
+        uploadInstructions: Array<{ uploadUrl: string; firstByte: number; lastByte: number }>;
+      };
+    };
+    const instructions = value.uploadInstructions ?? [];
+    if (!instructions.length) throw new Error("video init returned no upload instructions");
+
+    const partIds: string[] = [];
+    for (const inst of instructions) {
+      const chunk = bytes.subarray(inst.firstByte, inst.lastByte + 1);
+      const up = await fetch(inst.uploadUrl, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}` },
+        body: chunk,
+      });
+      if (!up.ok) throw new Error(`video part upload failed (${up.status})`);
+      const etag = up.headers.get("etag");
+      if (!etag) throw new Error("video upload returned no ETag");
+      partIds.push(etag);
+    }
+
+    const fin = await fetch(`${API}/videos?action=finalizeUpload`, {
+      method: "POST",
+      headers: headers(token, version),
+      body: JSON.stringify({
+        finalizeUploadRequest: { video: value.video, uploadToken: value.uploadToken ?? "", uploadedPartIds: partIds },
+      }),
+    });
+    if (!fin.ok) throw new Error(`video finalize failed (${fin.status}): ${await fin.text()}`);
+    return value.video;
+  }
+
   async publish(input: SocialPublishRequest): Promise<SocialPublishResult> {
     const { post, target } = input;
     const { token, authorUrn, version } = await resolve(input.targetConfig);
     const commentary = escapeCommentary(post.link ? `${post.text}\n\n${post.link}` : post.text);
+    const media = post.mediaUrls?.[0];
+    const isVideo = !!media && /\.(mp4|mov|m4v)(\?|$)/i.test(media);
 
     let status: SocialPublishResult["status"] = "passed";
     let note = "";
-    let imageUrn: string | undefined;
-    if (post.mediaUrls?.[0]) {
-      try {
-        imageUrn = await this.uploadImage(token, version, authorUrn, post.mediaUrls[0]);
-      } catch (e) {
-        status = "warning";
-        note = ` (image skipped: ${e instanceof Error ? e.message : String(e)})`;
+    let mediaUrn: string | undefined;
+    if (media) {
+      if (isVideo) {
+        // A reel is pointless without its video, so a video failure is fatal
+        // (unlike an image, which degrades to a text post below).
+        try {
+          mediaUrn = await this.uploadVideo(token, version, authorUrn, media);
+        } catch (e) {
+          return { target, ok: false, status: "failed", message: `LinkedIn video upload failed: ${e instanceof Error ? e.message : String(e)}` };
+        }
+      } else {
+        try {
+          mediaUrn = await this.uploadImage(token, version, authorUrn, media);
+        } catch (e) {
+          status = "warning";
+          note = ` (image skipped: ${e instanceof Error ? e.message : String(e)})`;
+        }
       }
     }
 
@@ -102,7 +173,7 @@ export default class LinkedInConnector implements SocialConnector {
       distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
       lifecycleState: "PUBLISHED",
       isReshareDisabledByAuthor: false,
-      ...(imageUrn ? { content: { media: { id: imageUrn, title: post.text.slice(0, 60) } } } : {}),
+      ...(mediaUrn ? { content: { media: { id: mediaUrn, title: post.text.slice(0, 60) } } } : {}),
     };
 
     try {
