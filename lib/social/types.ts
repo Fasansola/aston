@@ -12,7 +12,8 @@ export type SocialTarget =
   | "facebook"
   | "instagram"
   | "linkedin"
-  | "tiktok";
+  | "tiktok"
+  | "youtube";
 
 /** One piece of social content, before per-platform adaptation. */
 export interface SocialPost {

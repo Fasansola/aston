@@ -325,6 +325,44 @@ export async function postVideoComment(videoId: string, text: string): Promise<v
   }, { signal: AbortSignal.timeout(30_000) });
 }
 
+/**
+ * Lists the top-level comments on a video, newest first. Used by the social
+ * connector's comment inbox. Returns the top-level comment id (usable as the
+ * parent when replying). Requires the youtube.force-ssl scope.
+ */
+export async function listVideoComments(
+  videoId: string,
+  max = 50
+): Promise<Array<{ id: string; author: string; text: string; createdAt?: string }>> {
+  const yt = youtubeClient();
+  const res = await yt.commentThreads.list(
+    { part: ["snippet"], videoId, maxResults: max, order: "time" },
+    { signal: AbortSignal.timeout(30_000) }
+  );
+  return (res.data.items ?? []).map((item) => {
+    const c = item.snippet?.topLevelComment;
+    return {
+      id: c?.id ?? "",
+      author: c?.snippet?.authorDisplayName ?? "YouTube user",
+      text: c?.snippet?.textDisplay ?? "",
+      createdAt: c?.snippet?.publishedAt ?? undefined,
+    };
+  });
+}
+
+/**
+ * Replies to an existing comment (by its top-level comment id). Returns the new
+ * reply's id. Requires the youtube.force-ssl scope.
+ */
+export async function replyToVideoComment(parentCommentId: string, text: string): Promise<string> {
+  const yt = youtubeClient();
+  const res = await yt.comments.insert(
+    { part: ["snippet"], requestBody: { snippet: { parentId: parentCommentId, textOriginal: text } } },
+    { signal: AbortSignal.timeout(30_000) }
+  );
+  return res.data.id ?? "";
+}
+
 // ── 4. WordPress patch ────────────────────────────────────────────────────────
 
 /**

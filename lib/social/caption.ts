@@ -29,6 +29,7 @@ const STYLE: Record<SocialTarget, string> = {
   instagram: "Visual-first and engaging. A strong hook, then value. 3–6 relevant hashtags at the end.",
   linkedin: "Authoritative and B2B. A strong professional hook, one or two sentences of insight, a subtle call to read. 2–4 industry hashtags.",
   tiktok: "Short, energetic video caption. A hook that fits a scroll. 2–4 trending-style but relevant hashtags.",
+  youtube: "A YouTube Shorts description. A searchable first line with the topic, then a sentence of context. 3–5 relevant hashtags including #Shorts.",
 };
 
 /** Characters the connector will spend on the appended link (URL + two newlines). */

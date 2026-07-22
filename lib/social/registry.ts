@@ -10,15 +10,17 @@ import FacebookConnector from "@/lib/social/facebook.connector";
 import InstagramConnector from "@/lib/social/instagram.connector";
 import LinkedInConnector from "@/lib/social/linkedin.connector";
 import TikTokConnector from "@/lib/social/tiktok.connector";
+import YouTubeConnector from "@/lib/social/youtube.connector";
 
 const connectors: Record<SocialTarget, SocialConnector> = {
   facebook: new FacebookConnector(),
   instagram: new InstagramConnector(),
   linkedin: new LinkedInConnector(),
   tiktok: new TikTokConnector(),
+  youtube: new YouTubeConnector(),
 };
 
-const TARGET_KEYS: SocialTarget[] = ["facebook", "instagram", "linkedin", "tiktok"];
+const TARGET_KEYS: SocialTarget[] = ["facebook", "instagram", "linkedin", "tiktok", "youtube"];
 
 export function getSocialConnector(target: SocialTarget): SocialConnector {
   return connectors[target];
@@ -33,6 +35,11 @@ export function getAvailableSocialTargets(): AvailableSocialTarget[] {
   const instagramOk = !!(process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID && (process.env.INSTAGRAM_ACCESS_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN));
   const linkedinOk = !!(process.env.LINKEDIN_ACCESS_TOKEN && process.env.LINKEDIN_AUTHOR_URN);
   const tiktokOk = !!process.env.TIKTOK_ACCESS_TOKEN;
+  const youtubeOk = !!(
+    process.env.YOUTUBE_CLIENT_ID &&
+    process.env.YOUTUBE_CLIENT_SECRET &&
+    process.env.YOUTUBE_REFRESH_TOKEN
+  );
 
   return [
     {
@@ -100,6 +107,19 @@ export function getAvailableSocialTargets(): AvailableSocialTarget[] {
           ],
         },
       ],
+    },
+    {
+      key: "youtube",
+      label: "YouTube",
+      description: "Uploads a vertical reel as a Short — reuses the blog pipeline's YouTube connection",
+      connected: youtubeOk,
+      connectionState: youtubeOk ? "connected" : "missing_token",
+      charLimit: connectors.youtube.charLimit,
+      supportsMedia: true,
+      requiresMedia: true,
+      supportsComments: true,
+      // Auth is the shared YouTube OAuth refresh token in env — nothing to enter here.
+      configFields: [],
     },
   ];
 }
