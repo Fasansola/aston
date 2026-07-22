@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
     const job = await startReelRender({
       script,
       title: typeof body.title === "string" ? body.title : undefined,
+      captions: body.captions !== false, // default on
     });
     return NextResponse.json({ job });
   } catch (e) {

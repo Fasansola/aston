@@ -28,6 +28,7 @@ interface ReelRenderJob {
   videoUrl?: string;
   thumbnailUrl?: string;
   durationSecs?: number;
+  captioned?: boolean;
   error?: string;
   createdAt: string;
 }
@@ -60,6 +61,7 @@ export default function StudioPage() {
   const [angle, setAngle] = useState("");
   const [duration, setDuration] = useState(40);
   const [count, setCount] = useState(3);
+  const [captions, setCaptions] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -145,7 +147,7 @@ export default function StudioPage() {
       const res = await fetch("/api/social/reel-render", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ script: s.script, title: s.onScreenTitle || s.topic }),
+        body: JSON.stringify({ script: s.script, title: s.onScreenTitle || s.topic, captions }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -244,6 +246,19 @@ export default function StudioPage() {
                 </select>
               </div>
             </div>
+
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="accent-[#c9a84c]"
+                checked={captions}
+                onChange={(e) => setCaptions(e.target.checked)}
+              />
+              <span className="text-sm text-white/75">
+                Burn word-synced captions onto the reel
+                <span className="text-white/35"> — recommended, reels are watched on mute</span>
+              </span>
+            </label>
           </div>
 
           <div className="flex items-center gap-3 mt-5">
@@ -336,6 +351,9 @@ export default function StudioPage() {
                     <div className="text-xs text-white/50 space-y-1.5 pt-1">
                       <p className="text-emerald-400">Reel ready</p>
                       {jobs[i].durationSecs ? <p>{Math.round(jobs[i].durationSecs!)}s · 1080×1920</p> : null}
+                      <p className={jobs[i].captioned ? "text-white/50" : "text-amber-400"}>
+                        {jobs[i].captioned ? "Captions burned in" : "No captions"}
+                      </p>
                       <a
                         href={jobs[i].videoUrl}
                         target="_blank"

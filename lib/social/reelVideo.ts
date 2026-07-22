@@ -18,8 +18,9 @@
  */
 
 import { kget, kset } from "@/lib/storage";
-import { generateSpeech } from "@/lib/elevenlabs";
+import { generateSpeech, generateSpeechWithTimestamps, type WordTiming } from "@/lib/elevenlabs";
 import { createHeyGenVideo, getHeyGenVideoStatus } from "@/lib/heygen";
+import { burnCaptions } from "@/lib/social/burnCaptions";
 import { uploadAssetToS3 } from "@/lib/sceneImageS3";
 
 export type ReelJobStatus = "processing" | "completed" | "failed";
@@ -32,6 +33,11 @@ export interface ReelRenderJob {
   title: string;
   /** HeyGen's render id, polled until it completes. */
   heygenVideoId: string;
+  /** Whether captions were requested, and word timings to burn them (from ElevenLabs). */
+  wantCaptions: boolean;
+  words?: WordTiming[];
+  /** True once captions have actually been burned into videoUrl. */
+  captioned?: boolean;
   /** Permanent S3 URL, set once the render completes and is re-hosted. */
   videoUrl?: string;
   thumbnailUrl?: string;
@@ -68,6 +74,8 @@ export async function getReelJob(id: string): Promise<ReelRenderJob | null> {
 export async function startReelRender(input: {
   script: string;
   title?: string;
+  /** Burn word-synced captions onto the finished reel. Default true. */
+  captions?: boolean;
 }): Promise<ReelRenderJob> {
   const missing = ["ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "HEYGEN_API_KEY", "HEYGEN_AVATAR_ID"].filter(
     (k) => !process.env[k]
@@ -77,10 +85,21 @@ export async function startReelRender(input: {
   const script = input.script.trim();
   if (!script) throw new Error("script is required");
   const title = (input.title || script.split("\n").find((l) => l.trim()) || "Aston VIP reel").slice(0, 100);
+  const wantCaptions = input.captions !== false;
 
   // 1. Narration — the avatar is lip-synced to THIS audio, not a HeyGen voice.
-  const audio = await generateSpeech(script);
-  console.log(`[reelVideo] Narration ready — ${(audio.length / 1024).toFixed(1)} KB`);
+  //    With captions on, we also capture word timings (they align to the avatar
+  //    because it speaks this exact audio) to burn subtitles later.
+  let audio: Buffer;
+  let words: WordTiming[] | undefined;
+  if (wantCaptions) {
+    const spoken = await generateSpeechWithTimestamps(script);
+    audio = spoken.audio;
+    words = spoken.words;
+  } else {
+    audio = await generateSpeech(script);
+  }
+  console.log(`[reelVideo] Narration ready — ${(audio.length / 1024).toFixed(1)} KB${words ? `, ${words.length} word timings` : ""}`);
 
   // 2. Submit the vertical avatar render.
   const heygenVideoId = await createHeyGenVideo(audio, title, "9:16");
@@ -92,6 +111,8 @@ export async function startReelRender(input: {
     script,
     title,
     heygenVideoId,
+    wantCaptions,
+    words,
     createdAt: now,
     updatedAt: now,
   };
@@ -125,16 +146,30 @@ export async function checkReelRender(id: string): Promise<ReelRenderJob | null>
 
     if (res.status === "completed" && res.videoUrl) {
       let finalUrl = res.videoUrl;
-      // Re-host on S3 — HeyGen's download URLs are short-lived.
+      let captioned = false;
+      // Re-host on S3 — HeyGen's download URLs are short-lived — burning captions
+      // in between when requested.
       try {
         const mp4 = await fetch(res.videoUrl, { signal: AbortSignal.timeout(120_000) });
         if (!mp4.ok) throw new Error(`download returned ${mp4.status}`);
-        const buf = Buffer.from(await mp4.arrayBuffer());
+        let buf: Buffer = Buffer.from(await mp4.arrayBuffer());
+
+        if (job.wantCaptions && job.words?.length) {
+          try {
+            buf = await burnCaptions(buf, job.words);
+            captioned = true;
+            console.log(`[reelVideo] Job ${job.id} captions burned`);
+          } catch (e) {
+            // Non-fatal: ship the uncaptioned reel rather than lose the render.
+            console.warn(`[reelVideo] Job ${job.id} caption burn failed, using uncaptioned video: ${e}`);
+          }
+        }
+
         finalUrl = await uploadAssetToS3(buf, `${job.id}.mp4`, "video/mp4", "reels");
         console.log(`[reelVideo] Job ${job.id} re-hosted on S3 (${(buf.length / 1048576).toFixed(1)} MB)`);
       } catch (e) {
         // Keep the HeyGen URL rather than failing the whole job — it still plays,
-        // it just expires. Surfaced so the UI can warn.
+        // it just expires (and stays uncaptioned). Surfaced so the UI can warn.
         console.warn(`[reelVideo] Job ${job.id} S3 re-host failed, using HeyGen URL: ${e}`);
       }
 
@@ -142,8 +177,10 @@ export async function checkReelRender(id: string): Promise<ReelRenderJob | null>
         ...job,
         status: "completed",
         videoUrl: finalUrl,
+        captioned,
         thumbnailUrl: res.thumbnailUrl,
         durationSecs: res.duration,
+        words: undefined, // no longer needed once burned — keep the stored job small
         updatedAt: new Date().toISOString(),
       };
       await saveJob(done);

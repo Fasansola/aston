@@ -34,6 +34,9 @@ const nextConfig: NextConfig = {
     // Glob covers both /api/generate-podcast and /api/generate-podcast-test,
     // which both stitch audio with ffmpeg.
     "/api/generate-podcast*": ["./node_modules/ffmpeg-static/**/*"],
+    // The reel poll route burns captions with ffmpeg + the bundled Anton font;
+    // both are referenced via runtime paths Next's tracer can't auto-detect.
+    "/api/social/reel-render": ["./node_modules/ffmpeg-static/**/*", "./assets/fonts/**/*"],
   },
 };
 
