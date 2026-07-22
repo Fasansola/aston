@@ -258,16 +258,20 @@ export async function renderCarousel(input: {
     // ── Contact slide ──────────────────────────────────────────
     await writeFile(join(dir, "contact.ass"), buildContactAss(total));
     const rules = `drawbox=x=500:y=470:w=80:h=4:color=0xC9A84C:t=fill,drawbox=x=500:y=1000:w=80:h=4:color=0xC9A84C:t=fill`;
+
+    let contact: Buffer | undefined;
     if (input.logo) {
-      await writeFile(join(dir, "logo.png"), input.logo);
-      // Same two-pass, single-filterchain approach as the intro.
-      await execFileAsync(
-        ffmpegPath,
-        ["-i", "logo.png", "-vf", "scale=-1:150", "-frames:v", "1", "-y", "logo150.png"],
-        { cwd: dir, timeout: 60_000, maxBuffer: 1 << 26 }
-      );
-      out.push(
-        await run(
+      // Best-effort: if the logo can't be decoded (e.g. an SVG — ffmpeg has no
+      // SVG decoder) fall through to the text-only contact slide rather than
+      // failing the whole carousel.
+      try {
+        await writeFile(join(dir, "logo.png"), input.logo);
+        await execFileAsync(
+          ffmpegPath,
+          ["-i", "logo.png", "-vf", "scale=-1:150", "-frames:v", "1", "-y", "logo150.png"],
+          { cwd: dir, timeout: 60_000, maxBuffer: 1 << 26 }
+        );
+        contact = await run(
           [
             "-f", "lavfi", "-i", BG,
             "-i", "logo150.png",
@@ -276,16 +280,18 @@ export async function renderCarousel(input: {
             "-frames:v", "1", "-y", "contact.png",
           ],
           "contact.png"
-        )
-      );
-    } else {
-      out.push(
-        await run(
-          ["-f", "lavfi", "-i", BG, "-vf", `${rules},ass=contact.ass:fontsdir=.`, "-frames:v", "1", "-y", "contact.png"],
-          "contact.png"
-        )
+        );
+      } catch (e) {
+        console.warn(`[slideRender] contact logo composite failed, using text-only: ${e}`);
+      }
+    }
+    if (!contact) {
+      contact = await run(
+        ["-f", "lavfi", "-i", BG, "-vf", `${rules},ass=contact.ass:fontsdir=.`, "-frames:v", "1", "-y", "contact_t.png"],
+        "contact_t.png"
       );
     }
+    out.push(contact);
 
     return out;
   } finally {

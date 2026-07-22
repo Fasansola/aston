@@ -20,14 +20,33 @@ function authOk(req: NextRequest): boolean {
   return req.cookies.get("__aston_session")?.value === process.env.API_SECRET;
 }
 
-/** Fetch the brand logo (best-effort — the contact slide renders without it). */
+/** True if the buffer is a raster image ffmpeg can decode (PNG/JPEG/GIF/WebP). */
+function isRasterImage(b: Buffer): boolean {
+  if (b.length < 12) return false;
+  const png = b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
+  const jpg = b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+  const gif = b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46;
+  const webp = b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP";
+  return png || jpg || gif || webp;
+}
+
+/**
+ * Fetch the brand logo for the contact slide (best-effort — it renders text-only
+ * without one). Prefers ASTON_LOGO_PNG_URL; the default ASTON_LOGO_URL is an SVG
+ * which ffmpeg cannot decode, so a non-raster asset is skipped.
+ */
 async function fetchLogo(): Promise<Buffer | undefined> {
-  const url = process.env.ASTON_LOGO_URL;
+  const url = process.env.ASTON_LOGO_PNG_URL || process.env.ASTON_LOGO_URL;
   if (!url) return undefined;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
     if (!res.ok) return undefined;
-    return Buffer.from(await res.arrayBuffer());
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!isRasterImage(buf)) {
+      console.warn("[social/slides] logo is not a raster image (ffmpeg can't decode SVG) — contact slide will be text-only. Set ASTON_LOGO_PNG_URL to a PNG/JPG.");
+      return undefined;
+    }
+    return buf;
   } catch {
     return undefined;
   }
