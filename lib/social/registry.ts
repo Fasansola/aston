@@ -60,7 +60,7 @@ export function getAvailableSocialTargets(): AvailableSocialTarget[] {
     {
       key: "instagram",
       label: "Instagram",
-      description: "Business/Creator account — needs a reviewed Meta app; image required",
+      description: "Business/Creator account — needs a reviewed Meta app; posts images or reels (video)",
       connected: instagramOk,
       connectionState: instagramOk ? "connected" : !process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID ? "config_incomplete" : "missing_token",
       charLimit: connectors.instagram.charLimit,

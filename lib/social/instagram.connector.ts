@@ -52,27 +52,39 @@ export default class InstagramConnector implements SocialConnector {
   async publish(input: SocialPublishRequest): Promise<SocialPublishResult> {
     const { post, target } = input;
     const { igUserId, token } = await resolve(input.targetConfig);
-    const image = post.mediaUrls?.[0];
+    const media = post.mediaUrls?.[0];
 
-    if (!image) {
+    if (!media) {
       return {
         target,
         ok: false,
         status: "failed",
-        message: "Instagram requires an image — add at least one media URL.",
+        message: "Instagram requires media — add at least one media URL (image or reel video).",
       };
     }
     // The link can't be clickable in an IG caption, but include it for reference.
     const caption = post.link ? `${post.text}\n\n${post.link}` : post.text;
+    const isVideo = /\.(mp4|mov|m4v)(\?|$)/i.test(media);
 
     try {
-      // Step 1: create the media container.
+      // Step 1: create the media container. A video posts as a REELS container,
+      // whose processing is async — an image container is ready immediately.
       const container = await graphCall<{ id: string }>(
         FB_GRAPH_BASE,
         `${igUserId}/media`,
-        { image_url: image, caption, access_token: token },
+        isVideo
+          ? { media_type: "REELS", video_url: media, caption, access_token: token }
+          : { image_url: media, caption, access_token: token },
         "POST"
       );
+
+      // Step 1b (video only): Instagram must finish downloading + transcoding the
+      // reel before it can be published, so poll the container until it is ready.
+      if (isVideo) {
+        const ready = await this.waitForContainer(container.id, token);
+        if (!ready.ok) return { target, ok: false, status: "failed", message: ready.message };
+      }
+
       // Step 2: publish it.
       const published = await graphCall<{ id: string }>(
         FB_GRAPH_BASE,
@@ -96,13 +108,41 @@ export default class InstagramConnector implements SocialConnector {
         target,
         ok: true,
         status: "passed",
-        message: "Posted to Instagram",
+        message: isVideo ? "Posted reel to Instagram" : "Posted to Instagram",
         externalUrl: permalink,
         platformPostId: published.id,
       };
     } catch (e) {
       return { target, ok: false, status: "failed", message: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  /**
+   * Polls a REELS container until Instagram finishes processing the video.
+   * Reels are short so this is usually well under a minute; the bound keeps the
+   * whole publish inside the serverless function's budget. On timeout we report
+   * that clearly rather than publishing a half-processed container.
+   */
+  private async waitForContainer(
+    creationId: string,
+    token: string,
+    { attempts = 10, intervalMs = 5000 } = {}
+  ): Promise<{ ok: boolean; message: string }> {
+    for (let i = 0; i < attempts; i++) {
+      const { status_code } = await graphCall<{ status_code?: string }>(FB_GRAPH_BASE, creationId, {
+        fields: "status_code",
+        access_token: token,
+      });
+      if (status_code === "FINISHED") return { ok: true, message: "ready" };
+      if (status_code === "ERROR" || status_code === "EXPIRED") {
+        return { ok: false, message: `Instagram could not process the video (${status_code})` };
+      }
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    return {
+      ok: false,
+      message: "Instagram is still processing the video — wait a moment and try posting again.",
+    };
   }
 
   async listComments(

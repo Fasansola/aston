@@ -214,7 +214,7 @@ export default function StudioPage() {
 
   // Platforms that can take a reel video today (video-native). Instagram,
   // Facebook and LinkedIn need video-upload paths added to their connectors first.
-  const POST_TARGETS = ["tiktok", "youtube"];
+  const POST_TARGETS = ["tiktok", "youtube", "instagram"];
 
   async function postReel(index: number, platform: string) {
     const job = jobs[index];

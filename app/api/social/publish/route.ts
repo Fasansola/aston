@@ -11,7 +11,9 @@ import { NextRequest, NextResponse } from "next/server";
 import type { SocialTarget, SocialPost, SocialPublishResult } from "@/lib/social/types";
 import { getSocialConnector, isSocialTarget } from "@/lib/social/registry";
 
-export const maxDuration = 60;
+// Higher than a plain text/image post because an Instagram reel container is
+// processed asynchronously and the connector polls it before publishing.
+export const maxDuration = 120;
 
 function authOk(req: NextRequest): boolean {
   return req.cookies.get("__aston_session")?.value === process.env.API_SECRET;
