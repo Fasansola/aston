@@ -209,19 +209,26 @@ export async function renderCarousel(input: {
     const out: Buffer[] = [];
 
     // ── Intro slide ────────────────────────────────────────────
+    // Two passes on purpose: a first pass scales/crops the photo, a second
+    // composites with a SINGLE filterchain (no ';', no named pad labels). The
+    // multi-chain filter_complex form parses on some ffmpeg builds but is
+    // rejected by ffmpeg 7.0.2 on Vercel, so we avoid it entirely.
     await writeFile(join(dir, "intro.ass"), buildIntroAss(input.hook));
     if (input.introImage) {
       await writeFile(join(dir, "intro_src.png"), input.introImage);
+      await execFileAsync(
+        ffmpegPath,
+        ["-i", "intro_src.png", "-vf", `scale=${W}:${IMG_H}:force_original_aspect_ratio=increase,crop=${W}:${IMG_H}`, "-frames:v", "1", "-y", "photo.png"],
+        { cwd: dir, timeout: 60_000, maxBuffer: 1 << 26 }
+      );
       out.push(
         await run(
           [
             "-f", "lavfi", "-i", BG,
-            "-i", "intro_src.png",
+            "-i", "photo.png",
             "-filter_complex",
-            `[1:v]scale=${W}:${IMG_H}:force_original_aspect_ratio=increase,crop=${W}:${IMG_H}[img];` +
-              `[0:v][img]overlay=0:0[b];` +
-              `[b]drawbox=x=0:y=${IMG_H}:w=${W}:h=4:color=0xC9A84C:t=fill,ass=intro.ass:fontsdir=.[out]`,
-            "-map", "[out]", "-frames:v", "1", "-y", "intro.png",
+            `[0:v][1:v]overlay=0:0,drawbox=x=0:y=${IMG_H}:w=${W}:h=4:color=0xC9A84C:t=fill,ass=intro.ass:fontsdir=.`,
+            "-frames:v", "1", "-y", "intro.png",
           ],
           "intro.png"
         )
@@ -253,14 +260,20 @@ export async function renderCarousel(input: {
     const rules = `drawbox=x=500:y=470:w=80:h=4:color=0xC9A84C:t=fill,drawbox=x=500:y=1000:w=80:h=4:color=0xC9A84C:t=fill`;
     if (input.logo) {
       await writeFile(join(dir, "logo.png"), input.logo);
+      // Same two-pass, single-filterchain approach as the intro.
+      await execFileAsync(
+        ffmpegPath,
+        ["-i", "logo.png", "-vf", "scale=-1:150", "-frames:v", "1", "-y", "logo150.png"],
+        { cwd: dir, timeout: 60_000, maxBuffer: 1 << 26 }
+      );
       out.push(
         await run(
           [
             "-f", "lavfi", "-i", BG,
-            "-i", "logo.png",
+            "-i", "logo150.png",
             "-filter_complex",
-            `[1:v]scale=-1:150[logo];[0:v][logo]overlay=(W-w)/2:250[b];[b]${rules},ass=contact.ass:fontsdir=.[out]`,
-            "-map", "[out]", "-frames:v", "1", "-y", "contact.png",
+            `[0:v][1:v]overlay=(W-w)/2:250,${rules},ass=contact.ass:fontsdir=.`,
+            "-frames:v", "1", "-y", "contact.png",
           ],
           "contact.png"
         )
