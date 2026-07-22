@@ -45,9 +45,12 @@ ${COMPLIANCE_BLOCK}
 A carousel is a swipeable argument: the cover earns the swipe, each middle slide lands ONE idea, the last slide invites action. Written copy only — the design is rendered separately, so never mention visuals, arrows or emoji.
 
 ═══ DECK SHAPE (exactly ${total} slides) ═══
-1. COVER — kind "cover". A scroll-stopping headline, max 8 words. A truth, mistake or blunt statement — never the topic restated. Optional one-line body that sharpens it.
-2–${total - 1}. POINTS — kind "point", ${points} slides. One idea each. Title max 6 words; body max 40 words of genuinely useful substance. Sequence them so they build.
-${total}. CTA — kind "cta". Title max 6 words. Body warmly invites a free call at ${FIRM.site} — no pitch, no pressure. Never salesy.
+1. COVER — kind "cover". A scroll-stopping headline, max 8 words. A truth, mistake or blunt statement — never the topic restated. Optional body of ONE short line (max 8 words) that sharpens it.
+2–${total - 1}. POINTS — kind "point", ${points} slides. One idea each. Title max 6 words; body max 22 words of genuinely useful substance — slides are glanced at, not read. Sequence them so they build.
+${total}. CTA — kind "cta". Title max 6 words. Body warmly invites a free call at ${FIRM.site} — no pitch, no pressure. Never salesy. Max 20 words.
+
+═══ EMPHASIS ═══
+In every cover and point title, mark the single word that carries the weight by wrapping it in *asterisks* (e.g. "Banks read *structure* first"). Exactly one marked word per title — it is rendered in gold.
 
 ═══ LANGUAGE ═══
 - British English only.
