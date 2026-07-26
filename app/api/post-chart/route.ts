@@ -19,15 +19,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import axios from "axios";
 import { generateChartBlock, type ChartSourceContent } from "@/lib/chart";
-import { patchWordPressContentField } from "@/lib/wordpress";
 
 const WP_URL = process.env.WP_URL!;
 const AUTH = { auth: { username: process.env.WP_USERNAME!, password: process.env.WP_APP_PASSWORD! } };
 
-// Insertable body fields (ACF). main_content is excluded — it is the WP post
-// content (not an ACF field) and usually holds the intro rather than data.
-const BODY_FIELDS = ["more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"] as const;
-const CHART_MARKER = "aston-chartjs";
+// ACF body sections a fresh chart may be inserted into. main_content is scanned
+// for existing chart boxes too (see EDITABLE_FIELDS) but not chosen for fresh
+// inserts — it usually holds the intro rather than data.
+const INSERT_FIELDS = ["more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"] as const;
+
+// A rendered, working chart — the canvas the live theme draws into.
+const WORKING_CHART = "aston-chartjs";
+// Any chart container, working OR a leftover empty box from a failed generation.
+const CHART_BOX = "aston-chart-block";
+// Matches a whole aston-chart-block div (non-greedy to the first </div>, which
+// is safe because these blocks never nest divs — same assumption as the
+// generation-time sanitizer in lib/chartSanitizer.ts).
+const chartBoxRegex = () => /<div\b[^>]*class="[^"]*aston-chart-block[^"]*"[^>]*>[\s\S]*?<\/div>/gi;
+
+interface EditableField { name: string; value: string; isAcf: boolean; }
+
+const tidy = (s: string) => s.replace(/\n{3,}/g, "\n\n").trim();
 
 function authOk(req: NextRequest): boolean {
   return req.cookies.get("__aston_session")?.value === process.env.API_SECRET;
@@ -70,9 +82,10 @@ async function loadPost(opts: { id?: string | number; url?: string }) {
   const post = await fetchPostRaw(opts);
   const acf = (post.acf ?? {}) as Record<string, unknown>;
   const meta = (post.meta ?? {}) as Record<string, unknown>;
+  const contentRaw = str((post.content as { raw?: string })?.raw) || str((post.content as { rendered?: string })?.rendered);
 
   const content: ChartSourceContent = {
-    main_content:   str((post.content as { rendered?: string })?.rendered),
+    main_content:   contentRaw,
     more_content_1: str(acf.more_content_1),
     more_content_2: str(acf.more_content_2),
     more_content_3: str(acf.more_content_3),
@@ -82,9 +95,16 @@ async function loadPost(opts: { id?: string | number; url?: string }) {
     final_points:   str(acf.Final_Points),
   };
 
-  const hasChart =
-    content.main_content.includes(CHART_MARKER) ||
-    BODY_FIELDS.some((f) => str(acf[f]).includes(CHART_MARKER));
+  // Editable fields in reading order — main_content first, then the body
+  // sections. Used to find, replace, or remove chart boxes.
+  const fields: EditableField[] = [
+    { name: "main_content", value: contentRaw, isAcf: false },
+    ...INSERT_FIELDS.map((f) => ({ name: f, value: str(acf[f]), isAcf: true })),
+  ];
+
+  // "Has a chart" = has a working canvas. A leftover empty box (no canvas) does
+  // NOT count, so the UI still offers to add one — clicking will refill the box.
+  const hasChart = fields.some((f) => f.value.includes(WORKING_CHART));
 
   return {
     id: post.id as number,
@@ -92,35 +112,71 @@ async function loadPost(opts: { id?: string | number; url?: string }) {
     focusKeyword: str(meta._yoast_wpseo_focuskw) || str(acf.focus_keyword),
     blogUrl: str(post.link),
     content,
-    acf,
+    fields,
     hasChart,
   };
 }
 
-// Choose the best body field to receive the chart: the longest prose section
-// that has no chart yet and contains a paragraph break. Falls back to
-// more_content_2 (the same field embedFlowchartHtml appends to).
-function pickTargetField(acf: Record<string, unknown>): { field: string; value: string } {
-  const candidates = BODY_FIELDS
-    .map((f) => ({ field: f, value: str(acf[f]) }))
-    .filter((c) => c.value.trim() && !c.value.includes(CHART_MARKER));
-
-  const withParagraph = candidates.filter((c) => /<\/p>/i.test(c.value));
-  const pool = withParagraph.length ? withParagraph : candidates;
-  pool.sort((a, b) => b.value.replace(/<[^>]+>/g, " ").length - a.value.replace(/<[^>]+>/g, " ").length);
-
-  if (pool.length) return pool[0];
-  return { field: "more_content_2", value: str(acf.more_content_2) };
-}
-
 // Insert the block right after the first closing paragraph; otherwise append.
-function insertChart(fieldValue: string, block: string): string {
+function insertAfterFirstParagraph(fieldValue: string, block: string): string {
   const m = fieldValue.match(/<\/p>/i);
   if (m && m.index !== undefined) {
     const at = m.index + m[0].length;
-    return `${fieldValue.slice(0, at)}\n${block}\n${fieldValue.slice(at)}`;
+    return tidy(`${fieldValue.slice(0, at)}\n${block}\n${fieldValue.slice(at)}`);
   }
-  return `${fieldValue.trim()}\n${block}`.trim();
+  return tidy(`${fieldValue.trim()}\n${block}`);
+}
+
+/**
+ * Decide how to write the chart, and which fields change.
+ *  - If the post already has one or more aston-chart-block containers (working
+ *    OR leftover empty boxes), replace the FIRST one (in reading order) with the
+ *    new chart and strip every other box. This keeps the chart in its original
+ *    position and removes duplicates — self-healing posts where a failed chart
+ *    left an empty box and a previous run appended a second one.
+ *  - Otherwise insert a fresh chart into the first body section that has a
+ *    paragraph (earliest position, not the longest section).
+ */
+function planChartWrite(fields: EditableField[], block: string): { changes: EditableField[]; mode: "replaced" | "inserted" } {
+  const hasBox = fields.some((f) => new RegExp(CHART_BOX, "i").test(f.value));
+
+  if (hasBox) {
+    const changes: EditableField[] = [];
+    let replacedFirst = false;
+    for (const f of fields) {
+      if (!new RegExp(CHART_BOX, "i").test(f.value)) continue;
+      const firstFieldWithBox = !replacedFirst;
+      let matchIndex = 0;
+      const newValue = f.value.replace(chartBoxRegex(), () => {
+        const keep = firstFieldWithBox && matchIndex === 0 ? block : "";
+        matchIndex++;
+        return keep;
+      });
+      replacedFirst = true;
+      changes.push({ ...f, value: tidy(newValue) });
+    }
+    return { changes, mode: "replaced" };
+  }
+
+  const insertable = fields.filter((f) => f.name !== "main_content");
+  const target =
+    insertable.find((f) => /<\/p>/i.test(f.value) && f.value.trim()) ??
+    insertable.find((f) => f.value.trim()) ??
+    insertable.find((f) => f.name === "more_content_2")!;
+  return { changes: [{ ...target, value: insertAfterFirstParagraph(target.value, block) }], mode: "inserted" };
+}
+
+// PATCH the changed fields in one request: main_content → `content`, the rest
+// → their ACF keys.
+async function writeFields(postId: number, changes: EditableField[]): Promise<void> {
+  const acf: Record<string, string> = {};
+  const body: { content?: string; acf?: Record<string, string> } = {};
+  for (const c of changes) {
+    if (c.isAcf) acf[c.name] = c.value;
+    else body.content = c.value;
+  }
+  if (Object.keys(acf).length) body.acf = acf;
+  await axios.post(`${WP_URL}/wp-json/wp/v2/posts/${postId}`, body, AUTH);
 }
 
 export async function GET(req: NextRequest) {
@@ -154,11 +210,16 @@ export async function POST(req: NextRequest) {
     const p = await loadPost({ id: postId });
     const block = await generateChartBlock(p.content, { title: p.title, focusKeyword: p.focusKeyword });
 
-    const target = pickTargetField(p.acf);
-    const updated = insertChart(target.value, block);
-    await patchWordPressContentField(p.id, target.field, updated);
+    const { changes, mode } = planChartWrite(p.fields, block);
+    await writeFields(p.id, changes);
 
-    return NextResponse.json({ ok: true, field: target.field, blogUrl: p.blogUrl, chartHtml: block });
+    return NextResponse.json({
+      ok: true,
+      mode,
+      fields: changes.map((c) => c.name),
+      blogUrl: p.blogUrl,
+      chartHtml: block,
+    });
   } catch (err) {
     console.error("[post-chart:POST]", err);
     return NextResponse.json({ error: err instanceof Error ? err.message : "Failed to add chart" }, { status: 500 });
