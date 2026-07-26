@@ -40,6 +40,12 @@ function MediaWorkspace() {
   const [outMsg, setOutMsg] = useState<Record<MediaKey, string>>({ audio: "", video: "", podcast: "" });
   const [outUrl, setOutUrl] = useState<Record<MediaKey, string>>({ audio: "", video: "", podcast: "" });
 
+  // Data chart — separate from the media workflow (one LLM call + field PATCH,
+  // synchronous). Added for posts whose chart failed during generation.
+  const [chartExists, setChartExists] = useState(false);
+  const [chartState, setChartState] = useState<OutputState>("idle");
+  const [chartMsg, setChartMsg] = useState("");
+
   const loadPost = useCallback(async (value: string) => {
     const v = value.trim();
     if (!v) return;
@@ -54,6 +60,10 @@ function MediaWorkspace() {
       setExisting(data.existing);
       // Pre-select the media the post does NOT already have.
       setSelected({ audio: !data.existing.audio, video: !data.existing.video, podcast: !data.existing.podcast });
+      // Chart status is independent of media — load it alongside.
+      setChartState("idle"); setChartMsg(""); setChartExists(false);
+      const cq = /^\d+$/.test(v) ? `id=${encodeURIComponent(v)}` : `url=${encodeURIComponent(v)}`;
+      fetch(`/api/post-chart?${cq}`).then((r) => r.ok ? r.json() : null).then((d) => { if (d) setChartExists(!!d.hasChart); }).catch(() => {});
     } catch {
       setLoadError("Network error loading the post");
     } finally {
@@ -140,6 +150,24 @@ function MediaWorkspace() {
       setOutMsg((m) => ({ ...m, audio: m.audio || (err instanceof Error ? err.message : "error") }));
     } finally {
       setRunning(false);
+    }
+  };
+
+  const runChart = async () => {
+    if (!post || chartState === "running") return;
+    setChartState("running"); setChartMsg("");
+    try {
+      const res = await fetch("/api/post-chart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postId: post.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not add a chart");
+      setChartState("done"); setChartExists(true);
+    } catch (err) {
+      setChartState("error");
+      setChartMsg(err instanceof Error ? err.message : "Failed to add chart");
     }
   };
 
@@ -261,6 +289,40 @@ function MediaWorkspace() {
           {!running && (outState.audio === "done" || outState.video === "done" || outState.podcast === "done") && (
             <p className="text-center text-sm text-emerald-300 rise-in">Done. Media has been attached to the post.</p>
           )}
+
+          {/* Data chart — separate one-click action (not part of the media run) */}
+          <div className="panel p-5 rise-in">
+            <div className="flex items-start gap-3">
+              <span className="text-xl leading-none shrink-0">📊</span>
+              <div className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-white/85">Data chart</span>
+                  {chartExists && chartState === "idle" && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/12 text-emerald-300 border border-emerald-500/25">already has a chart</span>
+                  )}
+                </span>
+                <span className="block text-xs text-white/35 mt-0.5">
+                  Builds a Chart.js chart from the article&apos;s own figures and inserts it into the post — for when the chart failed during generation.
+                </span>
+                {(chartState === "error") && chartMsg && (
+                  <p className="text-xs text-red-300 mt-2">{chartMsg}</p>
+                )}
+                {chartState === "done" && (
+                  <p className="text-xs text-emerald-300 mt-2">
+                    ✓ Chart added.{" "}
+                    {post.blogUrl && <a href={post.blogUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-emerald-200">View post ↗</a>}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={runChart}
+                disabled={chartState === "running"}
+                className="btn-gold shrink-0 !py-2 text-xs whitespace-nowrap disabled:opacity-60"
+              >
+                {chartState === "running" ? "Generating…" : chartExists ? "Add another chart" : "Generate & insert chart"}
+              </button>
+            </div>
+          </div>
         </>
       )}
     </div>

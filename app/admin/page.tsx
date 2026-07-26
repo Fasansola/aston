@@ -362,6 +362,7 @@ export default function AdminPage() {
   const [publishingId, setPublishingId]           = useState<string | null>(null);
   const [history, setHistory]                     = useState<PostHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading]       = useState(false);
+  const [chartBusyId, setChartBusyId]             = useState<number | null>(null);
 
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
@@ -544,6 +545,21 @@ export default function AdminPage() {
     } catch {
       setSpotifyResult({ ok: false, msg: "Network error — could not reach the sync endpoint" });
     } finally { setSpotifySyncing(false); }
+  }
+
+  // Add a data chart to an already-published post — for when the chart failed
+  // (was dropped as malformed) during generation. Synchronous: one LLM call +
+  // one field PATCH, inserted straight into the live post.
+  async function addChart(postId: number) {
+    setChartBusyId(postId);
+    try {
+      const res  = await fetch("/api/post-chart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ postId }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to add chart");
+      showToast("Chart added to the post");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to add chart", false);
+    } finally { setChartBusyId(null); }
   }
 
   async function addTopic() {
@@ -1390,6 +1406,11 @@ export default function AdminPage() {
                         <div className="flex items-center gap-3 shrink-0">
                           <a href={h.wpEditUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-white/45 hover:text-white/70 hover:underline">Edit in WP</a>
                           {h.wpPostUrl && <a href={h.wpPostUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-white/45 hover:text-white/70 hover:underline">View</a>}
+                          <button onClick={() => addChart(h.wpPostId)} disabled={chartBusyId === h.wpPostId}
+                            title="Generate a data chart from this article and insert it into the post — for when the chart failed during generation"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-gold hover:text-gold-bright disabled:opacity-50">
+                            {chartBusyId === h.wpPostId ? <><Spinner /> Adding…</> : <>📊 Add chart</>}
+                          </button>
                           <a href={`/media?postId=${h.wpPostId}&title=${encodeURIComponent(h.title)}`}
                             className="inline-flex items-center gap-1 text-xs font-medium text-gold hover:text-gold-bright">
                             🎬 Add media
