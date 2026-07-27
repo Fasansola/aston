@@ -6,7 +6,6 @@ import { useState, useEffect, useCallback } from "react";
 
 type QueueStatus = "queued" | "processing" | "completed" | "failed" | "paused";
 type GenerationMode = "topic_only" | "source_assisted" | "improve_existing" | "notes_to_article";
-type TopicPlanStatus = "idea" | "planned" | "approved" | "queued" | "archived";
 type PerformanceClass = "high" | "medium" | "low" | "unknown";
 
 interface QueueItem {
@@ -40,13 +39,6 @@ interface LinkEntry {
   id: string; url: string; title: string; type: "internal" | "external";
   category: string; keywords: string[]; anchors: string[]; status: "active" | "inactive";
   language?: string;
-}
-interface TopicPlan {
-  id: string; topic: string; focusKeyword: string; cluster: string;
-  intent: string; priority: number; status: TopicPlanStatus; notes: string;
-  createdAt: string; queuedAt: string | null;
-  audience?: string; primary_country?: string; secondary_countries?: string;
-  priority_service?: string; language?: string;
 }
 interface PostPerformance {
   postId: string; topic: string; url: string; focusKeyword: string; cluster: string;
@@ -91,13 +83,6 @@ const RUN_STATUS: Record<RunLog["status"], string> = {
   completed:             "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25",
   completed_with_errors: "bg-orange-500/10 text-orange-300 ring-orange-500/25",
   failed:                "bg-red-500/10 text-red-300 ring-red-500/25",
-};
-const TOPIC_STATUS: Record<TopicPlanStatus, { badge: string; label: string }> = {
-  idea:     { badge: "bg-white/[0.07] text-white/55 ring-white/15",      label: "Idea" },
-  planned:  { badge: "bg-blue-500/10 text-blue-300 ring-blue-500/25",       label: "Planned" },
-  approved: { badge: "bg-violet-500/10 text-violet-300 ring-violet-500/25", label: "Approved" },
-  queued:   { badge: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25", label: "Queued" },
-  archived: { badge: "bg-white/[0.03] text-white/35 ring-white/15",       label: "Archived" },
 };
 const PQ_STATUS: Record<PublishQueueStatus, { dot: string; badge: string; label: string; bar: string }> = {
   queued:     { dot: "bg-blue-500",            badge: "bg-blue-500/10 text-blue-300 ring-blue-500/25",      label: "Scheduled",  bar: "bg-blue-500" },
@@ -272,7 +257,6 @@ function Spinner({ size = "sm" }: { size?: "sm" | "md" }) {
 const I = {
   dashboard: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>,
   queue:     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>,
-  topics:    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>,
   links:     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>,
   perf:      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
   signout:   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>,
@@ -292,7 +276,7 @@ const I = {
 
 // ── Main component ─────────────────────────────────────────────
 
-type Tab = "dashboard" | "queue" | "history" | "topics" | "links" | "performance" | "publish_queue" | "settings";
+type Tab = "dashboard" | "queue" | "history" | "links" | "performance" | "publish_queue" | "settings";
 
 export default function AdminPage() {
   const [isAuthed, setIsAuthed]     = useState<null | boolean>(null);
@@ -337,11 +321,6 @@ export default function AdminPage() {
   const [newPriorityService, setNewPriorityService] = useState("");
   const [newLanguage, setNewLanguage]           = useState("");
   const [newCustomPrompt, setNewCustomPrompt]   = useState("");
-
-  const [topics, setTopics]       = useState<TopicPlan[]>([]);
-  const [tForm, setTForm]         = useState({ topic: "", focusKeyword: "", cluster: "", intent: "informational", priority: 3, notes: "", audience: "", primary_country: "", secondary_countries: "", priority_service: "", language: "", customPrompt: "" });
-  const [addingTopic, setAddingTopic] = useState(false);
-  const [confirmTopicId, setConfirmTopicId] = useState<string | null>(null);
 
   const [links, setLinks]         = useState<LinkEntry[]>([]);
   const [lForm, setLForm]         = useState({ url: "", title: "", type: "internal" as "internal"|"external", category: "", keywords: "", anchors: "", status: "active" as "active"|"inactive", language: "" });
@@ -391,12 +370,6 @@ export default function AdminPage() {
     }
   }, []);
 
-  const fetchTopics = useCallback(async () => {
-    const res  = await fetch("/api/topics");
-    const data = await res.json();
-    setTopics(data.topics ?? []);
-  }, []);
-
   const fetchLinks = useCallback(async () => {
     const res  = await fetch("/api/links");
     const data = await res.json();
@@ -435,7 +408,6 @@ export default function AdminPage() {
     try {
       await Promise.all([
         fetchDashboard(),
-        fetchTopics().catch(console.error),
         fetchLinks().catch(console.error),
         fetchPerformance().catch(console.error),
         fetchPublishQueue(),
@@ -445,7 +417,7 @@ export default function AdminPage() {
           .catch(console.error),
       ]);
     } finally { setLoading(false); }
-  }, [fetchDashboard, fetchTopics, fetchLinks, fetchPerformance, fetchPublishQueue]);
+  }, [fetchDashboard, fetchLinks, fetchPerformance, fetchPublishQueue]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -562,30 +534,6 @@ export default function AdminPage() {
     } finally { setChartBusyId(null); }
   }
 
-  async function addTopic() {
-    if (!tForm.topic.trim()) return;
-    setAddingTopic(true);
-    try {
-      await fetch("/api/topics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(tForm) });
-      setTForm({ topic: "", focusKeyword: "", cluster: "", intent: "informational", priority: 3, notes: "", audience: "", primary_country: "", secondary_countries: "", priority_service: "", language: "", customPrompt: "" });
-      await fetchTopics();
-      showToast("Topic plan created");
-    } finally { setAddingTopic(false); }
-  }
-
-  async function patchTopic(id: string, updates: Partial<TopicPlan> & { action?: string }) {
-    await fetch("/api/topics", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...updates }) });
-    await Promise.all([fetchTopics(), fetchDashboard()]);
-    if (updates.action === "push_to_queue") showToast("Topic pushed to generation queue");
-  }
-
-  async function deleteTopic(id: string) {
-    await fetch("/api/topics", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
-    setConfirmTopicId(null);
-    await fetchTopics();
-    showToast("Topic deleted");
-  }
-
   async function addLink() {
     if (!lForm.url.trim() || !lForm.title.trim()) return;
     setAddingLink(true);
@@ -699,18 +647,17 @@ export default function AdminPage() {
   }
 
   // ── Nav config ─────────────────────────────────────────────────
-  // The sidebar itself teaches the model: the four content tabs are ONE
-  // pipeline, in order — plan it, write it, review it, put it live.
+  // The sidebar itself teaches the model: the three content tabs are ONE
+  // pipeline, in order — write it, review it, put it live.
   type NavItem = { id: Tab; label: string; icon: React.ReactNode; badge?: number; step?: number };
   const navSections: { label: string | null; items: NavItem[] }[] = [
     { label: null, items: [
       { id: "dashboard",    label: "Overview",     icon: I.dashboard },
     ]},
     { label: "Content pipeline", items: [
-      { id: "topics",       label: "Plan topics",  icon: I.topics,  step: 1, badge: topics.filter(x => x.status !== "archived").length || undefined },
-      { id: "queue",        label: "Write queue",  icon: I.queue,   step: 2, badge: stats?.queued },
-      { id: "history",      label: "Recent posts", icon: I.history, step: 3 },
-      { id: "publish_queue",label: "Go live",      icon: I.publish, step: 4, badge: publishQueueStats?.queued || undefined },
+      { id: "queue",        label: "Write queue",  icon: I.queue,   step: 1, badge: stats?.queued },
+      { id: "history",      label: "Recent posts", icon: I.history, step: 2 },
+      { id: "publish_queue",label: "Go live",      icon: I.publish, step: 3, badge: publishQueueStats?.queued || undefined },
     ]},
     { label: "Setup", items: [
       { id: "settings",     label: "Settings",     icon: I.settings },
@@ -829,13 +776,12 @@ export default function AdminPage() {
               {showHelp && (
                 <Card className="!border-gold/25">
                   <div className="p-6">
-                    <p className="font-display text-lg text-white/90 mb-4">This tool writes blog posts for aston.ae on autopilot. Four steps:</p>
+                    <p className="font-display text-lg text-white/90 mb-4">This tool writes blog posts for aston.ae on autopilot. Three steps:</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {[
-                        { n: 1, title: "Plan topics", tab: "topics" as Tab, body: "Collect article ideas in an idea bank. Nothing generates from here — it's just planning. When an idea is ready, push it to the Write queue." },
-                        { n: 2, title: "Write queue", tab: "queue" as Tab, body: "Topics here get written automatically — every day at 08:00 UTC, or at an exact time you pick per topic. Each becomes a full article with images, saved to WordPress as a draft." },
-                        { n: 3, title: "Recent posts", tab: "history" as Tab, body: "Every generated post lands here (including ones made on the Generate page). Review them in WordPress, and add audio, video or a podcast to any of them." },
-                        { n: 4, title: "Go live", tab: "publish_queue" as Tab, body: "Drafts you approve get scheduled here and are published to the live site automatically." },
+                        { n: 1, title: "Write queue", tab: "queue" as Tab, body: "Add topics here and they get written automatically — every day at 08:00 UTC, or at an exact time you pick per topic. Each becomes a full article with images, saved to WordPress as a draft." },
+                        { n: 2, title: "Recent posts", tab: "history" as Tab, body: "Every generated post lands here (including ones made on the Generate page). Review them in WordPress, and add audio, video or a podcast to any of them." },
+                        { n: 3, title: "Go live", tab: "publish_queue" as Tab, body: "Drafts you approve get scheduled here and are published to the live site automatically." },
                       ].map((s) => (
                         <button key={s.n} onClick={() => setTab(s.tab)}
                           className="text-left rounded-xl bg-white/[0.03] border border-white/[0.06] hover:border-gold/40 transition-all px-4 py-3.5">
@@ -887,24 +833,20 @@ export default function AdminPage() {
               {/* ── The content pipeline, made visible ── */}
               {stats && (
                 <Card>
-                  <CardHeader title="Your content pipeline" subtitle="These are the four numbered tabs in the sidebar — click a stage to open it" />
+                  <CardHeader title="Your content pipeline" subtitle="These are the three numbered tabs in the sidebar — click a stage to open it" />
                   <div className="px-5 py-5 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 overflow-x-auto">
                     <PipelineStage
-                      count={topics.filter(t => t.status !== "archived" && t.status !== "queued").length}
-                      label="1 · Plan topics" hint="Idea bank — nothing generates yet"
-                      onClick={() => setTab("topics")} />
-                    <PipelineStage
                       count={stats.queued}
-                      label="2 · Write queue" hint={stats.processing > 0 ? `${stats.processing} writing right now` : "Written by the daily run or at a set time"}
+                      label="1 · Write queue" hint={stats.processing > 0 ? `${stats.processing} writing right now` : "Written by the daily run or at a set time"}
                       active={stats.processing > 0}
                       onClick={() => setTab("queue")} />
                     <PipelineStage
                       count={stats.completed}
-                      label="3 · Recent posts" hint="Review drafts, add audio / video / podcast"
+                      label="2 · Recent posts" hint="Review drafts, add audio / video / podcast"
                       onClick={() => setTab("history")} />
                     <PipelineStage
                       count={publishQueueStats?.queued ?? 0}
-                      label="4 · Go live" hint="Approved drafts scheduled to publish"
+                      label="3 · Go live" hint="Approved drafts scheduled to publish"
                       onClick={() => setTab("publish_queue")} />
                     <PipelineStage
                       count={publishQueueStats?.published ?? 0}
@@ -1543,161 +1485,6 @@ export default function AdminPage() {
                   })}
                 </div>
               )}
-            </>
-          )}
-
-          {/* ══ TOPICS ═══════════════════════════════════════════ */}
-          {tab === "topics" && (
-            <>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Plan topics</h1>
-                  <p className="text-sm text-white/45 mt-0.5">Your idea bank. Nothing here generates — approve an idea and push it to the Write queue when it&apos;s ready.</p>
-                </div>
-              </div>
-
-              <Card>
-                <CardHeader title="Add Topic Plan" subtitle="Plan topics here, approve them, then push to the generation queue." />
-                <div className="p-6 space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="sm:col-span-2">
-                      <Label required>Topic title</Label>
-                      <Input value={tForm.topic} onChange={(e) => setTForm({ ...tForm, topic: e.target.value })} placeholder="e.g. How to get a VARA licence in Dubai" />
-                    </div>
-                    <div>
-                      <Label>Focus keyword</Label>
-                      <Input value={tForm.focusKeyword} onChange={(e) => setTForm({ ...tForm, focusKeyword: e.target.value })} placeholder="e.g. vara licence dubai" />
-                    </div>
-                    <div>
-                      <Label>Cluster</Label>
-                      <Input value={tForm.cluster} onChange={(e) => setTForm({ ...tForm, cluster: e.target.value })} placeholder="e.g. crypto-vara" />
-                    </div>
-                    <div>
-                      <Label>Intent</Label>
-                      <Select value={tForm.intent} onChange={(e) => setTForm({ ...tForm, intent: e.target.value })} className="w-full">
-                        <option value="informational">Informational</option>
-                        <option value="commercial">Commercial</option>
-                        <option value="navigational">Navigational</option>
-                        <option value="transactional">Transactional</option>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>Priority</Label>
-                      <Select value={tForm.priority} onChange={(e) => setTForm({ ...tForm, priority: Number(e.target.value) })} className="w-full">
-                        {[1,2,3,4,5].map(n => <option key={n} value={n}>Priority {n}</option>)}
-                      </Select>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <Label>Notes</Label>
-                      <Input value={tForm.notes} onChange={(e) => setTForm({ ...tForm, notes: e.target.value })} placeholder="Optional notes…" />
-                    </div>
-                  </div>
-                  <div className="border-t border-white/[0.06] pt-4">
-                    <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-3">Strategy inputs — carried to generation</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      <div className="sm:col-span-2 lg:col-span-3">
-                        <Label>Custom prompt <span className="text-white/35 font-normal">(optional — injected into research, strategy and writing)</span></Label>
-                        <textarea
-                          value={tForm.customPrompt}
-                          onChange={(e) => setTForm({ ...tForm, customPrompt: e.target.value })}
-                          placeholder="e.g. Focus on founders relocating from Germany. Emphasise VARA licensing and nominee structures."
-                          rows={2}
-                          className="w-full border border-white/10 rounded-lg px-3 py-2 text-sm text-white/90 placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold/55 resize-none"
-                        />
-                      </div>
-                      <div>
-                        <Label>Audience</Label>
-                        <Input value={tForm.audience} onChange={(e) => setTForm({ ...tForm, audience: e.target.value })} placeholder="e.g. crypto investors in UAE" />
-                      </div>
-                      <div>
-                        <Label>Primary country</Label>
-                        <Input value={tForm.primary_country} onChange={(e) => setTForm({ ...tForm, primary_country: e.target.value })} placeholder="e.g. UAE" />
-                      </div>
-                      <div>
-                        <Label>Secondary countries</Label>
-                        <Input value={tForm.secondary_countries} onChange={(e) => setTForm({ ...tForm, secondary_countries: e.target.value })} placeholder="e.g. Saudi Arabia, Bahrain" />
-                      </div>
-                      <div>
-                        <Label>Priority service</Label>
-                        <Input value={tForm.priority_service} onChange={(e) => setTForm({ ...tForm, priority_service: e.target.value })} placeholder="e.g. VARA licence" />
-                      </div>
-                      <div>
-                        <Label>Language</Label>
-                        <Select value={tForm.language} onChange={(e) => setTForm({ ...tForm, language: e.target.value })} className="w-full">
-                          <option value="">Default (British English)</option>
-                          {siteLanguages.map(l => <option key={l.code} value={l.code}>{l.name} ({l.code})</option>)}
-                        </Select>
-                      </div>
-                    </div>
-                  </div>
-                  <Btn variant="primary" onClick={addTopic} disabled={addingTopic || !tForm.topic.trim()}>
-                    {addingTopic ? <><Spinner /> Adding…</> : <>{I.plus} Add topic</>}
-                  </Btn>
-                </div>
-              </Card>
-
-              <Card>
-                <CardHeader title="All Topics" subtitle={`${topics.length} total · ${topics.filter(t => t.status !== "archived").length} active`} />
-                {topics.length === 0 ? (
-                  <EmptyState icon={<svg className="w-12 h-12" fill="none" stroke="currentColor" strokeWidth={1} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>} title="No topics yet" body="Add topic ideas above. Approve them, then push to the generation queue when ready." />
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-white/[0.03]/80 text-[11px] font-bold text-white/35 uppercase tracking-wide border-b border-white/[0.06]">
-                          <th className="px-5 py-3 text-left">Topic</th>
-                          <th className="px-5 py-3 text-left">Keyword</th>
-                          <th className="px-5 py-3 text-left">Cluster</th>
-                          <th className="px-5 py-3 text-center">Pri</th>
-                          <th className="px-5 py-3 text-center">Status</th>
-                          <th className="px-5 py-3 text-left">Added</th>
-                          <th className="px-5 py-3 text-center">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/[0.05]">
-                        {topics.map((t) => (
-                          <tr key={t.id} className={`hover:bg-white/[0.03]/60 transition-colors ${t.status === "archived" ? "opacity-40" : ""}`}>
-                            <td className="px-5 py-4 max-w-[240px]">
-                              <p className="font-semibold text-white/90 truncate text-sm" title={t.topic}>{t.topic}</p>
-                              {t.audience && <p className="text-xs text-gold mt-0.5 truncate">{t.audience}</p>}
-                              {t.notes && <p className="text-xs text-white/35 mt-0.5 truncate">{t.notes}</p>}
-                            </td>
-                            <td className="px-5 py-4 text-xs text-white/45">{t.focusKeyword || <span className="text-white/30">—</span>}</td>
-                            <td className="px-5 py-4 text-xs text-white/45">{t.cluster || <span className="text-white/30">—</span>}</td>
-                            <td className="px-5 py-4 text-center text-xs font-bold text-white/55">{t.priority}</td>
-                            <td className="px-5 py-4 text-center">
-                              <Select value={t.status} onChange={(e) => patchTopic(t.id, { status: e.target.value as TopicPlanStatus })}
-                                className={`text-xs rounded-lg px-2 py-1 border-0 ring-1 ring-inset font-semibold ${TOPIC_STATUS[t.status].badge}`}>
-                                {(["idea","planned","approved","queued","archived"] as TopicPlanStatus[]).map(s => (
-                                  <option key={s} value={s}>{TOPIC_STATUS[s].label}</option>
-                                ))}
-                              </Select>
-                            </td>
-                            <td className="px-5 py-4 text-xs text-white/35 whitespace-nowrap">{fmt(t.createdAt)}</td>
-                            <td className="px-5 py-4">
-                              <div className="flex items-center justify-center gap-1.5">
-                                {t.status === "approved" && (
-                                  <Btn variant="primary" size="sm" onClick={() => patchTopic(t.id, { action: "push_to_queue" } as Partial<TopicPlan> & { action: string })}>
-                                    {I.arrow} Queue
-                                  </Btn>
-                                )}
-                                {confirmTopicId === t.id ? (
-                                  <>
-                                    <Btn variant="danger" size="sm" onClick={() => deleteTopic(t.id)}>Confirm</Btn>
-                                    <Btn variant="ghost" size="sm" onClick={() => setConfirmTopicId(null)}>Cancel</Btn>
-                                  </>
-                                ) : (
-                                  <Btn variant="ghost" size="sm" onClick={() => setConfirmTopicId(t.id)}>{I.trash}</Btn>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </Card>
             </>
           )}
 
