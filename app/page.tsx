@@ -315,6 +315,7 @@ export default function AdminPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [adding, setAdding]       = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [runningNowId, setRunningNowId]       = useState<string | null>(null);
   const [showStrategyInputs, setShowStrategyInputs] = useState(false);
   const [newAudience, setNewAudience]           = useState("");
   const [newPrimaryCountry, setNewPrimaryCountry] = useState("");
@@ -494,6 +495,20 @@ export default function AdminPage() {
     setConfirmDeleteId(null);
     await fetchDashboard();
     showToast("Item removed");
+  }
+
+  async function runQueueItemNow(id: string) {
+    setRunningNowId(id);
+    try {
+      const res  = await fetch("/api/queue/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast("Generation started — progress shows on the item");
+      } else {
+        showToast(data.error || "Could not start the run");
+      }
+      await fetchDashboard();
+    } finally { setRunningNowId(null); }
   }
 
   async function saveScheduler(patch: Partial<SchedulerSettings>) {
@@ -1285,7 +1300,12 @@ export default function AdminPage() {
                               <div className="flex items-center justify-center gap-1">
                                 {item.status === "paused"  && <Btn variant="ghost" size="sm" onClick={() => patchQueue(item.id, { status: "queued" })}>Resume</Btn>}
                                 {item.status === "queued"  && <Btn variant="ghost" size="sm" onClick={() => patchQueue(item.id, { status: "paused" })}>Pause</Btn>}
-                                {item.status === "failed"  && <Btn variant="ghost" size="sm" onClick={() => patchQueue(item.id, { status: "queued", retryCount: 0, lastError: null } as Partial<QueueItem>)}>Retry</Btn>}
+                                {(item.status === "queued" || item.status === "failed") && (
+                                  <Btn variant="ghost" size="sm" disabled={runningNowId === item.id}
+                                    onClick={() => runQueueItemNow(item.id)}>
+                                    {runningNowId === item.id ? "Starting…" : item.status === "failed" ? "Retry now" : "Run now"}
+                                  </Btn>
+                                )}
                                 {item.status !== "processing" && (
                                   confirmDeleteId === item.id ? (
                                     <span className="flex items-center gap-1">
