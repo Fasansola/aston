@@ -44,32 +44,87 @@ function isSgCaptcha(data: unknown): boolean {
 
 const MAX_SG_RETRIES = 5;
 
+// ── Persistent-block circuit breaker ─────────────────────────
+// A retry ladder that runs to exhaustion means the block is NOT the transient
+// hiccup these retries were built for — SiteGround is challenging this
+// deployment's IP outright, and every later call will be challenged too.
+//
+// Without a breaker each subsequent write pays its own full ladder: on
+// 2026-08-06 four image uploads cost 4 × (60s timeout + 50s backoff) and burned
+// the entire 800s cron budget, so the run died on a Vercel wall-clock timeout
+// instead of reporting the real cause. Once any ladder is exhausted we open the
+// breaker and fail the rest immediately. The TTL is deliberately short so a run
+// starting after the block lifts is unaffected, and any clean response closes
+// it early.
+const SG_BREAKER_TTL_MS = 45_000;
+let sgBreakerOpenUntil = 0;
+
+export class SiteGroundBlockedError extends Error {
+  readonly sgBlocked = true;
+  constructor(label: string) {
+    super(
+      `${label} skipped — SiteGround anti-bot is persistently blocking this deployment's IP. ` +
+      `Exclude /wp-json/ in SiteGround Site Tools → Security.`
+    );
+    this.name = "SiteGroundBlockedError";
+  }
+}
+
+/** Throws immediately if a persistent block was detected moments ago. */
+function assertSgNotBlocked(label: string): void {
+  if (Date.now() < sgBreakerOpenUntil) throw new SiteGroundBlockedError(label);
+}
+
+function openSgBreaker(label: string): void {
+  sgBreakerOpenUntil = Date.now() + SG_BREAKER_TTL_MS;
+  console.error(
+    `[wordpress] Persistent SiteGround block on ${label} — short-circuiting WP writes for ${SG_BREAKER_TTL_MS / 1000}s`
+  );
+}
+
+/** Any clean WordPress response proves the block has lifted. */
+function closeSgBreaker(): void {
+  sgBreakerOpenUntil = 0;
+}
+
 export async function axiosWithSgRetry<T>(
   label: string,
   attempt: () => Promise<import("axios").AxiosResponse<T>>
 ): Promise<import("axios").AxiosResponse<T>> {
+  assertSgNotBlocked(label);
   for (let i = 1; i <= MAX_SG_RETRIES; i++) {
     let res: import("axios").AxiosResponse<T>;
     try {
       res = await attempt();
     } catch (err: unknown) {
-      if (axios.isAxiosError(err) && isSgCaptcha(err.response?.data) && i < MAX_SG_RETRIES) {
+      if (axios.isAxiosError(err) && isSgCaptcha(err.response?.data)) {
+        if (i < MAX_SG_RETRIES) {
+          const wait = i * 5_000;
+          console.warn(`[wordpress] SiteGround captcha on ${label} attempt ${i}/${MAX_SG_RETRIES} — retrying in ${wait / 1000}s`);
+          await new Promise((r) => setTimeout(r, wait));
+          continue;
+        }
+        break; // ladder exhausted — trip the breaker below
+      }
+      throw err;
+    }
+    // A captcha page on the FINAL attempt must not be returned as if it were a
+    // real response: callers only see `data.id === undefined` and report a
+    // misleading "no ID returned" instead of the actual block.
+    if (isSgCaptcha(res.data)) {
+      if (i < MAX_SG_RETRIES) {
         const wait = i * 5_000;
         console.warn(`[wordpress] SiteGround captcha on ${label} attempt ${i}/${MAX_SG_RETRIES} — retrying in ${wait / 1000}s`);
         await new Promise((r) => setTimeout(r, wait));
         continue;
       }
-      throw err;
+      break;
     }
-    if (isSgCaptcha(res.data) && i < MAX_SG_RETRIES) {
-      const wait = i * 5_000;
-      console.warn(`[wordpress] SiteGround captcha on ${label} attempt ${i}/${MAX_SG_RETRIES} — retrying in ${wait / 1000}s`);
-      await new Promise((r) => setTimeout(r, wait));
-      continue;
-    }
+    closeSgBreaker();
     return res;
   }
-  throw new Error(`${label} failed after ${MAX_SG_RETRIES} retries (persistent SiteGround captcha block)`);
+  openSgBreaker(label);
+  throw new SiteGroundBlockedError(label);
 }
 
 // fetch-based variant for routes that use raw fetch instead of axios
@@ -77,6 +132,7 @@ export async function fetchWithSgRetry(
   label: string,
   attempt: () => Promise<Response>
 ): Promise<Response> {
+  assertSgNotBlocked(label);
   for (let i = 1; i <= MAX_SG_RETRIES; i++) {
     let res: Response;
     try {
@@ -92,15 +148,20 @@ export async function fetchWithSgRetry(
     }
     // Clone to allow re-reading body if it turns out to be a captcha page
     const text = await res.clone().text();
-    if (isSgCaptcha(text) && i < MAX_SG_RETRIES) {
-      const wait = i * 5_000;
-      console.warn(`[wordpress] SiteGround captcha on ${label} attempt ${i}/${MAX_SG_RETRIES} — retrying in ${wait / 1000}s`);
-      await new Promise((r) => setTimeout(r, wait));
-      continue;
+    if (isSgCaptcha(text)) {
+      if (i < MAX_SG_RETRIES) {
+        const wait = i * 5_000;
+        console.warn(`[wordpress] SiteGround captcha on ${label} attempt ${i}/${MAX_SG_RETRIES} — retrying in ${wait / 1000}s`);
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
+      break;
     }
+    closeSgBreaker();
     return res;
   }
-  throw new Error(`${label} failed after ${MAX_SG_RETRIES} retries (persistent SiteGround captcha block)`);
+  openSgBreaker(label);
+  throw new SiteGroundBlockedError(label);
 }
 
 
@@ -160,22 +221,28 @@ export async function uploadImageToWordPress(
   filename: string,
   altText: string
 ): Promise<{ id: number; url: string }> {
-  const form = new FormData();
-  form.append("file", imageBuffer, {
-    filename,
-    contentType: "image/png",
-  });
+  // Build the multipart body INSIDE the attempt: FormData is a single-use
+  // stream, so reusing one instance across retries re-sends an already-consumed
+  // body — the request then hangs until the timeout instead of getting a
+  // response, and the retry can never succeed. That turned every captcha on an
+  // upload into a silent 60s stall reported as "timeout of 60000ms exceeded".
+  const buildForm = () => {
+    const form = new FormData();
+    form.append("file", imageBuffer, { filename, contentType: "image/png" });
+    return form;
+  };
 
-  const response = await axiosWithSgRetry("uploadImageToWordPress", () =>
-    axios.post(`${WP_URL}/wp-json/wp/v2/media`, form, {
+  const response = await axiosWithSgRetry("uploadImageToWordPress", () => {
+    const form = buildForm();
+    return axios.post(`${WP_URL}/wp-json/wp/v2/media`, form, {
       headers: {
         Authorization: `Basic ${WP_AUTH}`,
         "User-Agent": "AstonBlogTool/1.0 (Vercel; +https://aston.ae)",
         ...form.getHeaders(),
       },
       timeout: 60_000,
-    })
-  ).catch((err: unknown) => {
+    });
+  }).catch((err: unknown) => {
     if (axios.isAxiosError(err)) {
       const detail = JSON.stringify(err.response?.data ?? err.message);
       throw new Error(`WP image upload failed (${err.response?.status}): ${detail}`);
@@ -209,19 +276,20 @@ export async function uploadMediaToWordPress(
   filename: string,
   mimeType: string
 ): Promise<{ id: number; url: string }> {
-  const form = new FormData();
-  form.append("file", buffer, { filename, contentType: mimeType });
-
-  const response = await axiosWithSgRetry("uploadMediaToWordPress", () =>
-    axios.post(`${WP_URL}/wp-json/wp/v2/media`, form, {
+  // Fresh FormData per attempt — see uploadImageToWordPress for why reusing
+  // one instance across retries breaks them (single-use stream).
+  const response = await axiosWithSgRetry("uploadMediaToWordPress", () => {
+    const form = new FormData();
+    form.append("file", buffer, { filename, contentType: mimeType });
+    return axios.post(`${WP_URL}/wp-json/wp/v2/media`, form, {
       headers: {
         Authorization: `Basic ${WP_AUTH}`,
         "User-Agent": "AstonBlogTool/1.0 (Vercel; +https://aston.ae)",
         ...form.getHeaders(),
       },
       timeout: 60_000,
-    })
-  ).catch((err: unknown) => {
+    });
+  }).catch((err: unknown) => {
     if (axios.isAxiosError(err)) {
       const detail = JSON.stringify(err.response?.data ?? err.message);
       throw new Error(`WP media upload failed (${err.response?.status}): ${detail}`);
@@ -401,8 +469,10 @@ export async function createWordPressPost(
   // internally (with backoff) so the WDK retries don't all hit the same block
   // in quick succession.
   const SG_MAX_RETRIES = 5;
-  const isSgCaptcha = (data: unknown): boolean =>
-    typeof data === "string" && data.includes("sgcaptcha");
+
+  // Skip the ladder entirely if a persistent block was just detected elsewhere:
+  // a QA-passed article is worth more than 50s of certain-to-fail backoff.
+  assertSgNotBlocked("createWordPressPost");
 
   let response;
   for (let attempt = 1; attempt <= SG_MAX_RETRIES; attempt++) {
@@ -439,6 +509,17 @@ export async function createWordPressPost(
 
     break; // got a real response
   }
+
+  // Exhausting the ladder on a captcha means the block is persistent, not a
+  // hiccup — trip the breaker so image uploads and history writes downstream
+  // fail fast rather than each paying its own ladder, and throw a TYPED error
+  // so the workflow can mark the step fatal instead of retrying into the same
+  // wall three more times.
+  if (isSgCaptcha(response!.data)) {
+    openSgBreaker("createWordPressPost");
+    throw new SiteGroundBlockedError("WP post creation");
+  }
+  closeSgBreaker();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawData: any = response!.data;
@@ -515,7 +596,7 @@ export async function createWordPressPost(
  * link in the YouTube description points to a live page, not a draft.
  */
 export async function publishWordPressPost(postId: number): Promise<{ link: string }> {
-  const isSgCaptcha = (d: unknown) => typeof d === "string" && d.includes("sgcaptcha");
+  assertSgNotBlocked("publishWordPressPost");
   let response;
   for (let attempt = 1; attempt <= 5; attempt++) {
     try {
@@ -543,6 +624,11 @@ export async function publishWordPressPost(postId: number): Promise<{ link: stri
     }
     break;
   }
+  if (isSgCaptcha(response!.data)) {
+    openSgBreaker("publishWordPressPost");
+    throw new SiteGroundBlockedError("publishWordPressPost");
+  }
+  closeSgBreaker();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data: any = response!.data;
   const link: string = typeof data?.link === "string" ? data.link : `${WP_URL}/?p=${postId}`;

@@ -32,7 +32,7 @@ import {
   generateBlueprint, generateBlogContent, fixBlogContent,
   generateImagePrompts, IMAGE_QA_CHECKS, type ImageModel,
 } from "@/lib/openai";
-import { createWordPressPost, embedFlowchartHtml, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
+import { createWordPressPost, embedFlowchartHtml, SiteGroundBlockedError, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 import { runQA, RETRYABLE_WARNING_CHECKS } from "@/lib/qa";
 import { enforceApprovedLinks, scrubBrokenExternalLinks, stripLinksFromVisualBlocks } from "@/lib/linkScrubber";
@@ -245,7 +245,16 @@ async function publishStep(
     more_content_3: embedded.more_content_3.replace("IMGSLOT_TWO", ""),
     more_content_4: embedded.more_content_4.replace("IMGSLOT_SPLIT", ""),
   };
-  const post = await createWordPressPost(embedded.seo_title || title, embedded, imagePrompts, assembled, null, language || undefined, wpStatus);
+  // A persistent SiteGround block is not something a retry can fix — the next
+  // two attempts hit the same wall and cost ~50s of backoff each. Convert it to
+  // FatalError so WDK stops immediately and the operator sees the real cause.
+  let post;
+  try {
+    post = await createWordPressPost(embedded.seo_title || title, embedded, imagePrompts, assembled, null, language || undefined, wpStatus);
+  } catch (err) {
+    if (err instanceof SiteGroundBlockedError) throw new FatalError(err.message);
+    throw err;
+  }
   const articleHtml = [
     embedded.key_takeaways, assembled.main_content, embedded.keypoint_one, assembled.more_content_1,
     embedded.more_content_2, embedded.quote_1, assembled.more_content_3, embedded.keypoint_two,
