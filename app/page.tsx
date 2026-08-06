@@ -1,1976 +1,612 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import StudioNav from "./components/StudioNav";
-import type { LinkValidationResult, LinkIssue } from "@/lib/linkValidator";
-import type { ReadinessResult, ReadinessSubscore, ReadinessIssue } from "@/lib/readinessValidator";
+import { useState, useEffect, useCallback } from "react";
+import InstantGenerate from "./components/InstantGenerate";
 
-type Status = "idle" | "loading" | "success" | "error";
-type LinkValidationStatus = "idle" | "checking" | "done" | "error";
+// ── Types ──────────────────────────────────────────────────────
+
+type QueueStatus = "queued" | "processing" | "completed" | "failed" | "paused";
 type GenerationMode = "topic_only" | "source_assisted" | "improve_existing" | "notes_to_article";
+type PerformanceClass = "high" | "medium" | "low" | "unknown";
 
-const MODES: { id: GenerationMode; label: string; description: string; placeholder: string }[] = [
-  {
-    id: "topic_only",
-    label: "Topic only",
-    description: "Write from scratch",
-    placeholder: "",
-  },
-  {
-    id: "source_assisted",
-    label: "Source-assisted",
-    description: "Paste a reference article",
-    placeholder: "Paste the source article text here. The AI will extract facts and write a fully original Aston article — not a rewrite.",
-  },
-  {
-    id: "improve_existing",
-    label: "Improve existing",
-    description: "Refresh an Aston post",
-    placeholder: "Paste the existing Aston blog post here. The AI will improve structure, SEO, links, and FAQ while preserving the best content.",
-  },
-  {
-    id: "notes_to_article",
-    label: "From notes",
-    description: "Expand rough notes",
-    placeholder: "Paste your notes or bullet points here. The AI will expand them into a full structured article.",
-  },
-];
-
-interface GenerateResult {
-  title: string;
-  slug: string;
-  focusKeyword: string;
-  seoTitle: string;
-  readMins: string;
-  wordCount: number;
-  strategy?: {
-    searchIntentType: string;
-    primaryKeyword: string;
-    articleAngle: string;
-  };
-  qa: {
-    status: "pass" | "warn" | "fail";
-    score: number;
-    warnings: string[];
-  };
-  linksUsed: {
-    internal: Array<{ anchor: string; url: string }>;
-    external: Array<{ anchor: string; url: string }>;
-  };
-  postId?: number;
-  imageIds?: {
-    keypointOneImg: number;
-    keypointTwoImg: number;
-    postSplitImg:   number;
-    featuredImg:    number;
-  };
-  articleHtml?: string;
-  excerpt?: string;
-  tags?: string[];
-  metaDescription?: string;
-  language?: string | null;
-  editUrl: string;
-  previewUrl: string;
-  // Durable workflow pipeline only: set when QA could not fully pass and the
-  // article was saved as a draft for human review instead of being discarded.
-  needsReview?: boolean;
-  failingChecks?: string[];
+interface QueueItem {
+  id: string; topic: string; mode: GenerationMode; priority: number;
+  status: QueueStatus; createdAt: string; completedAt: string | null;
+  retryCount: number; lastError: string | null;
+  wpPostId: number | null; wpEditUrl: string | null; wpPostUrl: string | null;
+  qaScore: number | null; qaWarnings: string[];
+  scheduledFor?: string | null;
+  progress?: { step: number; total: number; label: string; updatedAt: string } | null;
+  mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
+  podcastLength?: number;
+}
+interface QueueStats {
+  total: number; queued: number; processing: number;
+  completed: number; failed: number; paused: number; completedToday: number;
+}
+interface SchedulerSettings {
+  enabled: boolean; blogsPerDay: number; publishMode: "draft_only";
+  maxRetries: number; blockOnQaWarning: boolean; maxPerRun: number;
+  runHour: number; imageModel: "imagen-4" | "gpt-image-2";
+  mediaOutputs: { audio: boolean; video: boolean; podcast: boolean };
+  podcastLength: number;
+}
+interface RunLog {
+  runId: string; startedAt: string; completedAt: string | null;
+  topicsAttempted: number; topicsCompleted: number; topicsFailed: number;
+  status: "running" | "completed" | "completed_with_errors" | "failed";
+}
+interface LinkEntry {
+  id: string; url: string; title: string; type: "internal" | "external";
+  category: string; keywords: string[]; anchors: string[]; status: "active" | "inactive";
+  language?: string;
+}
+interface PostPerformance {
+  postId: string; topic: string; url: string; focusKeyword: string; cluster: string;
+  publishedDate: string; lastSyncedAt: string;
+  impressions: number; clicks: number; avgPosition: number; ctr: number;
+  pageviews: number; sessions: number; avgTimeOnPage: number; bounceRate: number;
+  classification: PerformanceClass;
+}
+type PublishQueueStatus = "queued" | "processing" | "published" | "failed" | "paused";
+interface PublishQueueTarget { target: string; config: Record<string, string>; }
+interface PublishQueueResult { target: string; ok: boolean; status: "passed"|"warning"|"failed"; message: string; externalUrl?: string; }
+interface PublishQueueItem {
+  id: string; title: string; slug: string; excerpt: string; tags: string[];
+  seoTitle: string; metaDescription: string; canonicalUrl?: string;
+  wordCount?: number; wpPostId?: number;
+  status: PublishQueueStatus; targets: PublishQueueTarget[];
+  scheduledFor: string | null; createdAt: string; processedAt: string | null;
+  retryCount: number; lastError: string | null; results: PublishQueueResult[];
+}
+interface PublishQueueStats {
+  total: number; queued: number; processing: number;
+  published: number; failed: number; paused: number;
+}
+interface PostHistoryEntry {
+  id: string; wpPostId: number; title: string; slug?: string; focusKeyword?: string;
+  wpEditUrl: string; wpPostUrl: string | null;
+  source: "scheduler" | "manual"; needsReview?: boolean; createdAt: string;
+  mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
 }
 
-interface TargetConfig {
-  enabled: boolean;
-  config: Record<string, string>;
-}
+// ── Status maps ────────────────────────────────────────────────
 
-interface PublishResultItem {
-  target: string;
-  ok: boolean;
-  status: "passed" | "warning" | "failed";
-  message: string;
-  externalUrl?: string;
-  editUrl?: string;
-  platformPostId?: string;
-}
+const Q_STATUS: Record<QueueStatus, { dot: string; badge: string; label: string }> = {
+  queued:     { dot: "bg-blue-400",            badge: "bg-blue-500/10 text-blue-300 ring-blue-500/25",     label: "Queued" },
+  processing: { dot: "bg-amber-400 animate-pulse", badge: "bg-amber-500/10 text-amber-300 ring-amber-500/25", label: "Processing" },
+  completed:  { dot: "bg-emerald-500",         badge: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25", label: "Completed" },
+  failed:     { dot: "bg-red-500",             badge: "bg-red-500/10 text-red-300 ring-red-500/25",        label: "Failed" },
+  paused:     { dot: "bg-white/15",            badge: "bg-white/[0.07] text-white/55 ring-white/15",    label: "Paused" },
+};
+const RUN_STATUS: Record<RunLog["status"], string> = {
+  running:               "bg-amber-500/10 text-amber-300 ring-amber-500/25",
+  completed:             "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25",
+  completed_with_errors: "bg-orange-500/10 text-orange-300 ring-orange-500/25",
+  failed:                "bg-red-500/10 text-red-300 ring-red-500/25",
+};
+const PQ_STATUS: Record<PublishQueueStatus, { dot: string; badge: string; label: string; bar: string }> = {
+  queued:     { dot: "bg-blue-500",            badge: "bg-blue-500/10 text-blue-300 ring-blue-500/25",      label: "Scheduled",  bar: "bg-blue-500" },
+  processing: { dot: "bg-amber-400 animate-pulse", badge: "bg-amber-500/10 text-amber-300 ring-amber-500/25", label: "Publishing", bar: "bg-amber-400" },
+  published:  { dot: "bg-emerald-500",         badge: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25", label: "Published",  bar: "bg-emerald-500" },
+  failed:     { dot: "bg-red-500",             badge: "bg-red-500/10 text-red-300 ring-red-500/25",         label: "Failed",     bar: "bg-red-500" },
+  paused:     { dot: "bg-white/15",            badge: "bg-white/[0.07] text-white/55 ring-white/15",     label: "Paused",     bar: "bg-white/15" },
+};
+const PERF_STATUS: Record<PerformanceClass, { badge: string; label: string }> = {
+  high:    { badge: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25", label: "High" },
+  medium:  { badge: "bg-amber-500/10 text-amber-300 ring-amber-500/25",       label: "Medium" },
+  low:     { badge: "bg-red-500/10 text-red-300 ring-red-500/25",             label: "Low" },
+  unknown: { badge: "bg-white/[0.07] text-white/45 ring-white/15",         label: "—" },
+};
 
-const STEPS = [
-  "Running 12-step strategy analysis...",
-  "Planning article structure and blueprint...",
-  "Writing blog content from blueprint...",
-  "Generating content-aware image prompts...",
-  "Publishing draft to WordPress…",
-  "Generating & attaching images…",
-];
+// ── Shared components ──────────────────────────────────────────
 
-const SUGGESTIONS = [
-  "How to set up a free zone company in Dubai",
-  "Dubai mainland vs free zone: which is right for you?",
-  "Opening a business bank account in the UAE",
-  "Best free zones in Dubai for tech startups",
-  "Offshore company formation in British Virgin Islands",
-  "Dubai Golden Visa through business investment",
-  "DIFC vs ADGM: which financial free zone suits your business",
-  "Step-by-step guide to getting a UAE trade licence",
-];
-
-// ── WordPress Post Picker ──────────────────────────────────────
-
-interface WpPostSummary {
-  id: number;
-  title: string;
-  slug: string;
-  status: string;
-  date: string;
-  link: string;
-}
-
-function WpPostPicker({ onSelect }: { onSelect: (title: string, content: string) => void }) {
-  const [query, setQuery]       = React.useState("");
-  const [results, setResults]   = React.useState<WpPostSummary[]>([]);
-  const [searching, setSearching] = React.useState(false);
-  const [loading, setLoading]   = React.useState<number | null>(null);
-  const [error, setError]       = React.useState("");
-  const debounceRef             = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const search = async (q: string) => {
-    if (q.trim().length < 3) { setResults([]); return; }
-    setSearching(true);
-    setError("");
-    try {
-      const res = await fetch(`/api/fetch-wp-post?search=${encodeURIComponent(q)}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Search failed");
-      setResults(Array.isArray(data.posts) ? data.posts : []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Search failed");
-      setResults([]);
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  const handleInput = (val: string) => {
-    setQuery(val);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => search(val), 400);
-  };
-
-  const loadPost = async (post: WpPostSummary) => {
-    setLoading(post.id);
-    setError("");
-    try {
-      const res = await fetch(`/api/fetch-wp-post?id=${post.id}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to load post");
-      onSelect(data.title, data.content);
-      setQuery("");
-      setResults([]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load post");
-    } finally {
-      setLoading(null);
-    }
-  };
-
+function Badge({ className, children }: { className: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-2">
-      <div className="relative">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => handleInput(e.target.value)}
-          placeholder="Search by post title…"
-          className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 transition-all duration-200 pr-8"
-        />
-        {searching && (
-          <svg className="absolute right-3 top-3 w-4 h-4 text-white/30 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-          </svg>
-        )}
-      </div>
-      {error && <p className="text-xs text-red-400">{error}</p>}
-      {results.length > 0 && (
-        <div className="border border-white/10 rounded-lg overflow-hidden divide-y divide-white/[0.05]">
-          {results.map((post) => (
-            <button
-              key={post.id}
-              onClick={() => loadPost(post)}
-              disabled={loading === post.id}
-              className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-white/[0.04] transition-colors text-left gap-3"
-            >
-              <div className="min-w-0">
-                <p className="text-sm text-white/80 truncate">{post.title}</p>
-                <p className="text-[10px] text-white/25 mt-0.5">/{post.slug} · {post.status}</p>
-              </div>
-              {loading === post.id ? (
-                <svg className="w-3.5 h-3.5 text-[#C9A84C] animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                </svg>
-              ) : (
-                <span className="text-[10px] text-[#C9A84C]/60 shrink-0">Load</span>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-      {query.length >= 3 && !searching && results.length === 0 && !error && (
-        <p className="text-xs text-white/25">No posts found</p>
-      )}
-    </div>
-  );
-}
-
-// ── Link Validation Panel ──────────────────────────────────────
-
-function StatusBadge({ status }: { status: LinkIssue["status"] }) {
-  const styles = {
-    passed:  "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
-    warning: "bg-amber-500/15 text-amber-400 border-amber-500/20",
-    failed:  "bg-red-500/15 text-red-400 border-red-500/20",
-    skipped: "bg-white/5 text-white/30 border-white/10",
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-medium uppercase tracking-wide ${styles[status]}`}>
-      {status}
+    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${className}`}>
+      {children}
     </span>
   );
 }
 
-function LinkIssueRow({
-  issue,
-  expanded,
-  onToggle,
-  onAction,
-}: {
-  issue: LinkIssue;
-  expanded: boolean;
-  onToggle: () => void;
-  onAction: (action: "remove" | "recheck" | "edit" | "auto_fix" | "find_better_source", newUrl?: string) => void;
-}) {
-  const isActionable = issue.status === "failed" || issue.status === "warning";
-  const [editMode, setEditMode] = React.useState(false);
-  const [editUrl, setEditUrl] = React.useState(issue.url);
-
+function Toggle({ checked, onChange, disabled = false }: { checked: boolean; onChange: () => void; disabled?: boolean }) {
   return (
-    <div className={`border rounded-lg overflow-hidden ${issue.status === "failed" ? "border-red-500/20 bg-red-500/[0.03]" : issue.status === "warning" ? "border-amber-500/20 bg-amber-500/[0.03]" : "border-white/[0.06] bg-white/[0.02]"}`}>
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[0.03] transition-colors"
-      >
-        <StatusBadge status={issue.status} />
-        <span className="text-xs text-white/40 uppercase tracking-wide w-16 shrink-0">{issue.type}</span>
-        <span className="text-xs text-white/70 flex-1 truncate">{issue.anchorText || issue.url}</span>
-        {isActionable && (
-          <svg className={`w-3 h-3 text-white/20 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        )}
-      </button>
+    <button role="switch" aria-checked={checked} onClick={onChange} disabled={disabled}
+      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gold/50 disabled:opacity-50 ${checked ? "bg-gold" : "bg-white/15"}`}>
+      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ${checked ? "translate-x-5" : "translate-x-0"}`} />
+    </button>
+  );
+}
 
-      {expanded && isActionable && (
-        <div className="px-3 pb-3 space-y-2 border-t border-white/[0.05] pt-2.5">
-          <div>
-            <p className="text-[10px] text-white/25 uppercase tracking-wide mb-0.5">URL</p>
-            {editMode ? (
-              <div className="flex gap-1.5 mt-1">
-                <input
-                  className="flex-1 text-xs font-mono bg-white/5 border border-white/10 rounded px-2 py-1 text-white/70 focus:outline-none focus:border-[#C9A84C]/40"
-                  value={editUrl}
-                  onChange={(e) => setEditUrl(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") { onAction("edit", editUrl); setEditMode(false); }
-                    if (e.key === "Escape") { setEditMode(false); setEditUrl(issue.url); }
-                  }}
-                  autoFocus
-                />
-                <button
-                  onClick={() => { onAction("edit", editUrl); setEditMode(false); }}
-                  className="text-[11px] px-2.5 py-1 rounded border border-[#C9A84C]/40 text-[#C9A84C] hover:border-[#C9A84C]/70 transition-colors"
-                >
-                  Save
-                </button>
-                <button
-                  onClick={() => { setEditMode(false); setEditUrl(issue.url); }}
-                  className="text-[11px] px-2.5 py-1 rounded border border-white/10 text-white/30 hover:text-white/50 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <p className="text-xs text-white/40 font-mono break-all">{issue.url}</p>
-            )}
-            {issue.finalUrl && issue.finalUrl !== issue.url && (
-              <p className="text-[10px] text-white/20 mt-0.5">→ Redirected to: {issue.finalUrl}</p>
-            )}
-          </div>
-          {issue.problem && (
-            <div>
-              <p className="text-[10px] text-white/25 uppercase tracking-wide mb-0.5">Problem</p>
-              <p className="text-xs text-white/60">{issue.problem}</p>
-            </div>
-          )}
-          {issue.suggestedFix && (
-            <div>
-              <p className="text-[10px] text-white/25 uppercase tracking-wide mb-0.5">Suggested fix</p>
-              <p className="text-xs text-white/50">{issue.suggestedFix}</p>
-            </div>
-          )}
-          <div className="flex gap-2 flex-wrap pt-1">
-            {issue.actions.includes("auto_fix") && issue.finalUrl && (
-              <button
-                onClick={() => onAction("auto_fix", issue.finalUrl!)}
-                className="text-[11px] px-2.5 py-1 rounded border border-[#C9A84C]/30 text-[#C9A84C]/80 hover:text-[#C9A84C] hover:border-[#C9A84C]/60 transition-colors"
-              >
-                Auto-fix
-              </button>
-            )}
-            {issue.actions.includes("find_better_source") && (
-              <button
-                onClick={() => onAction("find_better_source")}
-                className="text-[11px] px-2.5 py-1 rounded border border-[#C9A84C]/30 text-[#C9A84C]/80 hover:text-[#C9A84C] hover:border-[#C9A84C]/60 transition-colors"
-              >
-                Find better source
-              </button>
-            )}
-            {issue.actions.includes("edit") && (
-              <button
-                onClick={() => { setEditMode(true); setEditUrl(issue.url); }}
-                className="text-[11px] px-2.5 py-1 rounded border border-white/10 text-white/40 hover:text-white/60 hover:border-white/20 transition-colors"
-              >
-                Edit link
-              </button>
-            )}
-            {issue.actions.includes("remove") && (
-              <button
-                onClick={() => onAction("remove")}
-                className="text-[11px] px-2.5 py-1 rounded border border-red-500/20 text-red-400/60 hover:text-red-400 hover:border-red-500/40 transition-colors"
-              >
-                Remove
-              </button>
-            )}
-            {issue.actions.includes("recheck") && (
-              <button
-                onClick={() => onAction("recheck")}
-                className="text-[11px] px-2.5 py-1 rounded border border-white/10 text-white/40 hover:text-white/60 hover:border-white/20 transition-colors"
-              >
-                Recheck
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+function Input({ className = "", ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input {...props}
+      className={`block w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-gold/55 focus:outline-none focus:ring-2 focus:ring-gold/15 transition ${className}`} />
+  );
+}
+
+function Select({ className = "", children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement> & { children: React.ReactNode }) {
+  return (
+    <select {...props}
+      className={`block rounded-lg border border-white/10 bg-ink-2 px-3 py-2.5 text-sm text-white/85 focus:border-gold/55 focus:outline-none focus:ring-2 focus:ring-gold/15 transition ${className}`}>
+      {children}
+    </select>
+  );
+}
+
+function Btn({ variant = "primary", size = "md", className = "", disabled, children, onClick, type = "button" }:
+  { variant?: "primary"|"secondary"|"danger"|"ghost"|"success"; size?: "sm"|"md"|"lg"; className?: string; disabled?: boolean; children: React.ReactNode; onClick?: () => void; type?: "button"|"submit"|"reset" }) {
+  const base = "inline-flex items-center justify-center font-medium rounded-lg transition-all focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed select-none";
+  const sizes = { sm: "px-3 py-1.5 text-xs gap-1.5", md: "px-4 py-2.5 text-sm gap-2", lg: "px-5 py-3 text-sm gap-2" };
+  const variants = {
+    primary:   "bg-gradient-to-b from-[#dcbd72] to-[#b6923a] text-black hover:brightness-110 shadow-[0_6px_18px_-8px_rgba(201,168,76,0.6)] focus:ring-gold/40",
+    secondary: "bg-white/[0.05] text-white/75 border border-white/10 hover:bg-white/[0.09] hover:text-white focus:ring-white/20",
+    danger:    "bg-red-500/10 text-red-300 border border-red-500/25 hover:bg-red-500/20 focus:ring-red-400/40",
+    ghost:     "text-white/45 hover:text-white/85 hover:bg-white/[0.06] focus:ring-white/20",
+    success:   "bg-emerald-600 text-white hover:bg-emerald-500 shadow-[0_6px_18px_-8px_rgba(16,185,129,0.5)] focus:ring-emerald-500/40",
+  };
+  return (
+    <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${sizes[size]} ${variants[variant]} ${className}`}>
+      {children}
+    </button>
+  );
+}
+
+function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`panel !rounded-2xl ${className}`}>
+      {children}
     </div>
   );
 }
 
-function LinkGroupSection({
-  label,
-  summary,
-  issues,
-  expanded,
-  onToggle,
-  expandedIssues,
-  onToggleIssue,
-  onLinkAction,
-}: {
-  label: string;
-  summary: { passed: number; warning: number; failed: number };
-  issues: LinkIssue[];
-  expanded: boolean;
-  onToggle: () => void;
-  expandedIssues: Set<string>;
-  onToggleIssue: (id: string) => void;
-  onLinkAction: (issue: LinkIssue, action: "remove" | "recheck" | "edit" | "auto_fix" | "find_better_source", newUrl?: string) => void;
-}) {
-  const actionable = issues.filter((i) => i.status !== "passed");
-  const allPassed = actionable.length === 0;
-
+function CardHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
   return (
-    <div className="space-y-1.5">
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center justify-between py-1 group"
-      >
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-medium text-white/60 group-hover:text-white/80 transition-colors">{label}</span>
-          <div className="flex items-center gap-1.5">
-            {summary.failed > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 border border-red-500/20">
-                {summary.failed} failed
-              </span>
-            )}
-            {summary.warning > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20">
-                {summary.warning} warning
-              </span>
-            )}
-            {allPassed && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
-                {summary.passed} passed
-              </span>
-            )}
-          </div>
-        </div>
-        <svg className={`w-3 h-3 text-white/20 transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+    <div className="flex items-start justify-between px-6 py-5 border-b border-white/[0.06]">
+      <div>
+        <h2 className="font-display text-base text-white/90">{title}</h2>
+        {subtitle && <p className="text-xs text-white/40 mt-0.5">{subtitle}</p>}
+      </div>
+      {action && <div className="flex-shrink-0 ml-4">{action}</div>}
+    </div>
+  );
+}
+
+function EmptyState({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+      <div className="mb-4 text-white/15">{icon}</div>
+      <p className="text-sm font-semibold text-white/70">{title}</p>
+      <p className="mt-1.5 text-xs text-white/35 max-w-xs leading-relaxed">{body}</p>
+    </div>
+  );
+}
+
+function StatCard({ label, value, color = "text-white/90", sub }: { label: string; value: string | number; color?: string; sub?: string }) {
+  return (
+    <div className="panel !rounded-2xl p-5 text-center">
+      <p className={`font-display text-3xl tabular-nums tracking-tight ${color}`}>{value}</p>
+      <p className="text-xs font-medium text-white/50 mt-1.5">{label}</p>
+      {sub && <p className="text-[10px] text-white/30 mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+function Label({ children, required }: { children: React.ReactNode; required?: boolean }) {
+  return (
+    <label className="label-caps mb-1.5">
+      {children}{required && <span className="text-red-400 ml-0.5">*</span>}
+    </label>
+  );
+}
+
+/**
+ * The dashboard "How it works" strip — makes the content pipeline visible:
+ * Ideas → Queue → Drafts → Publish schedule → Live. Each stage shows a live
+ * count and jumps to the tab where that stage is managed.
+ */
+function PipelineStage({ count, label, hint, active, onClick, last }: {
+  count: number; label: string; hint: string; active?: boolean; onClick: () => void; last?: boolean;
+}) {
+  return (
+    <>
+      <button onClick={onClick}
+        className={`flex-1 min-w-[120px] text-left rounded-xl px-4 py-3.5 border transition-all hover:-translate-y-px ${
+          active
+            ? "bg-gold/10 border-gold/35 hover:border-gold/60"
+            : "bg-white/[0.03] border-white/[0.06] hover:border-white/15"
+        }`}>
+        <p className={`font-display text-2xl tabular-nums ${count > 0 ? "text-white/90" : "text-white/30"}`}>{count}</p>
+        <p className="text-xs font-semibold text-white/70 mt-1">{label}</p>
+        <p className="text-[10px] text-white/35 mt-0.5 leading-snug">{hint}</p>
+      </button>
+      {!last && (
+        <svg className="w-4 h-4 text-gold/50 shrink-0 hidden sm:block" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12l-7.5 7.5M21 12H3" />
         </svg>
-      </button>
-
-      {expanded && (
-        <div className="space-y-1.5 pl-1">
-          {actionable.length === 0 ? (
-            <p className="text-xs text-white/25 py-1">All links valid</p>
-          ) : (
-            actionable.map((issue) => (
-              <LinkIssueRow
-                key={issue.id}
-                issue={issue}
-                expanded={expandedIssues.has(issue.id)}
-                onToggle={() => onToggleIssue(issue.id)}
-                onAction={(action, newUrl) => onLinkAction(issue, action, newUrl)}
-              />
-            ))
-          )}
-        </div>
       )}
-    </div>
+    </>
   );
 }
 
-function LinkValidationPanel({
-  status,
-  result,
-  expandedGroup,
-  setExpandedGroup,
-  expandedIssues,
-  setExpandedIssues,
-  onRecheck,
-  onLinkAction,
-}: {
-  status: LinkValidationStatus;
-  result: LinkValidationResult | null;
-  expandedGroup: "internal" | "external" | null;
-  setExpandedGroup: (g: "internal" | "external" | null) => void;
-  expandedIssues: Set<string>;
-  setExpandedIssues: (s: Set<string>) => void;
-  onRecheck: () => void;
-  onLinkAction: (issue: LinkIssue, action: "remove" | "recheck" | "edit" | "auto_fix" | "find_better_source", newUrl?: string) => void;
-}) {
-  const toggleIssue = (id: string) => {
-    const next = new Set(expandedIssues);
-    next.has(id) ? next.delete(id) : next.add(id);
-    setExpandedIssues(next);
-  };
-
-  const toggleGroup = (g: "internal" | "external") => {
-    setExpandedGroup(expandedGroup === g ? null : g);
-  };
-
-  if (status === "checking") {
-    return (
-      <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-4">
-        <div className="flex items-center gap-2.5">
-          <svg className="w-4 h-4 text-[#C9A84C] animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <p className="text-sm text-white/50">Validating links…</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === "error") {
-    return (
-      <div className="rounded-lg border border-red-500/20 bg-red-500/[0.03] px-4 py-3 flex items-center justify-between">
-        <p className="text-xs text-red-400">Link validation failed</p>
-        <button onClick={onRecheck} className="text-xs text-white/40 hover:text-white/70 transition-colors">Retry</button>
-      </div>
-    );
-  }
-
-  if (!result) return null;
-
-  const internalIssues = result.issues.filter((i) => i.type === "internal");
-  const externalIssues = result.issues.filter((i) => i.type === "external");
-
-  const publishState = result.canPublish
-    ? result.overallStatus === "warning"
-      ? { label: "Ready with warnings", color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20" }
-      : { label: "All links validated", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" }
-    : { label: "Publish blocked — fix failing links before going live", color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" };
-
-  return (
-    <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden">
-      {/* Header */}
-      <div className={`px-4 py-3 border-b ${publishState.bg} border-b-white/[0.05] flex items-center justify-between`}>
-        <div className="flex items-center gap-2">
-          <p className={`text-xs font-medium ${publishState.color}`}>Link Validation</p>
-          <span className="text-white/20 text-xs">·</span>
-          <p className={`text-xs ${publishState.color}`}>{publishState.label}</p>
-        </div>
-        <button onClick={onRecheck} className="text-[10px] text-white/25 hover:text-white/50 transition-colors">
-          Recheck all
-        </button>
-      </div>
-
-      {/* Summary row */}
-      <div className="px-4 py-3 grid grid-cols-2 gap-3 border-b border-white/[0.05]">
-        <div className="space-y-1">
-          <p className="text-[10px] text-white/25 uppercase tracking-wide">Internal links</p>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-white/50">{result.summary.internal.passed} passed</span>
-            {result.summary.internal.warning > 0 && <span className="text-amber-400">{result.summary.internal.warning} warn</span>}
-            {result.summary.internal.failed > 0 && <span className="text-red-400">{result.summary.internal.failed} failed</span>}
-          </div>
-        </div>
-        <div className="space-y-1">
-          <p className="text-[10px] text-white/25 uppercase tracking-wide">External links</p>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-white/50">{result.summary.external.passed} passed</span>
-            {result.summary.external.warning > 0 && <span className="text-amber-400">{result.summary.external.warning} warn</span>}
-            {result.summary.external.failed > 0 && <span className="text-red-400">{result.summary.external.failed} failed</span>}
-          </div>
-        </div>
-      </div>
-
-      {/* Expandable groups */}
-      <div className="px-4 py-3 space-y-3">
-        <LinkGroupSection
-          label="Internal links"
-          summary={result.summary.internal}
-          issues={internalIssues}
-          expanded={expandedGroup === "internal"}
-          onToggle={() => toggleGroup("internal")}
-          expandedIssues={expandedIssues}
-          onToggleIssue={toggleIssue}
-          onLinkAction={onLinkAction}
-        />
-        <LinkGroupSection
-          label="External links"
-          summary={result.summary.external}
-          issues={externalIssues}
-          expanded={expandedGroup === "external"}
-          onToggle={() => toggleGroup("external")}
-          expandedIssues={expandedIssues}
-          onToggleIssue={toggleIssue}
-          onLinkAction={onLinkAction}
-        />
-      </div>
-    </div>
-  );
+/** "in 6h 12m" style countdown to the next daily run (08:00 UTC). */
+function untilNextRun(runHour: number): { when: Date; human: string } {
+  const now = new Date();
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), runHour, 0, 0));
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+  const mins = Math.max(1, Math.round((next.getTime() - now.getTime()) / 60_000));
+  const human = mins < 60 ? `in ${mins} min` : `in ${Math.floor(mins / 60)}h ${mins % 60}m`;
+  return { when: next, human };
 }
 
-// ── Readiness Panel ───────────────────────────────────────────
+function fmt(iso: string | null) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
 
-const SUBSCORE_ORDER = ["search_basics", "content_quality", "ai_readiness", "bing_discoverability", "editorial_compliance"];
-
-function ReadinessScoreRing({ score, status }: { score: number; status: ReadinessSubscore["status"] }) {
-  const color = status === "passed" ? "#10b981" : status === "warning" ? "#f59e0b" : "#ef4444";
-  const r = 18;
-  const circ = 2 * Math.PI * r;
-  const dash = (score / 100) * circ;
+function Spinner({ size = "sm" }: { size?: "sm" | "md" }) {
+  const s = size === "sm" ? "h-4 w-4" : "h-5 w-5";
   return (
-    <svg width="44" height="44" viewBox="0 0 44 44" className="shrink-0">
-      <circle cx="22" cy="22" r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="3" />
-      <circle
-        cx="22" cy="22" r={r} fill="none"
-        stroke={color} strokeWidth="3"
-        strokeDasharray={`${dash} ${circ - dash}`}
-        strokeLinecap="round"
-        transform="rotate(-90 22 22)"
-      />
-      <text x="22" y="26" textAnchor="middle" fontSize="10" fontWeight="600" fill={color}>{score}</text>
+    <svg className={`animate-spin ${s} text-current`} fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
     </svg>
   );
 }
 
-function ReadinessIssueItem({ issue }: { issue: ReadinessIssue }) {
-  const color = issue.severity === "failed" ? "text-red-400" : issue.severity === "warning" ? "text-amber-400" : "text-emerald-400";
-  const dot   = issue.severity === "failed" ? "bg-red-400" : issue.severity === "warning" ? "bg-amber-400" : "bg-emerald-400";
-  return (
-    <div className="flex gap-2.5 py-1.5">
-      <div className={`w-1 h-1 rounded-full ${dot} mt-1.5 shrink-0`} />
-      <div className="flex-1 min-w-0">
-        <p className={`text-xs ${color}`}>{issue.message}</p>
-        {issue.suggestedFix && (
-          <p className="text-[10px] text-white/30 mt-0.5">{issue.suggestedFix}</p>
-        )}
-      </div>
-      {issue.blocking && (
-        <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 border border-red-500/20 shrink-0 self-start mt-0.5 uppercase tracking-wide">
-          blocking
-        </span>
-      )}
-    </div>
-  );
-}
+// ── Icons ──────────────────────────────────────────────────────
+const I = {
+  dashboard: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>,
+  queue:     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>,
+  links:     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>,
+  perf:      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
+  signout:   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>,
+  refresh:   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>,
+  trash:     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
+  edit:      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
+  plus:      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>,
+  arrow:     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>,
+  bolt:      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
+  publish:   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" /></svg>,
+  history:   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+  settings:  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+  chevron:   <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>,
+  clock:     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+  check:     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>,
+};
 
-function ReadinessSubscoreRow({
-  subscore,
-  expanded,
-  onToggle,
-}: {
-  subscore: ReadinessSubscore;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const statusColor = subscore.status === "passed" ? "text-emerald-400" : subscore.status === "warning" ? "text-amber-400" : "text-red-400";
-  return (
-    <div>
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-3 py-2.5 group text-left hover:bg-white/[0.02] -mx-1 px-1 rounded transition-colors"
-      >
-        <ReadinessScoreRing score={subscore.score} status={subscore.status} />
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-white/70 group-hover:text-white/90 transition-colors">{subscore.label}</p>
-          <p className={`text-[10px] mt-0.5 ${statusColor}`}>{subscore.message}</p>
-        </div>
-        <svg
-          className={`w-3 h-3 text-white/20 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
-          fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+// ── Main component ─────────────────────────────────────────────
 
-      {expanded && subscore.issues.length > 0 && (
-        <div className="pl-14 pr-1 pb-2 divide-y divide-white/[0.04]">
-          {subscore.issues.map((issue) => (
-            <ReadinessIssueItem key={issue.id} issue={issue} />
-          ))}
-        </div>
-      )}
-      {expanded && subscore.issues.length === 0 && (
-        <div className="pl-14 pb-2">
-          <p className="text-[10px] text-white/25">No issues found</p>
-        </div>
-      )}
-    </div>
-  );
-}
+type Tab = "dashboard" | "queue" | "history" | "links" | "performance" | "publish_queue" | "settings";
 
-function ReadinessPanel({
-  status,
-  result,
-  onAutoFix,
-  isAutoFixing,
-  appliedFixes,
-}: {
-  status: "idle" | "checking" | "done" | "error";
-  result: ReadinessResult | null;
-  onAutoFix: () => void;
-  isAutoFixing: boolean;
-  appliedFixes: string[];
-}) {
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
-
-  if (status === "idle") return null;
-
-  if (status === "checking") {
-    return (
-      <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-4">
-        <div className="flex items-center gap-2.5">
-          <svg className="w-4 h-4 text-[#C9A84C] animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <p className="text-sm text-white/50">Running readiness checks…</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === "error") {
-    return (
-      <div className="rounded-lg border border-red-500/20 bg-red-500/[0.03] px-4 py-3">
-        <p className="text-xs text-red-400">Readiness check failed — skipped</p>
-      </div>
-    );
-  }
-
-  if (!result) return null;
-
-  const publishStateCfg =
-    result.publishState === "ready"
-      ? { label: "Ready to publish", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" }
-      : result.publishState === "ready_with_warnings"
-      ? { label: "Ready with warnings", color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20" }
-      : { label: "Blocked — fix issues before publishing", color: "text-red-400", bg: "bg-red-500/10 border-red-500/20" };
-
-  const hasAutoFixes = result.warnings > 0 || result.blockingErrors > 0;
-  const orderedSubscores = SUBSCORE_ORDER.map((k) => result.subscores.find((s) => s.key === k)).filter(Boolean) as ReadinessSubscore[];
-
-  return (
-    <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden">
-      {/* Header */}
-      <div className={`px-4 py-3 border-b ${publishStateCfg.bg} border-b-white/[0.05] flex items-center justify-between`}>
-        <div className="flex items-center gap-3">
-          <div>
-            <p className={`text-xs font-medium ${publishStateCfg.color}`}>Search & AI Readiness</p>
-            <p className={`text-[10px] mt-0.5 ${publishStateCfg.color} opacity-80`}>{publishStateCfg.label}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="text-right">
-            <p className={`text-xl font-light ${publishStateCfg.color}`}>{result.overallScore}</p>
-            <p className="text-[9px] text-white/25 uppercase tracking-wide">/ 100</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Summary chips */}
-      <div className="px-4 py-2.5 flex items-center gap-3 border-b border-white/[0.05]">
-        {result.blockingErrors > 0 && (
-          <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/15 text-red-400 border border-red-500/20">
-            {result.blockingErrors} blocking
-          </span>
-        )}
-        {result.warnings > 0 && (
-          <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20">
-            {result.warnings} warning{result.warnings > 1 ? "s" : ""}
-          </span>
-        )}
-        {result.blockingErrors === 0 && result.warnings === 0 && (
-          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
-            All checks passed
-          </span>
-        )}
-        {hasAutoFixes && (
-          <button
-            onClick={onAutoFix}
-            disabled={isAutoFixing}
-            className="ml-auto text-[11px] px-3 py-1 rounded border border-[#C9A84C]/30 text-[#C9A84C]/80 hover:text-[#C9A84C] hover:border-[#C9A84C]/60 disabled:opacity-40 transition-colors flex items-center gap-1.5"
-          >
-            {isAutoFixing ? (
-              <>
-                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                Applying…
-              </>
-            ) : (
-              <>
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                Auto-fix
-              </>
-            )}
-          </button>
-        )}
-      </div>
-
-      {/* Applied fixes notice */}
-      {appliedFixes.length > 0 && (
-        <div className="px-4 py-2.5 border-b border-white/[0.05] bg-emerald-500/[0.04]">
-          <p className="text-[10px] text-emerald-400 font-medium mb-1">Auto-fixes applied:</p>
-          {appliedFixes.map((fix, i) => (
-            <p key={i} className="text-[10px] text-emerald-400/60">· {fix}</p>
-          ))}
-        </div>
-      )}
-
-      {/* Subscores */}
-      <div className="px-4 py-1 divide-y divide-white/[0.04]">
-        {orderedSubscores.map((subscore) => (
-          <ReadinessSubscoreRow
-            key={subscore.key}
-            subscore={subscore}
-            expanded={expandedKey === subscore.key}
-            onToggle={() => setExpandedKey(expandedKey === subscore.key ? null : subscore.key)}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export default function HomePage() {
+export default function AdminPage() {
   const [isAuthed, setIsAuthed]     = useState<null | boolean>(null);
   const [loginPw, setLoginPw]       = useState("");
-  const [loginError, setLoginError] = useState("");
-  const loginRef                    = useRef<HTMLInputElement>(null);
+  const [authError, setAuthError]   = useState("");
+  const [tab, setTab]         = useState<Tab>("dashboard");
+  const [loading, setLoading] = useState(false);
+  // First-visit guide: shown until dismissed once (persisted), reopenable any time.
+  const [showHelp, setShowHelpRaw] = useState(false);
+  useEffect(() => {
+    try { setShowHelpRaw(localStorage.getItem("aston_admin_guide_seen") !== "1"); } catch { /* SSR/no storage */ }
+  }, []);
+  const setShowHelp = (v: boolean | ((p: boolean) => boolean)) => {
+    setShowHelpRaw((prev) => {
+      const next = typeof v === "function" ? v(prev) : v;
+      try { if (!next) localStorage.setItem("aston_admin_guide_seen", "1"); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  const [stats, setStats]         = useState<QueueStats | null>(null);
+  const [settings, setSettings]   = useState<SchedulerSettings | null>(null);
+  const [runs, setRuns]           = useState<RunLog[]>([]);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [spotifySyncing, setSpotifySyncing] = useState(false);
+  const [spotifyResult, setSpotifyResult]   = useState<{ ok: boolean; msg: string; synced?: number } | null>(null);
+
+  const [items, setItems]         = useState<QueueItem[]>([]);
+  const [newTopic, setNewTopic]   = useState("");
+  const [newMode, setNewMode]     = useState<GenerationMode>("topic_only");
+  const [newPriority, setNewPriority] = useState(3);
+  const [newDelay, setNewDelay] = useState("");   // "" = next scheduled run; otherwise minutes
+  const [newMedia, setNewMedia] = useState({ audio: false, video: false, podcast: false });
+  const [newPodcastLength, setNewPodcastLength] = useState(30);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [adding, setAdding]       = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [showStrategyInputs, setShowStrategyInputs] = useState(false);
+  const [newAudience, setNewAudience]           = useState("");
+  const [newPrimaryCountry, setNewPrimaryCountry] = useState("");
+  const [newSecondaryCountries, setNewSecondaryCountries] = useState("");
+  const [newPriorityService, setNewPriorityService] = useState("");
+  const [newLanguage, setNewLanguage]           = useState("");
+  const [newCustomPrompt, setNewCustomPrompt]   = useState("");
+
+  const [links, setLinks]         = useState<LinkEntry[]>([]);
+  const [lForm, setLForm]         = useState({ url: "", title: "", type: "internal" as "internal"|"external", category: "", keywords: "", anchors: "", status: "active" as "active"|"inactive", language: "" });
+  const [siteLanguages, setSiteLanguages] = useState<{ code: string; name: string; isDefault: boolean }[]>([]);
+  const [addingLink, setAddingLink] = useState(false);
+  const [editingLink, setEditingLink] = useState<LinkEntry | null>(null);
+  const [confirmLinkId, setConfirmLinkId] = useState<string | null>(null);
+  const [wpSyncing, setWpSyncing]     = useState(false);
+  const [wpSyncResult, setWpSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const [perfRecords, setPerfRecords] = useState<PostPerformance[]>([]);
+  const [syncing, setSyncing]     = useState(false);
+  const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const [publishQueue, setPublishQueue]           = useState<PublishQueueItem[]>([]);
+  const [publishQueueStats, setPublishQueueStats] = useState<PublishQueueStats | null>(null);
+  const [pqLoading, setPqLoading]                 = useState(false);
+  const [publishingId, setPublishingId]           = useState<string | null>(null);
+  const [history, setHistory]                     = useState<PostHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading]       = useState(false);
+  const [chartBusyId, setChartBusyId]             = useState<number | null>(null);
+
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+
+  function showToast(msg: string, ok = true) {
+    setToast({ msg, ok });
+    setTimeout(() => setToast(null), 3500);
+  }
 
   useEffect(() => {
     fetch("/api/auth").then(r => setIsAuthed(r.ok)).catch(() => setIsAuthed(false));
   }, []);
 
-  useEffect(() => {
-    if (isAuthed === false) setTimeout(() => loginRef.current?.focus(), 50);
-  }, [isAuthed]);
+  const fetchDashboard = useCallback(async () => {
+    const [qRes, schRes] = await Promise.all([
+      fetch("/api/queue"),
+      fetch("/api/scheduler"),
+    ]);
+    if (qRes.status === 401) { setIsAuthed(false); return; }
+    const qData = await qRes.json();
+    setItems(qData.items ?? []);
+    setStats(qData.stats ?? null);
+    if (schRes.ok) {
+      const schData = await schRes.json();
+      setSettings(schData.settings ?? null);
+      setRuns(schData.recentRuns ?? []);
+    }
+  }, []);
+
+  const fetchLinks = useCallback(async () => {
+    const res  = await fetch("/api/links");
+    const data = await res.json();
+    setLinks(data.links ?? []);
+  }, []);
+
+  const fetchPerformance = useCallback(async () => {
+    const res  = await fetch("/api/performance");
+    const data = await res.json();
+    setPerfRecords(data.records ?? []);
+  }, []);
+
+  const fetchPublishQueue = useCallback(async () => {
+    try {
+      const res  = await fetch("/api/publish-queue");
+      if (!res.ok) return;
+      const data = await res.json();
+      setPublishQueue(data.items ?? []);
+      setPublishQueueStats(data.stats ?? null);
+    } catch { /* silently skip */ }
+  }, []);
+
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res  = await fetch("/api/history");
+      if (!res.ok) return;
+      const data = await res.json();
+      setHistory(data.posts ?? []);
+    } catch { /* silently skip */ }
+    finally { setHistoryLoading(false); }
+  }, []);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      await Promise.all([
+        fetchDashboard(),
+        fetchLinks().catch(console.error),
+        fetchPerformance().catch(console.error),
+        fetchPublishQueue(),
+        fetch("/api/links/languages")
+          .then(r => r.json())
+          .then(d => { if (d.languages) setSiteLanguages(d.languages); })
+          .catch(console.error),
+      ]);
+    } finally { setLoading(false); }
+  }, [fetchDashboard, fetchLinks, fetchPerformance, fetchPublishQueue]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    setLoginError("");
+    setAuthError("");
     const res = await fetch("/api/auth", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password: loginPw }),
     });
     if (res.ok) { setIsAuthed(true); setLoginPw(""); }
-    else { setLoginError("Incorrect password"); }
+    else { setAuthError("Incorrect password"); }
   }
 
-  const [topic, setTopic]           = useState("");
-  const [mode, setMode]             = useState<GenerationMode>("topic_only");
-  const [sourceText, setSourceText] = useState("");
-  const [sourceUrl, setSourceUrl]   = useState("");
-  const [fetchStatus, setFetchStatus] = useState<"idle" | "fetching" | "done" | "error">("idle");
-  const [fetchError, setFetchError] = useState("");
-  const [inputMode, setInputMode]   = useState<"title" | "prompt">("title");
-  const [status, setStatus]         = useState<Status>("idle");
-  const [stepIndex, setStepIndex]   = useState(0);
-  const [retryMessage, setRetryMessage] = useState<string | null>(null);
-  const [result, setResult]         = useState<GenerateResult | null>(null);
-  const [blogContent, setBlogContent] = useState<Record<string, string> | null>(null);
-  const [error, setError]           = useState("");
-  // Durable pipeline — now the DEFAULT. Generation runs through the resumable
-  // Workflow route (/api/generate-workflow) that can't fail midway. The legacy
-  // route stays available as a one-click fallback via the toggle. Defaults on;
-  // only an explicit opt-out ("0") keeps the legacy pipeline.
-  const [useDurablePipeline, setUseDurablePipeline] = useState(true);
-  useEffect(() => {
-    const stored = localStorage.getItem("aston_durable_pipeline");
-    if (stored !== null) setUseDurablePipeline(stored === "1");
-  }, []);
-  const toggleDurablePipeline = (on: boolean) => {
-    setUseDurablePipeline(on);
-    localStorage.setItem("aston_durable_pipeline", on ? "1" : "0");
-  };
+  useEffect(() => { if (isAuthed) fetchAll(); }, [isAuthed, fetchAll]);
 
   useEffect(() => {
-    const stored = localStorage.getItem("aston_auto_media");
-    if (stored) { try { setAutoMedia(JSON.parse(stored)); } catch { /* ignore */ } }
-  }, []);
-  const updateAutoMedia = (key: keyof typeof autoMedia, on: boolean) => {
-    setAutoMedia((prev) => {
-      const next = { ...prev, [key]: on };
-      localStorage.setItem("aston_auto_media", JSON.stringify(next));
-      return next;
-    });
-  };
-
-  const [customPrompt, setCustomPrompt] = useState("");
-
-  // Strategy inputs
-  const [showStrategy, setShowStrategy]             = useState(false);
-  const [audience, setAudience]                     = useState("");
-  const [primaryCountry, setPrimaryCountry]         = useState("");
-  const [secondaryCountries, setSecondaryCountries] = useState("");
-  const [priorityService, setPriorityService]       = useState("");
-  const [language, setLanguage]                     = useState("");
-  const [siteLanguages, setSiteLanguages]           = useState<{ code: string; name: string }[]>([]);
-  const [imageModel, setImageModel]                 = useState<"imagen-4" | "gpt-image-2">("gpt-image-2");
+    if (tab === "publish_queue" && isAuthed) fetchPublishQueue();
+  }, [tab, isAuthed, fetchPublishQueue]);
 
   useEffect(() => {
-    fetch("/api/links/languages")
-      .then(r => r.json())
-      .then(d => { if (d.languages) setSiteLanguages(d.languages); })
-      .catch(() => {});
-  }, []);
+    if (tab === "history" && isAuthed) fetchHistory();
+  }, [tab, isAuthed, fetchHistory]);
 
-  // Link validation
-  const [linkValidationStatus, setLinkValidationStatus] = useState<LinkValidationStatus>("idle");
-  const [linkValidation, setLinkValidation]             = useState<LinkValidationResult | null>(null);
-  const [expandedLinkGroup, setExpandedLinkGroup]       = useState<"internal" | "external" | null>(null);
-  const [expandedIssues, setExpandedIssues]             = useState<Set<string>>(new Set());
-
-  // Readiness validator
-  const [readinessStatus, setReadinessStatus] = useState<"idle" | "checking" | "done" | "error">("idle");
-  const [readinessResult, setReadinessResult] = useState<ReadinessResult | null>(null);
-  const [isAutoFixing, setIsAutoFixing]       = useState(false);
-  const [appliedFixes, setAppliedFixes]       = useState<string[]>([]);
-  const [wpSyncStatus, setWpSyncStatus]       = useState<"idle" | "syncing" | "synced" | "error">("idle");
-
-  // Delete post
-  const [deleteState, setDeleteState] = useState<"idle" | "confirming" | "deleting" | "deleted" | "error">("idle");
-  const [deleteError, setDeleteError] = useState("");
-
-  // Publish queue scheduling
-  const [showQueuePublish, setShowQueuePublish]       = useState(false);
-  const [queueScheduledFor, setQueueScheduledFor]     = useState("");
-  const [queuePublishStatus, setQueuePublishStatus]   = useState<"idle" | "adding" | "added" | "error">("idle");
-
-  // Publishing targets
-  const [showPublishingTargets, setShowPublishingTargets] = useState(false);
-  const [publishingTargets, setPublishingTargets] = useState<Record<string, TargetConfig>>({
-    wordpress: { enabled: true,  config: { status: "draft" } },
-    medium:    { enabled: false, config: { publishStatus: "draft" } },
-    devto:     { enabled: false, config: { published: "false" } },
-    hashnode:  { enabled: false, config: {} },
-    blogger:   { enabled: false, config: { isDraft: "true" } },
-    ghost:     { enabled: false, config: { status: "draft" } },
-    email:     { enabled: false, config: {} },
-  });
-  const [requireAllPass, setRequireAllPass]         = useState(true);
-  const [publishStatus, setPublishStatus]           = useState<"idle" | "publishing" | "done" | "error">("idle");
-  const [publishResults, setPublishResults]         = useState<PublishResultItem[]>([]);
-
-  // Social cross-posting alongside the scheduled blog publish
-  const [socialShare, setSocialShare]     = useState<{ linkedin: boolean }>({ linkedin: false });
-  const [socialCaptions, setSocialCaptions] = useState<Record<string, string>>({});
-  const [socialGenStatus, setSocialGenStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
-
-  const [videoStatus, setVideoStatus]     = useState<"idle" | "generating" | "rendering" | "ready" | "uploading" | "uploaded" | "error">("idle");
-  const [videoProgress, setVideoProgress] = useState("");
-  const [videoElapsed, setVideoElapsed]   = useState(0);
-  const [videoBase64, setVideoBase64]     = useState<string | null>(null);
-  const [videoMime, setVideoMime]         = useState("video/mp4");
-  const [videoUrl, setVideoUrl]           = useState<string | null>(null);
-  const [videoRenderId, setVideoRenderId]       = useState<string | null>(null);
-  const [videoBucketName, setVideoBucketName]   = useState<string | null>(null);
-  const [videoChapters, setVideoChapters]       = useState<Array<{ title: string; startSecs: number }>>([]);
-  const [videoCaptionsSrt, setVideoCaptionsSrt] = useState<string>("");
-  const [youtubeUrl, setYoutubeUrl]       = useState<string | null>(null);
-
-  const [imageGenStatus, setImageGenStatus]     = useState<"idle" | "generating" | "done" | "error">("idle");
-  const [imageGenMessage, setImageGenMessage]   = useState("");
-  const [flowchartUrl, setFlowchartUrl]         = useState<string | null>(null);
-
-  const [audioStatus, setAudioStatus]       = useState<"idle" | "generating" | "done" | "error">("idle");
-  const [audioProgress, setAudioProgress]   = useState("");
-  const [audioElapsed, setAudioElapsed]     = useState(0);
-  const [audioUrl, setAudioUrl]             = useState<string | null>(null);
-  const [audioMediaId, setAudioMediaId]     = useState<number | null>(null);
-  // Conversational two-voice podcast episode (separate from the blog read-aloud)
-  const [podcastStatus, setPodcastStatus]   = useState<"idle" | "generating" | "done" | "error">("idle");
-  const [podcastProgress, setPodcastProgress] = useState("");
-  const [podcastUrl, setPodcastUrl]         = useState<string | null>(null);
-  const [podcastEpisodeId, setPodcastEpisodeId]       = useState<number | null>(null);
-  const [podcastAudioMediaId, setPodcastAudioMediaId] = useState<number | null>(null);
-  const [podcastLength, setPodcastLength]   = useState<3 | 15 | 30 | 45 | 60>(30);
-
-  // Media outputs — selected before generation, triggered automatically after post is published
-  const [autoMedia, setAutoMedia] = useState({ video: false, podcast: false, audio: false });
-  const [showMediaOptions, setShowMediaOptions] = useState(false);
-  // Snapshot of media opts captured at generation-done time; cleared once consumed by the effect
-  const autoMediaPendingOpts = useRef<{ video: boolean; podcast: boolean; audio: boolean } | null>(null);
-  // Set to true when auto-video is queued, so the YouTube upload fires once rendering completes
-  const shouldAutoUploadVideoRef = useRef(false);
-
-  const startStepCycle = () => {
-    setStepIndex(0);
-    let i = 0;
-    const interval = setInterval(() => {
-      i++;
-      if (i < STEPS.length) setStepIndex(i);
-      else clearInterval(interval);
-    }, 25000);
-    return interval;
-  };
-
-  const selectedMode = MODES.find((m) => m.id === mode)!;
-  const needsSource  = mode !== "topic_only";
-  const canGenerate  = (!!topic.trim() || !!customPrompt.trim()) && (!needsSource || !!sourceText.trim());
-
-  const fetchSourceUrl = async () => {
-    if (!sourceUrl.trim()) return;
-    setFetchStatus("fetching");
-    setFetchError("");
-    setSourceText("");
-    try {
-      const res = await fetch("/api/fetch-source", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: sourceUrl.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setFetchStatus("error");
-        setFetchError(data.error ?? "Failed to fetch URL");
-      } else {
-        setSourceText(data.text);
-        setFetchStatus("done");
-      }
-    } catch {
-      setFetchStatus("error");
-      setFetchError("Network error — could not reach the server");
-    }
-  };
-
-  const handleGenerate = async () => {
-    if (!canGenerate || status === "loading") return;
-    setStatus("loading");
-    setResult(null);
-    setError("");
-    setRetryMessage(null);
-    const interval = startStepCycle();
-
-    // Shared SSE event handler for both pipelines. Returns "done" on the terminal
-    // done event; throws on an error event. Keeps the two code paths in sync.
-    const dispatch = (event: Record<string, unknown>): "continue" | "done" => {
-      if (event.type === "qa_retry") {
-        setRetryMessage(`QA check didn't pass — rewriting content (attempt ${event.attempt}/${event.max})...`);
-        return "continue";
-      }
-      if (event.type === "tech_retry") {
-        const reason = event.reason ? ` (${String(event.reason).slice(0, 120)})` : "";
-        setRetryMessage(`Technical issue — retrying (attempt ${event.attempt}/${event.max})...${reason}`);
-        return "continue";
-      }
-      if (event.type === "progress") {
-        if (typeof event.message === "string" && event.message) setRetryMessage(event.message as string);
-        return "continue";
-      }
-      if (event.type === "done") {
-        clearInterval(interval);
-        setRetryMessage(null);
-        const data = event as unknown as GenerateResult;
-        setResult(data);
-        const raw = event as unknown as Record<string, string>;
-        setBlogContent({
-          main_content:   raw.main_content   ?? "",
-          more_content_1: raw.more_content_1 ?? "",
-          more_content_2: raw.more_content_2 ?? "",
-          more_content_3: raw.more_content_3 ?? "",
-          more_content_4: raw.more_content_4 ?? "",
-          more_content_5: raw.more_content_5 ?? "",
-          more_content_6: raw.more_content_6 ?? "",
-          final_points:   raw.final_points   ?? "",
-        });
-        setStatus("success");
-        if ((event.linksUsed as GenerateResult["linksUsed"])) {
-          runLinkValidation([
-            ...(event.linksUsed as GenerateResult["linksUsed"]).internal,
-            ...(event.linksUsed as GenerateResult["linksUsed"]).external,
-          ], data);
-        }
-        const evtRaw = event as unknown as Record<string, unknown>;
-        if (evtRaw.imagePrompts && evtRaw.postId) {
-          generateImages(
-            evtRaw.postId as number,
-            evtRaw.fileSlug as string,
-            evtRaw.imageModel as string,
-            evtRaw.imagePrompts as Record<string, string>
-          );
-        }
-        if (!data.needsReview && (autoMedia.video || autoMedia.podcast || autoMedia.audio)) {
-          autoMediaPendingOpts.current = { ...autoMedia };
-        }
-        return "done";
-      }
-      if (event.type === "error") {
-        // Guard: a non-string message would make new Error(obj) say "[object Object]".
-        const errText = typeof event.message === "string" && event.message
-          ? event.message
-          : "Generation failed. Please try again.";
-        throw new Error(errText);
-      }
-      return "continue";
-    };
-
-    const requestBody = JSON.stringify({
-      topic:               topic.trim(),
-      mode,
-      sourceText:          sourceText.trim(),
-      audience:            audience.trim() || undefined,
-      primary_country:     primaryCountry.trim() || undefined,
-      secondary_countries: secondaryCountries.trim() || undefined,
-      priority_service:    priorityService.trim() || undefined,
-      language:            language.trim() || undefined,
-      customPrompt:        customPrompt.trim() || undefined,
-      imageModel,
-    });
-
-    // Parse a validation error (non-2xx JSON returned before any stream starts).
-    const parseError = async (res: Response): Promise<string> => {
-      let msg = "Generation failed. Please try again.";
-      try {
-        const parsed = await res.json();
-        if (typeof parsed.error === "string" && parsed.error) msg = parsed.error;
-        else if (typeof parsed.message === "string" && parsed.message) msg = parsed.message;
-      } catch {
-        msg = await res.text().catch(() => msg) || msg;
-      }
-      return msg;
-    };
-
-    try {
-      if (useDurablePipeline) {
-        // ── Durable pipeline ──────────────────────────────────────
-        // Start the run, then FOLLOW its durable stream. The run keeps executing
-        // server-side across step suspensions even if a streaming connection
-        // drops, so we reconnect to the run's stream until the terminal event
-        // arrives. We replay from the start each connection and skip events we
-        // already handled — correct regardless of startIndex semantics, and cheap
-        // since progress events are tiny and the big done event is terminal.
-        const startRes = await fetch("/api/generate-workflow", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: requestBody,
-        });
-        if (!startRes.ok) throw new Error(await parseError(startRes));
-        const runId = startRes.headers.get("X-Workflow-Run-Id");
-        try { await startRes.body?.cancel(); } catch { /* release the kickoff stream */ }
-        if (!runId) throw new Error("Could not start generation — no run id returned.");
-
-        let dispatched = 0;          // events already handled across all connections
-        let terminal = false;
-        // Give up on wall-clock silence, not connection count: the pipeline has
-        // legitimate multi-minute quiet stretches (content writing + link scrub +
-        // image prompts between two events; up to 3 QA fix passes), and the old
-        // 6-empty-connections rule declared runs failed in seconds while the
-        // article was still being generated — and often still landed in WordPress.
-        const STALL_BUDGET_MS = 25 * 60_000;   // max silence before giving up
-        let lastProgressAt = Date.now();
-        const stalled = () => Date.now() - lastProgressAt > STALL_BUDGET_MS;
-
-        while (!terminal) {
-          const streamRes = await fetch(`/api/generate-workflow/${encodeURIComponent(runId)}`).catch(() => null);
-          if (!streamRes || !streamRes.ok || !streamRes.body) {
-            if (stalled()) throw new Error("Lost connection to the generation run. Check WordPress drafts before retrying.");
-            await new Promise((r) => setTimeout(r, 3000));
-            continue;
-          }
-          const reader = streamRes.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-          let idx = 0;               // position within this replayed stream
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const parts = buffer.split("\n\n");
-            buffer = parts.pop() ?? "";
-            for (const part of parts) {
-              const dataLine = part.split("\n").find((l) => l.startsWith("data: "));
-              if (!dataLine) continue;   // keepalive pings and comments land here
-              let event: Record<string, unknown>;
-              try { event = JSON.parse(dataLine.slice(6)); } catch { continue; }
-              if (idx++ < dispatched) continue;   // already handled in a prior connection
-              dispatched++; lastProgressAt = Date.now();
-              if (dispatch(event) === "done") { terminal = true; break; }
-            }
-            if (terminal) break;
-          }
-          if (terminal) break;
-          // Connection closed without a terminal event (function hit its limit, or
-          // a network drop). Reconnect unless the run has been silent too long.
-          if (stalled()) throw new Error("The generation run stalled without finishing. Check WordPress drafts, or try again.");
-          await new Promise((r) => setTimeout(r, 1500));
-        }
-      } else {
-        // ── Legacy single-stream pipeline ─────────────────────────
-        const res = await fetch("/api/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: requestBody,
-        });
-        if (!res.ok) throw new Error(await parseError(res));
-
-        const reader = res.body!.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let completed = false;
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const parts = buffer.split("\n\n");
-          buffer = parts.pop() ?? "";
-          for (const part of parts) {
-            const dataLine = part.split("\n").find((l) => l.startsWith("data: "));
-            if (!dataLine) continue;
-            let event: Record<string, unknown>;
-            try { event = JSON.parse(dataLine.slice(6)); } catch { continue; }
-            if (dispatch(event) === "done") { completed = true; break; }
-          }
-          if (completed) break;
-        }
-        if (!completed) throw new Error("The server took too long to respond. Please try again.");
-      }
-    } catch (err: unknown) {
-      clearInterval(interval);
-      setRetryMessage(null);
-      setError(err instanceof Error ? err.message : "Something went wrong.");
-      setStatus("error");
-    }
-  };
-
-  const selectedSocialTargets = () =>
-    (Object.entries(socialShare) as Array<["linkedin", boolean]>)
-      .filter(([, on]) => on)
-      .map(([target]) => target);
-
-  const handleGenerateSocialCaptions = async () => {
-    if (!result) return;
-    const targets = selectedSocialTargets();
-    if (targets.length === 0) return;
-    setSocialGenStatus("generating");
-    try {
-      const res = await fetch("/api/social/captions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: result.title,
-          summary: result.metaDescription || result.excerpt || result.seoTitle || result.title,
-          focusKeyword: result.focusKeyword ?? undefined,
-          link: result.previewUrl ?? undefined,
-          targets,
-        }),
-      });
-      const data = await res.json();
-      if (data.captions) {
-        setSocialCaptions((c) => ({ ...c, ...data.captions }));
-        setSocialGenStatus("done");
-      } else {
-        setSocialGenStatus("error");
-      }
-    } catch {
-      setSocialGenStatus("error");
-    }
-  };
-
-  const handleQueuePublish = async () => {
-    if (!result?.articleHtml || queuePublishStatus === "adding") return;
-    const selectedTargets = Object.entries(publishingTargets)
-      .filter(([, v]) => v.enabled)
-      .map(([target, v]) => ({ target, config: v.config }));
-    if (selectedTargets.length === 0) return;
-
-    // Social targets cross-post after the blog goes live (handled by the publish worker).
-    const socialTargets = selectedSocialTargets().map((target) => ({ target, config: {} }));
-
-    setQueuePublishStatus("adding");
-    try {
-      const res = await fetch("/api/publish-queue", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title:           result.title,
-          slug:            result.slug,
-          focusKeyword:    result.focusKeyword ?? "",
-          articleHtml:     result.articleHtml,
-          excerpt:         result.excerpt ?? "",
-          tags:            result.tags ?? [],
-          seoTitle:        result.seoTitle,
-          metaDescription: result.metaDescription ?? "",
-          canonicalUrl:    result.previewUrl ?? undefined,
-          wordCount:       result.wordCount,
-          targets:         selectedTargets,
-          scheduledFor:    queueScheduledFor ? new Date(queueScheduledFor).toISOString() : null,
-          ...(socialTargets.length ? { socialTargets, socialCaptions } : {}),
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to queue");
-      setQueuePublishStatus("added");
-    } catch {
-      setQueuePublishStatus("error");
-    }
-  };
-
-  const handlePublish = async () => {
-    if (!result?.articleHtml || publishStatus === "publishing") return;
-    const selectedTargets = Object.entries(publishingTargets)
-      .filter(([, v]) => v.enabled)
-      .map(([target, v]) => ({ target, config: v.config }));
-    if (selectedTargets.length === 0) return;
-
-    setPublishStatus("publishing");
-    try {
-      const res = await fetch("/api/publish", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title:           result.title,
-          excerpt:         result.excerpt ?? "",
-          html:            result.articleHtml,
-          tags:            result.tags ?? [],
-          seoTitle:        result.seoTitle,
-          seoDescription:  undefined,
-          canonicalUrl:    result.previewUrl ?? undefined,
-          targets:         selectedTargets,
-          requireAllPass,
-        }),
-      });
-      const data = await res.json();
-      setPublishResults(data.results ?? []);
-      setPublishStatus("done");
-    } catch {
-      setPublishStatus("error");
-      setError("Publish failed — please try again.");
-    }
-  };
-
-  const runReadinessCheck = async (
-    currentResult: GenerateResult,
-    hasLinkFailures: boolean,
-  ) => {
-    if (!currentResult.articleHtml) return;
-    setReadinessStatus("checking");
-    setReadinessResult(null);
-    try {
-      const res = await fetch("/api/validate-readiness", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title:                   currentResult.title,
-          seoTitle:                currentResult.seoTitle,
-          metaDescription:         currentResult.metaDescription ?? "",
-          slug:                    currentResult.slug,
-          focusKeyword:            currentResult.focusKeyword,
-          articleHtml:             currentResult.articleHtml,
-          wordCount:               currentResult.wordCount,
-          language:                currentResult.language ?? null,
-          internalLinksCount:      currentResult.linksUsed.internal.length,
-          externalLinksCount:      currentResult.linksUsed.external.length,
-          hasLinkValidationFailures: hasLinkFailures,
-          qaWarnings:              currentResult.qa.warnings,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Readiness check failed");
-      setReadinessResult(data.result);
-      setReadinessStatus("done");
-    } catch {
-      setReadinessStatus("error");
-    }
-  };
-
-  const handleAutoFix = async () => {
-    if (!result?.articleHtml || isAutoFixing) return;
-    setIsAutoFixing(true);
-    try {
-      const res = await fetch("/api/autofix", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          html: result.articleHtml,
-          language: result.language,
-          issues: readinessResult?.issues ?? [],
-          focusKeyword: result.focusKeyword,
-          title: result.title,
-          seoTitle: result.seoTitle,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Auto-fix failed");
-      // Update result with fixed HTML and re-run readiness
-      const updatedResult = { ...result, articleHtml: data.html };
-      setResult(updatedResult);
-      setAppliedFixes((prev) => [...prev, ...(data.appliedFixes ?? [])]);
-      // Re-run readiness with fixed HTML
-      const hasLinkFailures = linkValidation ? !linkValidation.canPublish : false;
-      await runReadinessCheck(updatedResult, hasLinkFailures);
-    } catch {
-      setError("Auto-fix failed — please try again.");
-    } finally {
-      setIsAutoFixing(false);
-    }
-  };
-
-  const handleDeletePost = async () => {
-    if (!result?.postId) {
-      setDeleteError("Post ID not found — please delete this post manually in WordPress.");
-      setDeleteState("error");
-      return;
-    }
-    setDeleteState("deleting");
-    setDeleteError("");
-    try {
-      const res = await fetch("/api/delete-post", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: result.postId, imageIds: result.imageIds, audioMediaId, youtubeUrl: youtubeUrl ?? undefined, podcastEpisodeId: podcastEpisodeId ?? undefined, podcastAudioMediaId: podcastAudioMediaId ?? undefined }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.errors?.join(", ") || data.error || "Delete failed");
-      }
-      setDeleteState("deleted");
-      // Clear the result so the UI resets to the generate form
-      setTimeout(() => {
-        setResult(null);
-        setDeleteState("idle");
-        setDeleteError("");
-      }, 2000);
-    } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : "Delete failed");
-      setDeleteState("error");
-    }
-  };
-
-
-  const runLinkValidation = async (links: Array<{ anchor: string; url: string }>, currentResult?: GenerateResult) => {
-    if (!links.length) return;
-    setLinkValidationStatus("checking");
-    setLinkValidation(null);
-    try {
-      const res = await fetch("/api/validate-links", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ links }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Validation failed");
-      setLinkValidation(data.validation);
-      setLinkValidationStatus("done");
-      // Auto-trigger readiness check after link validation
-      const r = currentResult ?? result;
-      if (r) {
-        const hasLinkFailures = !data.validation?.canPublish;
-        runReadinessCheck(r, hasLinkFailures);
-      }
-    } catch {
-      setLinkValidationStatus("error");
-    }
-  };
-
-  // ── Link action handler ───────────────────────────────────────
-  const handleLinkAction = async (
-    issue: LinkIssue,
-    action: "remove" | "recheck" | "edit" | "auto_fix" | "find_better_source",
-    newUrl?: string
-  ) => {
-    if (action === "find_better_source") {
-      // Open a Google search for a better source on the same topic
-      const query = encodeURIComponent(`${issue.anchorText} official source site:gov OR site:org OR site:edu`);
-      window.open(`https://www.google.com/search?q=${query}`, "_blank");
-      return;
-    }
-
-    // Helpers to update link in articleHtml (local preview)
-    const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const replaceHref = (html: string, oldUrl: string, updatedUrl: string) =>
-      html.replace(new RegExp(`href=["']${escapeRegex(oldUrl)}["']`, "g"), `href="${updatedUrl}"`);
-    const removeLink = (html: string, url: string) =>
-      html.replace(new RegExp(`<a[^>]+href=["']${escapeRegex(url)}["'][^>]*>(.*?)</a>`, "gs"), "$1");
-
-    // Helper to recompute validation summary after changing issues array
-    const recomputeValidation = (prev: LinkValidationResult, updatedIssues: LinkIssue[]): LinkValidationResult => {
-      const internals = updatedIssues.filter((i) => i.type === "internal");
-      const externals = updatedIssues.filter((i) => i.type === "external");
-      const count = (arr: LinkIssue[], s: string) => arr.filter((i) => i.status === s).length;
-      const hasBlocking = updatedIssues.some((i) => i.blocking && i.status === "failed");
-      const hasWarnings = updatedIssues.some((i) => i.status === "warning");
-      return {
-        ...prev,
-        issues: updatedIssues,
-        canPublish: !hasBlocking,
-        overallStatus: hasBlocking ? "failed" : hasWarnings ? "warning" : "passed",
-        summary: {
-          internal: { passed: count(internals, "passed"), warning: count(internals, "warning"), failed: count(internals, "failed") },
-          external: { passed: count(externals, "passed"), warning: count(externals, "warning"), failed: count(externals, "failed") },
-        },
-      };
-    };
-
-    // Push link change to WordPress with status tracking
-    const syncToWordPress = async (wpAction: "replace" | "remove", wpNewUrl?: string) => {
-      if (!result?.postId) return;
-      setWpSyncStatus("syncing");
-      try {
-        const res = await fetch("/api/update-post-links", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ postId: result.postId, oldUrl: issue.url, action: wpAction, newUrl: wpNewUrl }),
-        });
-        if (!res.ok) throw new Error("sync failed");
-        setWpSyncStatus("synced");
-        setTimeout(() => setWpSyncStatus("idle"), 4000);
-      } catch {
-        setWpSyncStatus("error");
-        setTimeout(() => setWpSyncStatus("idle"), 6000);
-      }
-    };
-
-    if (action === "remove") {
-      if (!result) return;
-      const updatedHtml = removeLink(result.articleHtml ?? "", issue.url);
-      setResult({ ...result, articleHtml: updatedHtml });
-      setLinkValidation((prev) => prev ? recomputeValidation(prev, prev.issues.filter((i) => i.id !== issue.id)) : prev);
-      syncToWordPress("remove");
-      return;
-    }
-
-    if (action === "auto_fix" && newUrl) {
-      if (!result) return;
-      const updatedHtml = replaceHref(result.articleHtml ?? "", issue.url, newUrl);
-      setResult({ ...result, articleHtml: updatedHtml });
-      setLinkValidation((prev) => prev ? recomputeValidation(prev, prev.issues.map((i) =>
-        i.id === issue.id ? { ...i, url: newUrl, status: "passed" as const, problem: null, suggestedFix: null, blocking: false, actions: ["recheck" as const] } : i
-      )) : prev);
-      syncToWordPress("replace", newUrl);
-      return;
-    }
-
-    if (action === "edit" && newUrl) {
-      if (!result) return;
-      const updatedHtml = replaceHref(result.articleHtml ?? "", issue.url, newUrl);
-      setResult({ ...result, articleHtml: updatedHtml });
-      syncToWordPress("replace", newUrl);
-      // Recheck the new URL and update the issue
-      try {
-        const res = await fetch("/api/validate-links", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ links: [{ anchor: issue.anchorText, url: newUrl }] }),
-        });
-        const data = await res.json();
-        const recheckResult: LinkIssue | undefined = data.validation?.issues?.[0];
-        if (!recheckResult) return;
-        setLinkValidation((prev) => prev ? recomputeValidation(prev, prev.issues.map((i) => i.id === issue.id ? { ...recheckResult, id: issue.id } : i)) : prev);
-      } catch { /* silently fail — issue stays as-is */ }
-      return;
-    }
-
-    if (action === "recheck") {
-      try {
-        const res = await fetch("/api/validate-links", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ links: [{ anchor: issue.anchorText, url: issue.url }] }),
-        });
-        const data = await res.json();
-        const recheckResult: LinkIssue | undefined = data.validation?.issues?.[0];
-        if (!recheckResult) return;
-        setLinkValidation((prev) => prev ? recomputeValidation(prev, prev.issues.map((i) => i.id === issue.id ? { ...recheckResult, id: issue.id } : i)) : prev);
-      } catch { /* silently fail */ }
-      return;
-    }
-  };
-
-  const handleReset = () => {
-    setStatus("idle");
-    setResult(null);
-    setError("");
-    setRetryMessage(null);
-    setTopic("");
-    setSourceText("");
-    setSourceUrl("");
-    setFetchStatus("idle");
-    setFetchError("");
-    setInputMode("title");
-    setLinkValidationStatus("idle");
-    setLinkValidation(null);
-    setReadinessStatus("idle");
-    setReadinessResult(null);
-    setAppliedFixes([]);
-    setShowQueuePublish(false);
-    setQueueScheduledFor("");
-    setQueuePublishStatus("idle");
-    setPublishStatus("idle");
-    setPublishResults([]);
-    setMode("topic_only");
-    setStepIndex(0);
-    setAudience("");
-    setPrimaryCountry("");
-    setSecondaryCountries("");
-    setPriorityService("");
-    setLanguage("");
-    setCustomPrompt("");
-    setImageGenStatus("idle");
-    setImageGenMessage("");
-    setFlowchartUrl(null);
-    setVideoStatus("idle");
-    setVideoProgress("");
-    setVideoElapsed(0);
-    setVideoBase64(null);
-    setVideoUrl(null);
-    setVideoRenderId(null);
-    setVideoBucketName(null);
-    setVideoChapters([]);
-    setVideoCaptionsSrt("");
-    setYoutubeUrl(null);
-    setAudioStatus("idle");
-    setAudioProgress("");
-    setAudioElapsed(0);
-    setAudioUrl(null);
-    setAudioMediaId(null);
-    setPodcastStatus("idle");
-    setPodcastProgress("");
-    setPodcastUrl(null);
-    setPodcastEpisodeId(null);
-    setPodcastAudioMediaId(null);
-    setPodcastLength(30);
-    setBlogContent(null);
-    autoMediaPendingOpts.current = null;
-    shouldAutoUploadVideoRef.current = false;
-  };
-
-  const handleGenerateVideo = async () => {
-    if (!result) return;
-    setVideoStatus("generating");
-    setVideoProgress("Preparing video pipeline…");
-    setVideoElapsed(0);
-    setVideoBase64(null);
-    setVideoUrl(null);
-    setVideoRenderId(null);
-    setVideoChapters([]);
-    setVideoCaptionsSrt("");
-    setYoutubeUrl(null);
-
-    const timerStart = Date.now();
-    const timer = setInterval(() => setVideoElapsed(Math.round((Date.now() - timerStart) / 1000)), 1000);
-
-    try {
-      const res = await fetch("/api/generate-video", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title:          result.title,
-          audioUrl:       audioUrl || undefined,   // pass existing audio if generated
-          main_content:   blogContent?.main_content,
-          more_content_1: blogContent?.more_content_1,
-          more_content_2: blogContent?.more_content_2,
-          more_content_3: blogContent?.more_content_3,
-          more_content_4: blogContent?.more_content_4,
-          more_content_5: blogContent?.more_content_5,
-          more_content_6: blogContent?.more_content_6,
-          final_points:   blogContent?.final_points,
-        }),
-      });
-
-      if (!res.ok || !res.body) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        setVideoStatus("error");
-        setVideoProgress(err.error || "Video generation failed.");
-        clearInterval(timer);
-        return;
-      }
-
-      const reader  = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const parts = buf.split("\n\n");
-        buf = parts.pop() ?? "";
-        for (const part of parts) {
-          const line = part.replace(/^data: /, "").trim();
-          if (!line) continue;
-          try {
-            const event = JSON.parse(line) as Record<string, unknown>;
-            if (event.type === "progress") {
-              setVideoProgress(String(event.message ?? ""));
-            } else if (event.type === "submitted") {
-              const rId    = String(event.renderId);
-              const bucket = String(event.bucketName ?? "");
-              setVideoRenderId(rId);
-              setVideoBucketName(bucket);
-              setVideoStatus("rendering");
-              setVideoProgress(String(event.message ?? "Video rendering on Remotion Lambda…"));
-              if (Array.isArray(event.chapters)) {
-                setVideoChapters(event.chapters as Array<{ title: string; startSecs: number }>);
-              }
-              if (typeof event.captionsSrt === "string") {
-                setVideoCaptionsSrt(event.captionsSrt as string);
-              }
-              clearInterval(timer);
-              pollRemotionRender(rId, bucket);
-              return;
-            } else if (event.type === "error") {
-              setVideoStatus("error");
-              setVideoProgress(String(event.message ?? "Video generation failed."));
-              clearInterval(timer);
-              return;
-            }
-          } catch { /* skip malformed */ }
-        }
-      }
-    } catch (err) {
-      setVideoStatus("error");
-      setVideoProgress(err instanceof Error ? err.message : "Something went wrong.");
-      clearInterval(timer);
-    }
-  };
-
-  // Polls Shotstack every 12 s until the render is done or failed
-  const pollRemotionRender = (renderId: string, bucketName: string) => {
-    const POLL_INTERVAL = 10_000;          // Remotion renders faster than Shotstack
-    const MAX_WAIT_MS   = 15 * 60 * 1000; // 15 minutes
-
-    const startedAt = Date.now();
-
-    const interval = setInterval(async () => {
-      if (Date.now() - startedAt > MAX_WAIT_MS) {
-        clearInterval(interval);
-        setVideoStatus("error");
-        setVideoProgress("Render timed out after 15 minutes.");
-        return;
-      }
-      try {
-        const res  = await fetch(`/api/check-video-render?id=${renderId}&bucket=${encodeURIComponent(bucketName)}`);
-        const data = await res.json() as { status: string; progress?: number; url?: string; error?: string };
-
-        if (data.status === "done" && data.url) {
-          clearInterval(interval);
-          setVideoUrl(data.url);
-          setVideoStatus("ready");
-          setVideoProgress("Video ready!");
-        } else if (data.status === "error") {
-          clearInterval(interval);
-          setVideoStatus("error");
-          setVideoProgress(`Render failed: ${data.error ?? "unknown error"}`);
-        } else {
-          const pct = data.progress != null ? ` (${Math.round(data.progress * 100)}%)` : "";
-          setVideoProgress(`Rendering video frames${pct}…`);
-        }
-      } catch (err) {
-        console.warn("[poll] Status check failed:", err);
-      }
-    }, POLL_INTERVAL);
-  };
-
-  const handleUploadToYouTube = async () => {
-    if (!result || (!videoUrl && !videoBase64)) return;
-    setVideoStatus("uploading");
-
-    try {
-      const res = await fetch("/api/upload-video", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          postId:            result.postId,
-          title:             result.title,
-          videoUrl:          videoUrl    || undefined,
-          videoBase64:       videoBase64 || undefined,
-          chapters:          videoChapters.length > 0 ? videoChapters : undefined,
-          captionsSrt:       videoCaptionsSrt || undefined,
-          // Blog SEO context → drives the keyword-first YouTube title, rich
-          // description, and tags (see lib/youtubeSeo.ts).
-          focusKeyword:      result.focusKeyword || undefined,
-          secondaryKeywords: result.tags && result.tags.length > 0 ? result.tags : undefined,
-          summary:           result.metaDescription || result.excerpt || undefined,
-          blogUrl:           result.previewUrl || undefined,
-          language:          result.language || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed.");
-      setYoutubeUrl(data.youtubeUrl);
-      setVideoStatus("uploaded");
-    } catch (err) {
-      setVideoStatus("error");
-      setVideoProgress(err instanceof Error ? err.message : "Upload failed.");
-    }
-  };
-
-  // Called automatically after the main generate pipeline publishes the text post.
-  // Runs image generation as a second, separate request so the total pipeline
-  // fits within Vercel's 300 s function timeout.
-  const generateImages = async (
-    postId: number,
-    fileSlug: string,
-    imageModel: string,
-    imagePrompts: Record<string, string>
-  ) => {
-    setImageGenStatus("generating");
-    setImageGenMessage("Generating images…");
-    try {
-      const res = await fetch("/api/generate-images", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId, fileSlug, imageModel, imagePrompts }),
-      });
-      if (!res.body) throw new Error("No response body from generate-images.");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const parts = buf.split("\n\n");
-        buf = parts.pop() ?? "";
-        for (const part of parts) {
-          const line = part.replace(/^data: /, "").trim();
-          if (!line) continue;
-          let event: Record<string, unknown>;
-          try { event = JSON.parse(line); } catch { continue; }
-          if (event.type === "progress") {
-            setImageGenMessage(String(event.message ?? ""));
-          } else if (event.type === "done") {
-            setImageGenStatus("done");
-            setImageGenMessage("Images attached to post ✓");
-            setResult((prev) => prev ? { ...prev, imageIds: event.imageIds as GenerateResult["imageIds"] } : prev);
-            if (event.flowchartUrl) setFlowchartUrl(event.flowchartUrl as string);
-          } else if (event.type === "error") {
-            throw new Error(String(event.message));
-          }
-        }
-      }
-    } catch (err) {
-      setImageGenStatus("error");
-      setImageGenMessage(err instanceof Error ? err.message : "Image generation failed.");
-      console.error("[generate-images]", err);
-    }
-  };
-
-  const handleGenerateAudio = async () => {
-    if (!result) return;
-    setAudioStatus("generating");
-    setAudioProgress("Building audio script from article…");
-    setAudioElapsed(0);
-    setAudioUrl(null);
-
-    const timerStart = Date.now();
-    const timer = setInterval(() => {
-      setAudioElapsed(Math.round((Date.now() - timerStart) / 1000));
-    }, 1000);
-
-    try {
-      const res = await fetch("/api/generate-audio", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          postId:         result.postId,
-          title:          result.title,
-          main_content:   blogContent?.main_content,
-          more_content_1: blogContent?.more_content_1,
-          more_content_2: blogContent?.more_content_2,
-          more_content_3: blogContent?.more_content_3,
-          more_content_4: blogContent?.more_content_4,
-          more_content_5: blogContent?.more_content_5,
-          more_content_6: blogContent?.more_content_6,
-          final_points:   blogContent?.final_points,
-        }),
-      });
-
-      if (!res.ok || !res.body) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        setAudioStatus("error");
-        setAudioProgress(err.error || "Audio generation failed.");
-        return;
-      }
-
-      const reader  = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const parts = buf.split("\n\n");
-        buf = parts.pop() ?? "";
-        for (const part of parts) {
-          const line = part.replace(/^data: /, "").trim();
-          if (!line) continue;
-          try {
-            const event = JSON.parse(line) as { type: string; message?: string; audioUrl?: string; audioMediaId?: number };
-            if (event.type === "progress" && event.message) setAudioProgress(event.message);
-            if (event.type === "done" && event.audioUrl) {
-              setAudioUrl(event.audioUrl);
-              setAudioMediaId(event.audioMediaId ?? null);
-              setAudioStatus("done");
-            }
-            if (event.type === "error") {
-              setAudioStatus("error");
-              setAudioProgress(event.message ?? "Audio generation failed.");
-            }
-          } catch { /* ignore malformed chunks */ }
-        }
-      }
-    } catch (err) {
-      setAudioStatus("error");
-      setAudioProgress(err instanceof Error ? err.message : "Something went wrong.");
-    } finally {
-      clearInterval(timer);
-    }
-  };
-
-  // Generate the conversational two-voice podcast episode (host + expert + music
-  // sting) and save it to ACF podcast_audio_url. This is what the Spotify feed
-  // serves — distinct from the blog read-aloud above.
-  const handleGeneratePodcast = async () => {
-    if (!result?.postId) return;
-    setPodcastStatus("generating");
-    setPodcastProgress("Starting…");
-    setPodcastUrl(null);
-    try {
-      const res = await fetch("/api/generate-podcast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: result.postId, title: result.title, focusKeyword: result.focusKeyword, length: podcastLength }),
-      });
-      if (!res.ok || !res.body) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        setPodcastStatus("error");
-        setPodcastProgress(err.error || "Podcast generation failed.");
-        return;
-      }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const parts = buf.split("\n\n");
-        buf = parts.pop() ?? "";
-        for (const part of parts) {
-          const line = part.replace(/^data: /, "").trim();
-          if (!line) continue;
-          try {
-            const event = JSON.parse(line) as { type: string; message?: string; podcastUrl?: string; podcastEpisodeId?: number; podcastAudioMediaId?: number };
-            if (event.type === "progress" && event.message) setPodcastProgress(event.message);
-            if (event.type === "done" && event.podcastUrl) {
-              setPodcastUrl(event.podcastUrl);
-              setPodcastEpisodeId(event.podcastEpisodeId ?? null);
-              setPodcastAudioMediaId(event.podcastAudioMediaId ?? null);
-              setPodcastStatus("done");
-            }
-            if (event.type === "error") {
-              setPodcastStatus("error");
-              setPodcastProgress(event.message ?? "Podcast generation failed.");
-            }
-          } catch { /* ignore malformed chunks */ }
-        }
-      }
-    } catch (err) {
-      setPodcastStatus("error");
-      setPodcastProgress(err instanceof Error ? err.message : "Something went wrong.");
-    }
-  };
-
-  // After post generation completes, auto-run whichever media outputs were selected.
-  // Audio runs first so the video pipeline can reuse the narration URL.
-  // Video and podcast then run in parallel.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Live-refresh the queue while a post is being generated so its step-by-step
+  // progress advances on screen — the scheduler equivalent of the manual
+  // page's progress stream. Polls only while something is actually processing.
+  const anyProcessing = items.some((i) => i.status === "processing");
   useEffect(() => {
-    const opts = autoMediaPendingOpts.current;
-    if (!opts || !result) return;
-    autoMediaPendingOpts.current = null;
-    (async () => {
-      if (opts.audio) await handleGenerateAudio();
-      const parallel: Promise<void>[] = [];
-      if (opts.video) {
-        shouldAutoUploadVideoRef.current = true;
-        parallel.push(handleGenerateVideo());
-      }
-      if (opts.podcast) parallel.push(handleGeneratePodcast());
-      if (parallel.length > 0) await Promise.all(parallel);
-    })();
-  }, [result]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!isAuthed || !anyProcessing || (tab !== "dashboard" && tab !== "queue")) return;
+    const t = setInterval(() => { fetchDashboard(); }, 4000);
+    return () => clearInterval(t);
+  }, [isAuthed, anyProcessing, tab, fetchDashboard]);
 
-  // Auto-upload to YouTube once the video finishes rendering (only when triggered via auto-media).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (videoStatus === "ready" && videoUrl && shouldAutoUploadVideoRef.current) {
-      shouldAutoUploadVideoRef.current = false;
-      handleUploadToYouTube();
-    }
-  }, [videoStatus, videoUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ── Queue actions ──────────────────────────────────────────────
+  async function addQueueItem() {
+    const hasTopic = !!newTopic.trim();
+    const hasPrompt = newCustomPrompt.trim().length >= 10;
+    if ((!hasTopic && !hasPrompt) || !newAudience.trim()) return;
+    setAdding(true);
+    try {
+      await fetch("/api/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: newTopic.trim(), mode: newMode, priority: newPriority,
+          audience: newAudience.trim() || undefined,
+          primary_country: newPrimaryCountry.trim() || undefined,
+          secondary_countries: newSecondaryCountries.trim() || undefined,
+          priority_service: newPriorityService.trim() || undefined,
+          language: newLanguage.trim() || undefined,
+          customPrompt: newCustomPrompt.trim() || undefined,
+          delayMinutes: newDelay ? Number(newDelay) : undefined,
+          mediaOutputs: newMedia,
+          podcastLength: newMedia.podcast ? newPodcastLength : undefined,
+        }),
+      });
+      setNewTopic(""); setNewPriority(3); setNewDelay("");
+      setNewMedia({ audio: false, video: false, podcast: false }); setNewPodcastLength(30);
+      setNewAudience(""); setNewPrimaryCountry(""); setNewSecondaryCountries(""); setNewPriorityService(""); setNewLanguage(""); setNewCustomPrompt("");
+      await fetchDashboard();
+      setShowAddForm(false);
+      showToast(newDelay ? `Topic queued — generates in ${Number(newDelay) < 60 ? `${newDelay} min` : `${Number(newDelay) / 60}h`}` : "Topic added to queue");
+    } finally { setAdding(false); }
+  }
 
+  async function patchQueue(id: string, updates: Partial<QueueItem>) {
+    await fetch("/api/queue", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...updates }) });
+    await fetchDashboard();
+  }
+
+  async function deleteQueueItem(id: string) {
+    await fetch("/api/queue", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    setConfirmDeleteId(null);
+    await fetchDashboard();
+    showToast("Item removed");
+  }
+
+  async function saveScheduler(patch: Partial<SchedulerSettings>) {
+    if (!settings) return;
+    setSavingSettings(true);
+    try {
+      const res  = await fetch("/api/scheduler", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...settings, ...patch }) });
+      const data = await res.json();
+      setSettings(data.settings);
+    } finally { setSavingSettings(false); }
+  }
+
+  async function runSpotifySync() {
+    setSpotifySyncing(true);
+    setSpotifyResult(null);
+    try {
+      const res  = await fetch("/api/spotify-sync", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { setSpotifyResult({ ok: false, msg: data.error ?? data.message ?? "Sync failed" }); return; }
+      setSpotifyResult({ ok: true, msg: data.message ?? "Done", synced: data.synced });
+      showToast(typeof data.synced === "number" && data.synced > 0 ? `Embedded Spotify player in ${data.synced} post${data.synced === 1 ? "" : "s"}` : "Spotify sync complete — nothing new to embed");
+    } catch {
+      setSpotifyResult({ ok: false, msg: "Network error — could not reach the sync endpoint" });
+    } finally { setSpotifySyncing(false); }
+  }
+
+  // Add a data chart to an already-published post — for when the chart failed
+  // (was dropped as malformed) during generation. Synchronous: one LLM call +
+  // one field PATCH, inserted straight into the live post.
+  async function addChart(postId: number) {
+    setChartBusyId(postId);
+    try {
+      const res  = await fetch("/api/post-chart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ postId }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to add chart");
+      showToast("Chart added to the post");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to add chart", false);
+    } finally { setChartBusyId(null); }
+  }
+
+  async function addLink() {
+    if (!lForm.url.trim() || !lForm.title.trim()) return;
+    setAddingLink(true);
+    try {
+      await fetch("/api/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...lForm, keywords: lForm.keywords.split(",").map(s => s.trim()).filter(Boolean), anchors: lForm.anchors.split(",").map(s => s.trim()).filter(Boolean) }) });
+      setLForm({ url: "", title: "", type: "internal", category: "", keywords: "", anchors: "", status: "active", language: "" });
+      await fetchLinks();
+      showToast("Link added");
+    } finally { setAddingLink(false); }
+  }
+
+  async function saveEditLink() {
+    if (!editingLink) return;
+    await fetch("/api/links", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(editingLink) });
+    setEditingLink(null);
+    await fetchLinks();
+    showToast("Link updated");
+  }
+
+  async function toggleLinkStatus(id: string, current: "active" | "inactive") {
+    await fetch("/api/links", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status: current === "active" ? "inactive" : "active" }) });
+    await fetchLinks();
+  }
+
+  async function deleteLink(id: string) {
+    await fetch("/api/links", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    setConfirmLinkId(null);
+    await fetchLinks();
+    showToast("Link deleted");
+  }
+
+  async function syncWpLinks() {
+    setWpSyncing(true); setWpSyncResult(null);
+    try {
+      const res  = await fetch("/api/links/sync-wp", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { setWpSyncResult({ ok: false, msg: data.error ?? "Sync failed" }); return; }
+      setWpSyncResult({ ok: true, msg: `${data.added} new posts added · ${data.skipped} already present · ${data.total} total links` });
+      await fetchLinks();
+    } catch { setWpSyncResult({ ok: false, msg: "Network error — try again" }); }
+    finally { setWpSyncing(false); }
+  }
+
+  async function syncPerformance(action: "sync_all" | "sync_post", postId?: string) {
+    setSyncing(true); setSyncResult(null);
+    try {
+      const res  = await fetch("/api/performance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, postId }) });
+      const data = await res.json();
+      if (!res.ok) { setSyncResult({ ok: false, msg: data.error }); }
+      else if (action === "sync_all") { const r = data.result; setSyncResult({ ok: true, msg: `${r.synced} posts synced${r.errors.length ? `, ${r.errors.length} errors` : ""}` }); }
+      else { setSyncResult({ ok: true, msg: `Synced — ${data.record?.classification} (${data.record?.impressions?.toLocaleString()} impressions)` }); }
+      await fetchPerformance();
+    } finally { setSyncing(false); }
+  }
+
+  async function publishNow(item: PublishQueueItem) {
+    if (!confirm(`Publish "${item.title}" immediately to ${item.targets.map(t => t.target).join(", ")}?`)) return;
+    setPublishingId(item.id);
+    try {
+      const res = await fetch("/api/publish-now", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.id }),
+      });
+      const data = await res.json();
+      if (res.ok) { showToast(`Published "${item.title}" successfully`); }
+      else { showToast(data.error ?? "Publish failed", false); }
+      await fetchPublishQueue();
+    } finally { setPublishingId(null); }
+  }
+
+  // ── Loading / Login ────────────────────────────────────────────
   if (isAuthed === null) return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="studio-bg" />
@@ -1978,1427 +614,1173 @@ export default function HomePage() {
     </div>
   );
 
-  if (isAuthed === false) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="studio-bg" />
-      <form onSubmit={handleLogin} className="relative z-10 w-[22rem] rise-in">
-        <div className="text-center mb-8">
-          <div className="w-12 h-12 mx-auto rounded-xl bg-gradient-to-b from-[#dcbd72] via-gold to-[#a8873a] flex items-center justify-center shadow-[0_10px_30px_-8px_rgba(201,168,76,0.55)] mb-5">
-            <span className="font-display text-black font-semibold text-2xl leading-none">A</span>
+  if (!isAuthed) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="studio-bg" />
+        <div className="relative z-10 w-full max-w-sm px-4 rise-in">
+          <div className="mb-8 text-center">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-b from-[#dcbd72] via-gold to-[#a8873a] text-black mb-5 shadow-[0_10px_30px_-8px_rgba(201,168,76,0.55)]">
+              <span className="font-display font-semibold text-2xl leading-none">A</span>
+            </div>
+            <h1 className="font-display text-2xl text-white/95 tracking-tight">Dashboard</h1>
+            <p className="text-sm text-white/40 mt-1.5">Aston Content Studio</p>
           </div>
-          <h1 className="font-display text-2xl text-white/95 tracking-tight">Aston Content Studio</h1>
-          <p className="text-white/35 text-sm mt-1.5">Enter your password to continue</p>
+          <Card className="p-8 space-y-4">
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <Label>Password</Label>
+                <Input type="password" value={loginPw} onChange={(e) => setLoginPw(e.target.value)}
+                  placeholder="Enter password" autoFocus />
+              </div>
+              {authError && (
+                <div className="flex items-center gap-2 rounded-xl bg-red-500/10 px-3 py-2.5 text-xs text-red-300 border border-red-500/25">
+                  <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
+                  {authError}
+                </div>
+              )}
+              <Btn type="submit" variant="primary" size="lg" className="w-full">Sign in</Btn>
+            </form>
+          </Card>
         </div>
-        <div className="panel p-6 space-y-4">
-          <input
-            ref={loginRef}
-            type="password"
-            value={loginPw}
-            onChange={e => setLoginPw(e.target.value)}
-            placeholder="Password"
-            className="input-studio"
-          />
-          {loginError && <p className="text-red-300 text-xs text-center">{loginError}</p>}
-          <button type="submit" className="btn-gold w-full">
-            Sign in
-          </button>
-        </div>
-      </form>
-    </div>
-  );
+      </div>
+    );
+  }
+
+  // ── Nav config ─────────────────────────────────────────────────
+  // The sidebar itself teaches the model: the three content tabs are ONE
+  // pipeline, in order — write it, review it, put it live.
+  type NavItem = { id: Tab; label: string; icon: React.ReactNode; badge?: number; step?: number };
+  const navSections: { label: string | null; items: NavItem[] }[] = [
+    { label: null, items: [
+      { id: "dashboard",    label: "Overview",     icon: I.dashboard },
+    ]},
+    { label: "Content pipeline", items: [
+      { id: "queue",        label: "Write queue",  icon: I.queue,   step: 1, badge: stats?.queued },
+      { id: "history",      label: "Recent posts", icon: I.history, step: 2 },
+      { id: "publish_queue",label: "Go live",      icon: I.publish, step: 3, badge: publishQueueStats?.queued || undefined },
+    ]},
+    { label: "Setup", items: [
+      { id: "settings",     label: "Settings",     icon: I.settings },
+      { id: "links",        label: "Links",        icon: I.links,   badge: links.filter(x => x.status === "active").length || undefined },
+    ]},
+    { label: "Insights", items: [
+      { id: "performance",  label: "Performance",  icon: I.perf,    badge: perfRecords.length || undefined },
+    ]},
+  ];
 
   return (
-    <div className="min-h-screen text-white font-sans">
+    <div className="flex h-screen overflow-hidden">
       <div className="studio-bg" />
-      <StudioNav />
 
-      <div className="relative z-10 max-w-2xl mx-auto px-6 pt-12 pb-16">
-        <header className="mb-12 rise-in">
-          <p className="label-caps mb-2.5">Articles · WordPress</p>
-          <h1 className="font-display text-[2.75rem] leading-tight tracking-tight text-white/95 mb-3">
-            Blog <span className="text-gold">generator</span>
-          </h1>
-          <p className="text-white/40 text-sm leading-relaxed max-w-lg">
-            Enter a topic. We run a full strategy analysis, write the post, generate images, and publish a draft to WordPress — ready for your review.
-          </p>
-        </header>
+      {/* ── Sidebar ─────────────────────────────────────────────── */}
+      <aside className="relative z-10 w-60 flex-shrink-0 bg-ink-1/90 backdrop-blur border-r border-white/[0.06] flex flex-col">
+        {/* Brand */}
+        <div className="px-5 py-5 border-b border-white/[0.06]">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-b from-[#dcbd72] via-gold to-[#a8873a] flex items-center justify-center flex-shrink-0 shadow-[0_6px_18px_-6px_rgba(201,168,76,0.55)]">
+              <span className="font-display text-black font-semibold text-base leading-none">A</span>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white leading-tight">Dashboard</p>
+              <p className="text-[9px] text-gold/70 tracking-[0.24em] uppercase mt-0.5">Content Studio</p>
+            </div>
+          </div>
+        </div>
 
-        <main>
-          {(status === "idle" || status === "error") && (
-            <div className="space-y-6">
+        {/* Scheduler toggle */}
+        {settings && (
+          <div className="px-4 py-3 border-b border-white/[0.06]">
+            <button onClick={() => saveScheduler({ enabled: !settings.enabled })} disabled={savingSettings}
+              className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-medium transition-all ${settings.enabled ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15" : "bg-white/[0.04] text-white/35 hover:bg-white/[0.07]"}`}>
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${settings.enabled ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" : "bg-white/40"}`} />
+              <span className="flex-1 text-left">
+                <span className="block font-semibold text-[11px]">{settings.enabled ? "Scheduler active" : "Scheduler paused"}</span>
+                <span className="block text-[10px] opacity-60 mt-0.5">{settings.enabled ? "Runs daily 08:00 UTC" : "Click to enable"}</span>
+              </span>
+            </button>
+          </div>
+        )}
 
-              {/* Mode selector */}
-              <div>
-                <label className="label-caps mb-3">Generation mode</label>
-                <div className="grid grid-cols-2 gap-2.5">
-                  {MODES.map((m) => (
-                    <button
-                      key={m.id}
-                      data-active={mode === m.id}
-                      onClick={() => {
-                        setMode(m.id);
-                        if (m.id === "improve_existing") {
-                          setCustomPrompt("");
-                          setTopic("");
-                          setSourceText("");
-                          setSourceUrl("");
-                          setFetchStatus("idle");
-                          setFetchError("");
-                        }
-                      }}
-                      className="option-card"
-                    >
-                      <p className={`text-xs font-medium ${mode === m.id ? "text-gold-bright" : "text-white/60"}`}>{m.label}</p>
-                      <p className="text-white/30 text-xs mt-0.5">{m.description}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Title / Prompt toggle — hidden for improve_existing */}
-              {mode !== "improve_existing" && (
-                <div>
-                  {/* Toggle */}
-                  <div className="flex items-center gap-1 mb-4 bg-white/[0.04] border border-white/10 rounded-full p-1 w-fit">
-                    <button
-                      type="button"
-                      onClick={() => { setInputMode("title"); setCustomPrompt(""); }}
-                      className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all duration-150 ${
-                        inputMode === "title"
-                          ? "bg-gradient-to-b from-[#dcbd72] to-[#b6923a] text-black shadow-[0_4px_14px_-4px_rgba(201,168,76,0.6)]"
-                          : "text-white/40 hover:text-white/70"
-                      }`}
-                    >
-                      Title
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setInputMode("prompt"); setTopic(""); }}
-                      className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all duration-150 ${
-                        inputMode === "prompt"
-                          ? "bg-gradient-to-b from-[#dcbd72] to-[#b6923a] text-black shadow-[0_4px_14px_-4px_rgba(201,168,76,0.6)]"
-                          : "text-white/40 hover:text-white/70"
-                      }`}
-                    >
-                      Prompt
-                    </button>
-                  </div>
-
-                  {inputMode === "title" ? (
-                    <div>
-                      <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
-                        Blog topic
-                      </label>
-                      <textarea
-                        value={topic}
-                        onChange={(e) => setTopic(e.target.value)}
-                        placeholder="e.g. How to set up a free zone company in Dubai"
-                        rows={2}
-                        className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
-                        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
-                      />
-                      <p className="text-white/20 text-xs mt-2">Press ⌘ + Enter to generate</p>
-                    </div>
-                  ) : (
-                    <div>
-                      <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
-                        Custom prompt
-                      </label>
-                      <textarea
-                        value={customPrompt}
-                        onChange={(e) => setCustomPrompt(e.target.value)}
-                        placeholder="e.g. Write a highly authoritative article about DFSA tokenisation sandbox in DIFC, targeting institutional investors and fintech founders…"
-                        rows={5}
-                        style={{ resize: "vertical" }}
-                        className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] transition-all duration-200"
-                      />
-                      <p className="text-white/20 text-xs mt-2">AI derives the article title from your prompt</p>
-                    </div>
-                  )}
-                </div>
+        {/* Nav */}
+        <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
+          {navSections.map((section, si) => (
+            <div key={si} className={si > 0 ? "mt-4" : ""}>
+              {section.label && (
+                <p className="px-3 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/25">{section.label}</p>
               )}
-
-              {/* Audience — required */}
-              <div>
-                <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
-                  Target Audience <span className="text-white/20 normal-case tracking-normal">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={audience}
-                  onChange={(e) => setAudience(e.target.value)}
-                  placeholder="e.g. founders, investors, crypto companies, high-net-worth individuals"
-                  className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] transition-all duration-200"
-                />
-                <p className="text-white/20 text-xs mt-2">Defines tone, complexity, examples, and commercial angle</p>
-              </div>
-
-              {/* Strategy inputs — optional */}
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowStrategy((v) => !v)}
-                  className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-[#C9A84C]/30 transition-all duration-150 group"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <svg className="w-3.5 h-3.5 text-[#C9A84C]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 001.357 2.059l.537.178a2.25 2.25 0 00.707.098h.084M11.25 3.186A4.501 4.501 0 0115 7.5m0 0v-.375c0-.621.504-1.125 1.125-1.125H18a1.125 1.125 0 011.125 1.125V7.5a4.5 4.5 0 01-9 0z" />
-                    </svg>
-                    <span className="text-sm text-white/70 group-hover:text-white transition-colors">Additional strategy inputs</span>
-                    <span className="text-xs text-white/30">(optional — country, service, language)</span>
-                  </div>
-                  <svg className={`w-4 h-4 text-white/30 transition-transform duration-200 ${showStrategy ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-
-                {showStrategy && (
-                  <div className="mt-3 space-y-3 p-4 rounded-lg border border-white/[0.08] bg-white/[0.02]">
-                    <p className="text-white/25 text-xs leading-relaxed">
-                      These optional fields shape jurisdiction focus, service emphasis, and output language. Leave blank to let the strategy engine infer from the topic.
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs text-white/35 mb-1.5">Primary country</label>
-                        <input
-                          type="text"
-                          value={primaryCountry}
-                          onChange={(e) => setPrimaryCountry(e.target.value)}
-                          placeholder="e.g. UAE"
-                          className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/40 transition-colors"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-white/35 mb-1.5">Secondary countries</label>
-                        <input
-                          type="text"
-                          value={secondaryCountries}
-                          onChange={(e) => setSecondaryCountries(e.target.value)}
-                          placeholder="e.g. UK, Germany"
-                          className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/40 transition-colors"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-white/35 mb-1.5">Priority service</label>
-                        <input
-                          type="text"
-                          value={priorityService}
-                          onChange={(e) => setPriorityService(e.target.value)}
-                          placeholder="e.g. VARA licensing"
-                          className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/40 transition-colors"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-white/35 mb-1.5">Language</label>
-                        <select
-                          value={language}
-                          onChange={(e) => setLanguage(e.target.value)}
-                          className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40 transition-colors appearance-none"
-                        >
-                          <option value="" className="bg-[#1a1a1a]">Default (British English)</option>
-                          {siteLanguages.map(l => (
-                            <option key={l.code} value={l.code} className="bg-[#1a1a1a]">{l.name} ({l.code})</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-white/35 mb-1.5">Image model</label>
-                        <select
-                          value={imageModel}
-                          onChange={(e) => setImageModel(e.target.value as "imagen-4" | "gpt-image-2")}
-                          className="w-full bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40 transition-colors appearance-none"
-                        >
-                          <option value="gpt-image-2" className="bg-[#1a1a1a]">GPT Image 2 (OpenAI)</option>
-                          <option value="imagen-4" className="bg-[#1a1a1a]">Imagen 4 (Google)</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Publishing targets */}
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowPublishingTargets((v) => !v)}
-                  className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-[#C9A84C]/30 transition-all duration-150 group"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <svg className="w-3.5 h-3.5 text-[#C9A84C]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
-                    </svg>
-                    <span className="text-sm text-white/70 group-hover:text-white transition-colors">Publishing targets</span>
-                    <span className="text-xs text-white/30">
-                      ({Object.values(publishingTargets).filter((t) => t.enabled).length} selected)
-                    </span>
-                  </div>
-                  <svg className={`w-4 h-4 text-white/30 transition-transform duration-200 ${showPublishingTargets ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-
-                {showPublishingTargets && (
-                  <div className="mt-3 space-y-2 p-4 rounded-lg border border-white/[0.08] bg-white/[0.02]">
-                    <p className="text-white/25 text-xs mb-3 leading-relaxed">
-                      Select where to publish after generation. Article is generated once, then dispatched to all selected targets.
-                    </p>
-                    {(
-                      [
-                        { key: "wordpress", label: "WordPress",     hint: "Your primary Aston.ae site",                      defaultConfig: { status: "draft" } },
-                        { key: "medium",    label: "Medium",         hint: "For broad professional reach",                    defaultConfig: { publishStatus: "draft" } },
-                        { key: "devto",     label: "DEV",            hint: "For developer and technical audiences",           defaultConfig: { published: "false" } },
-                        { key: "hashnode",  label: "Hashnode",        hint: "For technical blogging and custom publications", defaultConfig: {} },
-                        { key: "blogger",   label: "Blogger",         hint: "For simple Google-based blog publishing",        defaultConfig: { isDraft: "true" } },
-                        { key: "ghost",     label: "Ghost",           hint: "For owned publication publishing",               defaultConfig: { status: "draft" } },
-                        { key: "email",     label: "Send by email",   hint: "For internal review or distribution",           defaultConfig: {} },
-                      ] as const
-                    ).map(({ key, label, hint }) => {
-                      const tgt = publishingTargets[key];
-                      return (
-                        <div key={key} className={`rounded-lg border transition-colors ${tgt.enabled ? "border-[#C9A84C]/20 bg-[#C9A84C]/[0.03]" : "border-white/[0.06]"}`}>
-                          <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer select-none">
-                            <input
-                              type="checkbox"
-                              checked={tgt.enabled}
-                              onChange={(e) => setPublishingTargets((prev) => ({
-                                ...prev,
-                                [key]: { ...prev[key], enabled: e.target.checked },
-                              }))}
-                              className="w-3.5 h-3.5 accent-[#C9A84C]"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-white/80">{label}</p>
-                              <p className="text-[10px] text-white/25">{hint}</p>
-                            </div>
-                          </label>
-                          {tgt.enabled && (
-                            <div className="px-3 pb-3 space-y-2 border-t border-white/[0.05] pt-2.5">
-                              {key === "wordpress" && (
-                                <div className="grid grid-cols-2 gap-2">
-                                  <div>
-                                    <label className="block text-[10px] text-white/25 mb-1">Status</label>
-                                    <select
-                                      value={tgt.config.status ?? "draft"}
-                                      onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, status: e.target.value } } }))}
-                                      className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40"
-                                    >
-                                      <option value="draft">Draft</option>
-                                      <option value="pending">Pending review</option>
-                                      <option value="publish">Publish now</option>
-                                    </select>
-                                  </div>
-                                </div>
-                              )}
-                              {key === "medium" && (
-                                <div className="space-y-2">
-                                  <div>
-                                    <label className="block text-[10px] text-white/25 mb-1">Access token <span className="text-red-400">*</span></label>
-                                    <input type="password" placeholder="Your Medium self-issued access token" value={tgt.config.accessToken ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, accessToken: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                      <label className="block text-[10px] text-white/25 mb-1">Status</label>
-                                      <select value={tgt.config.publishStatus ?? "draft"} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, publishStatus: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40">
-                                        <option value="draft">Draft</option>
-                                        <option value="unlisted">Unlisted</option>
-                                        <option value="public">Public</option>
-                                      </select>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                              {key === "devto" && (
-                                <div className="space-y-2">
-                                  <div>
-                                    <label className="block text-[10px] text-white/25 mb-1">API key <span className="text-red-400">*</span></label>
-                                    <input type="password" placeholder="Your DEV.to API key" value={tgt.config.apiKey ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, apiKey: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                      <label className="block text-[10px] text-white/25 mb-1">Publish</label>
-                                      <select value={tgt.config.published ?? "false"} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, published: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40">
-                                        <option value="false">Save as draft</option>
-                                        <option value="true">Publish now</option>
-                                      </select>
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] text-white/25 mb-1">Series (optional)</label>
-                                      <input type="text" placeholder="Series name" value={tgt.config.series ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, series: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                              {key === "hashnode" && (
-                                <div className="space-y-2">
-                                  <div>
-                                    <label className="block text-[10px] text-white/25 mb-1">API token <span className="text-red-400">*</span></label>
-                                    <input type="password" placeholder="Your Hashnode API token" value={tgt.config.token ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, token: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] text-white/25 mb-1">Publication ID <span className="text-red-400">*</span></label>
-                                    <input type="text" placeholder="Your Hashnode publication ID" value={tgt.config.publicationId ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, publicationId: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
-                                  </div>
-                                </div>
-                              )}
-                              {key === "blogger" && (
-                                <div className="space-y-2">
-                                  <div>
-                                    <label className="block text-[10px] text-white/25 mb-1">Google API key <span className="text-red-400">*</span></label>
-                                    <input type="password" placeholder="Your Google API key" value={tgt.config.apiKey ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, apiKey: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                      <label className="block text-[10px] text-white/25 mb-1">Blog ID <span className="text-red-400">*</span></label>
-                                      <input type="text" placeholder="Your Blogger blog ID" value={tgt.config.blogId ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, blogId: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] text-white/25 mb-1">Mode</label>
-                                      <select value={tgt.config.isDraft ?? "true"} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, isDraft: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40">
-                                        <option value="true">Draft</option>
-                                        <option value="false">Publish now</option>
-                                      </select>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                              {key === "ghost" && (
-                                <div className="space-y-2">
-                                  <div>
-                                    <label className="block text-[10px] text-white/25 mb-1">Ghost site URL <span className="text-red-400">*</span></label>
-                                    <input type="text" placeholder="https://myblog.ghost.io" value={tgt.config.siteUrl ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, siteUrl: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                      <label className="block text-[10px] text-white/25 mb-1">Admin API key <span className="text-red-400">*</span></label>
-                                      <input type="password" placeholder="id:secret" value={tgt.config.adminApiKey ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, adminApiKey: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] text-white/25 mb-1">Status</label>
-                                      <select value={tgt.config.status ?? "draft"} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, status: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40">
-                                        <option value="draft">Draft</option>
-                                        <option value="published">Publish now</option>
-                                      </select>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                              {key === "email" && (
-                                <div className="space-y-2">
-                                  <div>
-                                    <label className="block text-[10px] text-white/25 mb-1">Resend API key <span className="text-red-400">*</span></label>
-                                    <input type="password" placeholder="Your Resend API key" value={tgt.config.apiKey ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, apiKey: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                      <label className="block text-[10px] text-white/25 mb-1">Recipient email <span className="text-red-400">*</span></label>
-                                      <input type="email" placeholder="recipient@example.com" value={tgt.config.to ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, to: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] text-white/25 mb-1">Sender (optional)</label>
-                                      <input type="email" placeholder="noreply@aston.ae" value={tgt.config.from ?? ""} onChange={(e) => setPublishingTargets((p) => ({ ...p, [key]: { ...p[key], config: { ...p[key].config, from: e.target.value } } }))} className="w-full bg-white/[0.04] border border-white/10 rounded px-2 py-1.5 text-white text-xs placeholder:text-white/15 focus:outline-none focus:border-[#C9A84C]/40" />
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    <div className="flex items-center gap-3 pt-2 border-t border-white/[0.05] mt-2">
-                      <input
-                        type="checkbox"
-                        id="requireAllPass"
-                        checked={requireAllPass}
-                        onChange={(e) => setRequireAllPass(e.target.checked)}
-                        className="w-3.5 h-3.5 accent-[#C9A84C]"
-                      />
-                      <label htmlFor="requireAllPass" className="text-xs text-white/40 cursor-pointer">
-                        Publish only if all selected targets pass validation
-                      </label>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Source input — shown for modes B/C/D */}
-              {needsSource && (
-                <div>
-                  <label className="block text-xs text-white/40 tracking-[0.15em] uppercase mb-3">
-                    {mode === "source_assisted" && "Source article"}
-                    {mode === "improve_existing" && "Existing Aston post"}
-                    {mode === "notes_to_article" && "Notes"}
-                  </label>
-
-                  {mode === "improve_existing" ? (
-                    <div className="space-y-3">
-                      {sourceText ? (
-                        /* Post loaded — show summary + clear button */
-                        <div className="flex items-center justify-between bg-white/[0.04] border border-[#C9A84C]/20 rounded-lg px-4 py-3">
-                          <div>
-                            <p className="text-sm text-white/70">{topic || "Post loaded"}</p>
-                            <p className="text-[11px] text-white/30 mt-0.5">
-                              {sourceText.trim().split(/\s+/).filter(Boolean).length.toLocaleString()} words · ready to improve
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => { setSourceText(""); setTopic(""); }}
-                            className="text-[11px] text-white/30 hover:text-white/60 transition-colors ml-4"
-                          >
-                            Change
-                          </button>
-                        </div>
-                      ) : (
-                        <WpPostPicker
-                          onSelect={(title, content) => {
-                            setTopic(title);
-                            setSourceText(content);
-                          }}
-                        />
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      {mode === "source_assisted" && (
-                        <div className="mb-3">
-                          <div className="flex gap-2">
-                            <input
-                              type="url"
-                              value={sourceUrl}
-                              onChange={(e) => {
-                                setSourceUrl(e.target.value);
-                                setFetchStatus("idle");
-                                setFetchError("");
-                              }}
-                              onKeyDown={(e) => { if (e.key === "Enter") fetchSourceUrl(); }}
-                              placeholder="Paste a URL to fetch content automatically…"
-                              className="flex-1 bg-white/[0.04] border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] transition-all duration-200"
-                            />
-                            <button
-                              onClick={fetchSourceUrl}
-                              disabled={!sourceUrl.trim() || fetchStatus === "fetching"}
-                              className="px-4 py-2.5 bg-white/[0.06] hover:bg-white/[0.1] disabled:opacity-30 disabled:cursor-not-allowed border border-white/10 rounded-lg text-white/70 text-sm transition-all duration-200 whitespace-nowrap"
-                            >
-                              {fetchStatus === "fetching" ? "Fetching…" : "Fetch"}
-                            </button>
-                          </div>
-                          {fetchStatus === "error" && (
-                            <p className="text-red-400 text-xs mt-1.5">{fetchError}</p>
-                          )}
-                          {fetchStatus === "done" && (
-                            <p className="text-[#C9A84C]/70 text-xs mt-1.5">
-                              Content fetched — {sourceText.trim().split(/\s+/).filter(Boolean).length.toLocaleString()} words extracted. You can edit below if needed.
-                            </p>
-                          )}
-                          {fetchStatus === "idle" && sourceUrl.trim() === "" && (
-                            <p className="text-white/20 text-xs mt-1.5">Or paste text directly below</p>
-                          )}
-                        </div>
-                      )}
-                      <textarea
-                        value={sourceText}
-                        onChange={(e) => { setSourceText(e.target.value); if (fetchStatus === "done") setFetchStatus("idle"); }}
-                        placeholder={selectedMode.placeholder}
-                        rows={8}
-                        className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#C9A84C]/50 focus:bg-white/[0.06] resize-none transition-all duration-200"
-                      />
-                      <p className="text-white/20 text-xs mt-1.5">
-                        {sourceText.trim().split(/\s+/).filter(Boolean).length.toLocaleString()} words pasted
-                      </p>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {status === "error" && (
-                <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
-                  <p className="text-red-400 text-sm">{error}</p>
-                </div>
-              )}
-
-              {/* Media outputs — selected once, generated automatically */}
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowMediaOptions((v) => !v)}
-                  className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-[#C9A84C]/30 transition-all duration-150 group"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <svg className="w-3.5 h-3.5 text-[#C9A84C]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
-                    </svg>
-                    <span className="text-sm text-white/70 group-hover:text-white transition-colors">Media outputs</span>
-                    <span className="text-xs text-white/30">
-                      ({[autoMedia.video, autoMedia.audio, autoMedia.podcast].filter(Boolean).length} selected)
-                    </span>
-                  </div>
-                  <svg className={`w-4 h-4 text-white/30 transition-transform duration-200 ${showMediaOptions ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {showMediaOptions && (
-                  <div className="mt-3 space-y-2 p-4 rounded-lg border border-white/[0.08] bg-white/[0.02]">
-                    <p className="text-white/25 text-xs mb-3 leading-relaxed">
-                      Generated automatically after the article is published. Video is uploaded to YouTube when rendering finishes.
-                    </p>
-                    {([
-                      { key: "video"   as const, label: "YouTube video",    hint: "Script → scenes → narration → captions → uploads to YouTube" },
-                      { key: "audio"   as const, label: "Read-aloud audio", hint: "Article narration attached to the WordPress post" },
-                    ]).map(({ key, label, hint }) => (
-                      <label key={key} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer select-none transition-colors ${autoMedia[key] ? "border-[#C9A84C]/20 bg-[#C9A84C]/[0.03]" : "border-white/[0.06]"}`}>
-                        <input
-                          type="checkbox"
-                          checked={autoMedia[key]}
-                          onChange={(e) => updateAutoMedia(key, e.target.checked)}
-                          className="w-3.5 h-3.5 accent-[#C9A84C]"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-white/80">{label}</p>
-                          <p className="text-[10px] text-white/25">{hint}</p>
-                        </div>
-                      </label>
-                    ))}
-                    {/* Podcast row with inline length picker */}
-                    <div className={`px-3 py-2.5 rounded-lg border transition-colors ${autoMedia.podcast ? "border-[#C9A84C]/20 bg-[#C9A84C]/[0.03]" : "border-white/[0.06]"}`}>
-                      <label className="flex items-center gap-3 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={autoMedia.podcast}
-                          onChange={(e) => updateAutoMedia("podcast", e.target.checked)}
-                          className="w-3.5 h-3.5 accent-[#C9A84C]"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-white/80">Podcast episode</p>
-                          <p className="text-[10px] text-white/25">Two-voice conversation published to the Spotify RSS feed</p>
-                        </div>
-                      </label>
-                      {autoMedia.podcast && (
-                        <div className="flex gap-1.5 mt-2.5 ml-6">
-                          {([3, 15, 30, 45, 60] as const).map((mins) => (
-                            <button
-                              key={mins}
-                              type="button"
-                              onClick={() => setPodcastLength(mins)}
-                              className={`flex-1 py-1 rounded text-[11px] font-medium transition-all duration-150 ${podcastLength === mins ? "bg-[#C9A84C]/20 border border-[#C9A84C]/40 text-[#C9A84C]" : "bg-white/[0.04] border border-white/[0.08] text-white/40 hover:text-white/60"}`}
-                            >
-                              {mins} min
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <label className="flex items-center justify-between gap-3 mb-3 px-3 py-2.5 rounded-lg border border-white/[0.08] bg-white/[0.02] cursor-pointer">
-                <span className="flex flex-col">
-                  <span className="text-xs text-white/70 font-medium">Durable pipeline (default)</span>
-                  <span className="text-[10px] text-white/35">Resumable — won&apos;t fail midway; saves a draft even if QA needs review. Turn off only to use the legacy pipeline.</span>
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={useDurablePipeline}
-                  onClick={() => toggleDurablePipeline(!useDurablePipeline)}
-                  className={`relative shrink-0 w-10 h-5 rounded-full transition-colors duration-200 ${useDurablePipeline ? "bg-[#C9A84C]" : "bg-white/15"}`}
-                >
-                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform duration-200 ${useDurablePipeline ? "translate-x-5" : ""}`} />
-                </button>
-              </label>
-
-              <button
-                onClick={handleGenerate}
-                disabled={!canGenerate}
-                className="btn-gold w-full !py-3.5 tracking-wide"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
-                </svg>
-                Generate Post{useDurablePipeline ? "" : " (legacy)"}
-              </button>
-
-              <div>
-                <p className="text-xs text-white/25 tracking-[0.15em] uppercase mb-3">Suggestions</p>
-                <div className="space-y-2">
-                  {SUGGESTIONS.map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setTopic(s)}
-                      className="w-full text-left text-sm text-white/35 hover:text-white/70 py-2 px-3 rounded-md hover:bg-white/[0.04] transition-all duration-150 border border-transparent hover:border-white/[0.08]"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
+              <div className="space-y-0.5">
+                {section.items.map((item) => (
+                  <button key={item.id} onClick={() => setTab(item.id)}
+                    className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all ${tab === item.id ? "bg-gradient-to-b from-[#dcbd72] to-[#b6923a] text-black shadow-[0_6px_18px_-8px_rgba(201,168,76,0.6)]" : "text-white/35 hover:bg-white/[0.06] hover:text-white"}`}>
+                    {item.step !== undefined ? (
+                      <span className={`flex-shrink-0 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center ${tab === item.id ? "bg-black/20 text-black" : "bg-white/[0.08] text-white/40"}`}>
+                        {item.step}
+                      </span>
+                    ) : (
+                      <span className="flex-shrink-0">{item.icon}</span>
+                    )}
+                    <span className="flex-1 text-left font-medium text-[13px]">{item.label}</span>
+                    {item.badge !== undefined && item.badge > 0 && (
+                      <span className={`text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none tabular-nums ${tab === item.id ? "bg-black/20 text-black" : "bg-white/10 text-white/30"}`}>
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                ))}
               </div>
             </div>
-          )}
+          ))}
+        </nav>
 
-          {status === "loading" && (
-            <div className="py-10 rise-in">
-              <div className="panel px-7 py-8 space-y-8">
-                <div className="flex justify-center">
-                  <div className="relative w-16 h-16">
-                    <div className="absolute inset-0 rounded-full border border-white/[0.06]" />
-                    <div className="absolute inset-0 rounded-full border-t-2 border-gold animate-spin" />
-                    <div className="absolute inset-3 rounded-full bg-gold/10 shadow-[0_0_24px_rgba(201,168,76,0.25)_inset]" />
-                    <span className="absolute inset-0 flex items-center justify-center font-display text-gold text-lg">A</span>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  {STEPS.map((step, i) => (
-                    <div key={step} className={`flex items-center gap-3 transition-all duration-500 ${i < stepIndex ? "opacity-40" : i === stepIndex ? "opacity-100" : "opacity-20"}`}>
-                      {i < stepIndex ? (
-                        <svg className="w-3.5 h-3.5 text-gold/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <div className={`w-1.5 h-1.5 mx-1 rounded-full flex-shrink-0 transition-colors duration-300 ${i === stepIndex ? "bg-gold animate-pulse shadow-[0_0_8px_rgba(201,168,76,0.7)]" : "bg-white/20"}`} />
-                      )}
-                      <p className={`text-sm ${i === stepIndex ? "text-white" : "text-white/50"}`}>{step}</p>
-                    </div>
-                  ))}
-                </div>
-                {retryMessage && (
-                  <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-gold/10 border border-gold/20">
-                    <div className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse flex-shrink-0" />
-                    <p className="text-xs text-gold/85">{retryMessage}</p>
-                  </div>
-                )}
-                <p className="text-center text-white/25 text-xs">This takes about 3–4 minutes — the run keeps going even if this tab disconnects</p>
-              </div>
-            </div>
-          )}
+        {/* Bottom */}
+        <div className="px-3 py-3 border-t border-white/[0.06] space-y-0.5">
+          <button onClick={() => fetchAll()} disabled={loading}
+            className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/35 hover:bg-white/[0.06] hover:text-white transition-all disabled:opacity-40">
+            {loading ? <Spinner /> : I.refresh}
+            <span className="font-medium text-[13px]">{loading ? "Refreshing…" : "Refresh data"}</span>
+          </button>
+          <button onClick={() => { fetch("/api/auth", { method: "DELETE" }).finally(() => setIsAuthed(false)); }}
+            className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/35 hover:bg-white/[0.06] hover:text-white transition-all">
+            {I.signout}
+            <span className="font-medium text-[13px]">Sign out</span>
+          </button>
+        </div>
+      </aside>
 
-          {status === "success" && result && (
-            <div className="space-y-6">
-              <div className="flex items-center gap-3 py-4 border-b border-white/[0.06]">
-                <div className="w-6 h-6 rounded-full bg-[#C9A84C]/20 border border-[#C9A84C]/40 flex items-center justify-center">
-                  <svg className="w-3 h-3 text-[#C9A84C]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <span className="text-sm text-white/60">Draft published to WordPress</span>
-              </div>
+      {/* ── Main ────────────────────────────────────────────────── */}
+      <main className="relative z-10 flex-1 overflow-auto">
+        {/* Toast */}
+        {toast && (
+          <div className={`fixed top-5 right-5 z-50 flex items-center gap-2.5 rounded-2xl px-4 py-3.5 text-sm font-medium shadow-xl border transition-all ${toast.ok ? "bg-ink-2 text-white/80 border-white/[0.06] shadow-black/50" : "bg-red-500/10 text-red-300 border-red-500/25"}`}>
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${toast.ok ? "bg-emerald-400" : "bg-red-400"}`} />
+            {toast.msg}
+          </div>
+        )}
 
-              {result.needsReview && (
-                <div className="rounded-lg px-4 py-3 border bg-amber-500/10 border-amber-500/30">
-                  <p className="text-xs font-medium tracking-wide uppercase text-amber-400 mb-1">Saved as draft · needs review</p>
-                  <p className="text-xs text-white/55 leading-relaxed">
-                    The article was generated and saved, but these checks could not be auto-fixed. Review them in WordPress before publishing:
-                  </p>
-                  {result.failingChecks && result.failingChecks.length > 0 && (
-                    <ul className="mt-2 space-y-1">
-                      {result.failingChecks.map((c, i) => (
-                        <li key={i} className="text-xs text-amber-300/80">• {c.replace(/_/g, " ")}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
+        <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
 
-              <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-5 space-y-4">
+          {/* ══ DASHBOARD ═══════════════════════════════════════ */}
+          {tab === "dashboard" && (
+            <>
+              <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">Title</p>
-                  <p className="text-white font-medium leading-snug">{result.title}</p>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Overview</h1>
+                  <p className="text-sm text-white/45 mt-0.5">What the scheduler is doing, and what happens next</p>
                 </div>
-                <div>
-                  <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">SEO title</p>
-                  <p className="text-white/60 text-sm">{result.seoTitle}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">Focus keyword</p>
-                    <p className="text-white/60 text-sm">{result.focusKeyword}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">Slug</p>
-                    <p className="text-white/60 text-sm font-mono text-xs">{result.slug}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">Read time</p>
-                    <p className="text-white/60 text-sm">{result.readMins} min · {result.wordCount?.toLocaleString()} words</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-1.5">Links placed</p>
-                    <p className="text-white/60 text-sm">
-                      {result.linksUsed.internal.length} internal
-                      {result.linksUsed.external.length > 0 && `, ${result.linksUsed.external.length} external`}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Strategy metadata */}
-                {result.strategy && (
-                  <div className="border-t border-white/[0.06] pt-4 space-y-2">
-                    <p className="text-xs text-white/30 tracking-[0.12em] uppercase">Strategy</p>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-xs text-white/25 mb-1">Search intent</p>
-                        <p className="text-white/50 text-xs capitalize">{result.strategy.searchIntentType}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-white/25 mb-1">Primary keyword</p>
-                        <p className="text-white/50 text-xs">{result.strategy.primaryKeyword}</p>
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-white/25 mb-1">Article angle</p>
-                      <p className="text-white/40 text-xs leading-relaxed">{result.strategy.articleAngle}</p>
-                    </div>
-                  </div>
-                )}
-
-                {result.qa && (
-                  <div className={`rounded-lg px-4 py-3 border ${result.qa.status === "pass" ? "bg-emerald-500/10 border-emerald-500/20" : "bg-amber-500/10 border-amber-500/20"}`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <p className={`text-xs font-medium tracking-wide uppercase ${result.qa.status === "pass" ? "text-emerald-400" : "text-amber-400"}`}>
-                        QA {result.qa.status === "pass" ? "Passed" : "Passed with warnings"} · {result.qa.score}/100
-                      </p>
-                    </div>
-                    {result.qa.warnings.length > 0 && (
-                      <ul className="mt-1 space-y-0.5">
-                        {result.qa.warnings.map((w, i) => (
-                          <li key={i} className="text-xs text-amber-300/70">{w}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
-
-                {/* Image generation status */}
-                {imageGenStatus !== "idle" && (
-                  <div className={`rounded-lg px-4 py-3 border ${
-                    imageGenStatus === "error"
-                      ? "bg-red-500/10 border-red-500/20"
-                      : imageGenStatus === "done"
-                      ? "bg-emerald-500/10 border-emerald-500/20"
-                      : "bg-white/[0.04] border-white/10"
-                  }`}>
-                    <div className="flex items-center gap-3">
-                      {imageGenStatus === "generating" && (
-                        <svg className="w-3.5 h-3.5 text-[#C9A84C] animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
-                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeDasharray="31.4" strokeDashoffset="10" />
-                        </svg>
-                      )}
-                      {imageGenStatus === "done" && <span className="text-emerald-400 text-sm shrink-0">✓</span>}
-                      {imageGenStatus === "error" && <span className="text-red-400 text-sm shrink-0">✕</span>}
-                      <p className={`text-xs ${
-                        imageGenStatus === "error" ? "text-red-300/80"
-                        : imageGenStatus === "done" ? "text-emerald-300/80"
-                        : "text-white/50"
-                      }`}>{imageGenMessage || "Generating images…"}</p>
-                    </div>
-                    {/* Flowchart preview */}
-                    {flowchartUrl && imageGenStatus === "done" && (
-                      <div className="mt-3 border-t border-white/[0.06] pt-3">
-                        <p className="text-xs text-white/30 tracking-[0.12em] uppercase mb-2">Flowchart</p>
-                        <a href={flowchartUrl} target="_blank" rel="noopener noreferrer" className="block">
-                          <img
-                            src={flowchartUrl}
-                            alt="Generated flowchart diagram"
-                            className="w-full rounded border border-white/10 bg-white"
-                            style={{ maxHeight: "320px", objectFit: "contain" }}
-                          />
-                          <p className="text-[11px] text-white/25 mt-1.5">Click to open full size</p>
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                )}
+                <Btn variant="secondary" size="sm" onClick={() => setShowHelp(v => !v)}>
+                  {showHelp ? "Hide guide" : "How does this work?"}
+                </Btn>
               </div>
 
-              {/* Link Validation Panel */}
-              {(linkValidationStatus === "checking" || linkValidationStatus === "done" || linkValidationStatus === "error") && (
-                <LinkValidationPanel
-                  status={linkValidationStatus}
-                  result={linkValidation}
-                  expandedGroup={expandedLinkGroup}
-                  setExpandedGroup={setExpandedLinkGroup}
-                  expandedIssues={expandedIssues}
-                  setExpandedIssues={setExpandedIssues}
-                  onRecheck={() => {
-                    if (result?.linksUsed) {
-                      runLinkValidation([...result.linksUsed.internal, ...result.linksUsed.external], result);
-                    }
-                  }}
-                  onLinkAction={handleLinkAction}
-                />
-              )}
+              {/* ── Instant generation — write a post now, no queue ── */}
+              <InstantGenerate />
 
-              {/* Readiness Scorecard */}
-              {(readinessStatus !== "idle") && (
-                <ReadinessPanel
-                  status={readinessStatus}
-                  result={readinessResult}
-                  onAutoFix={handleAutoFix}
-                  isAutoFixing={isAutoFixing}
-                  appliedFixes={appliedFixes}
-                />
-              )}
-
-              {/* Publish to selected targets */}
-              {Object.values(publishingTargets).some((t) => t.enabled) && publishStatus !== "done" && (
-                <button
-                  onClick={handlePublish}
-                  disabled={publishStatus === "publishing"}
-                  className="w-full flex items-center justify-center gap-2 bg-white/[0.06] hover:bg-white/[0.10] disabled:opacity-40 disabled:cursor-not-allowed border border-[#C9A84C]/30 hover:border-[#C9A84C]/60 text-[#C9A84C] font-medium text-sm py-3 rounded-lg transition-all duration-200"
-                >
-                  {publishStatus === "publishing" ? (
-                    <>
-                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      Sending to platforms…
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
-                      </svg>
-                      Send to {Object.values(publishingTargets).filter((t) => t.enabled).length} platform{Object.values(publishingTargets).filter((t) => t.enabled).length > 1 ? "s" : ""} now
-                    </>
-                  )}
-                </button>
-              )}
-
-              {/* Publish results */}
-              {publishStatus === "done" && publishResults.length > 0 && (
-                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden">
-                  <div className="px-4 py-3 border-b border-white/[0.05]">
-                    <p className="text-xs font-medium text-white/60 uppercase tracking-wide">Where your post was sent</p>
-                    <p className="text-[10px] text-white/25 mt-0.5">Results from sending the article to each selected platform</p>
-                  </div>
-                  <div className="divide-y divide-white/[0.04]">
-                    {publishResults.map((r) => (
-                      <div key={r.target} className="px-4 py-3 flex items-center gap-3">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-medium shrink-0 ${r.status === "passed" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" : r.status === "warning" ? "bg-amber-500/15 text-amber-400 border-amber-500/20" : "bg-red-500/15 text-red-400 border-red-500/20"}`}>
-                          {r.status === "passed" ? "✓ Published" : r.status === "warning" ? "⚠ Published with warnings" : "✕ Failed"}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-white/70 font-medium capitalize">{r.target}</p>
-                          <p className="text-[10px] text-white/35 truncate">
-                            {r.status === "passed"
-                              ? r.message || "Post published successfully"
-                              : r.status === "warning"
-                              ? r.message || "Published but some settings may need attention"
-                              : r.message || "Something went wrong — check your platform credentials and try again"}
+              {/* ── First-time explainer: the whole tool in four sentences ── */}
+              {showHelp && (
+                <Card className="!border-gold/25">
+                  <div className="p-6">
+                    <p className="font-display text-lg text-white/90 mb-4">This tool writes blog posts for aston.ae on autopilot. Three steps:</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {[
+                        { n: 1, title: "Write queue", tab: "queue" as Tab, body: "Add topics here and they get written automatically — every day at 08:00 UTC, or at an exact time you pick per topic. Each becomes a full article with images, saved to WordPress as a draft." },
+                        { n: 2, title: "Recent posts", tab: "history" as Tab, body: "Every generated post lands here (including ones made with Instant generate above). Review them in WordPress, and add audio, video or a podcast to any of them." },
+                        { n: 3, title: "Go live", tab: "publish_queue" as Tab, body: "Drafts you approve get scheduled here and are published to the live site automatically." },
+                      ].map((s) => (
+                        <button key={s.n} onClick={() => setTab(s.tab)}
+                          className="text-left rounded-xl bg-white/[0.03] border border-white/[0.06] hover:border-gold/40 transition-all px-4 py-3.5">
+                          <p className="text-sm font-semibold text-white/85">
+                            <span className="inline-flex w-5 h-5 mr-2 rounded-full bg-gold/15 text-gold text-[11px] font-bold items-center justify-center">{s.n}</span>
+                            {s.title}
                           </p>
-                        </div>
-                        {r.externalUrl && (
-                          <a href={r.externalUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#C9A84C]/70 hover:text-[#C9A84C] transition-colors shrink-0">
-                            View post →
-                          </a>
+                          <p className="text-xs text-white/45 mt-1.5 leading-relaxed">{s.body}</p>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-white/35 mt-4">The switch in the sidebar (or in <button className="text-gold underline underline-offset-2 hover:text-gold-bright" onClick={() => setTab("settings")}>Settings</button>) turns the daily autopilot on and off. Everything is saved as a WordPress <em>draft</em> first — nothing goes live without you.</p>
+                  </div>
+                </Card>
+              )}
+
+              {/* ── Plain-English status: what happens next ── */}
+              {settings && stats && (() => {
+                const { human } = untilNextRun(8);
+                const remaining = Math.max(0, settings.blogsPerDay - stats.completedToday);
+                const willWrite = Math.min(settings.maxPerRun ?? 1, remaining, stats.queued);
+                const dueEarlier = items.filter(i => i.status === "queued" && i.scheduledFor && new Date(i.scheduledFor) > new Date()).length;
+                return (
+                  <div className={`rounded-2xl border px-5 py-4 ${settings.enabled ? "border-gold/25 bg-gold/[0.06]" : "border-white/[0.08] bg-white/[0.03]"}`}>
+                    <div className="flex items-start gap-3">
+                      <span className={`mt-1 w-2 h-2 rounded-full shrink-0 ${settings.enabled ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" : "bg-white/25"}`} />
+                      <div>
+                        <p className="text-sm text-white/85 leading-relaxed">
+                          {settings.enabled ? (
+                            stats.queued === 0 && dueEarlier === 0
+                              ? <>The scheduler is <strong className="text-emerald-300">on</strong>, but the queue is empty — nothing will generate until you add a topic in <button className="text-gold underline underline-offset-2 hover:text-gold-bright" onClick={() => setTab("queue")}>Generate</button>.</>
+                              : <>Next automatic run <strong className="text-gold-bright">{human}</strong> (08:00 UTC): it will write <strong className="text-white">{willWrite === 0 ? "no posts (daily target reached)" : `${willWrite} post${willWrite === 1 ? "" : "s"}`}</strong>{willWrite > 0 && <> from the <strong className="text-white">{stats.queued}</strong> waiting topic{stats.queued === 1 ? "" : "s"}</>} and save {willWrite === 1 ? "it" : "them"} as WordPress draft{willWrite === 1 ? "" : "s"}. {stats.completedToday} of {settings.blogsPerDay} daily posts done so far.</>
+                          ) : (
+                            <>The scheduler is <strong className="text-white/70">paused</strong> — nothing generates automatically. Topics with a set time still generate. Turn it on in <button className="text-gold underline underline-offset-2 hover:text-gold-bright" onClick={() => setTab("settings")}>Settings</button> or with the switch in the sidebar.</>
+                          )}
+                        </p>
+                        {dueEarlier > 0 && (
+                          <p className="text-xs text-gold/80 mt-1.5">⏱ {dueEarlier} topic{dueEarlier === 1 ? " has" : "s have"} a set generation time and will run independently of the daily schedule.</p>
+                        )}
+                        {stats.failed > 0 && (
+                          <p className="text-xs text-red-300 mt-1.5">⚠ {stats.failed} topic{stats.failed === 1 ? "" : "s"} failed — open <button className="underline underline-offset-2 hover:text-red-200" onClick={() => setTab("queue")}>Generate</button> to retry or remove {stats.failed === 1 ? "it" : "them"}.</p>
                         )}
                       </div>
-                    ))}
+                    </div>
                   </div>
+                );
+              })()}
+
+              {/* ── The content pipeline, made visible ── */}
+              {stats && (
+                <Card>
+                  <CardHeader title="Your content pipeline" subtitle="These are the three numbered tabs in the sidebar — click a stage to open it" />
+                  <div className="px-5 py-5 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 overflow-x-auto">
+                    <PipelineStage
+                      count={stats.queued}
+                      label="1 · Write queue" hint={stats.processing > 0 ? `${stats.processing} writing right now` : "Written by the daily run or at a set time"}
+                      active={stats.processing > 0}
+                      onClick={() => setTab("queue")} />
+                    <PipelineStage
+                      count={stats.completed}
+                      label="2 · Recent posts" hint="Review drafts, add audio / video / podcast"
+                      onClick={() => setTab("history")} />
+                    <PipelineStage
+                      count={publishQueueStats?.queued ?? 0}
+                      label="3 · Go live" hint="Approved drafts scheduled to publish"
+                      onClick={() => setTab("publish_queue")} />
+                    <PipelineStage
+                      count={publishQueueStats?.published ?? 0}
+                      label="Live" hint="Published on aston.ae"
+                      onClick={() => setTab("publish_queue")} last />
+                  </div>
+                </Card>
+              )}
+
+              {stats && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <StatCard label="Done today" value={stats.completedToday} color="text-gold" sub={settings ? `of ${settings.blogsPerDay} daily target` : "posts generated"} />
+                  <StatCard label="Writing now" value={stats.processing} color="text-amber-300" sub="in progress" />
+                  <StatCard label="Failed" value={stats.failed} color="text-red-400" sub="need attention" />
+                  <StatCard label="Paused" value={stats.paused} color="text-white/35" sub="on hold" />
                 </div>
               )}
 
-              {/* Queue for publishing */}
-              {Object.values(publishingTargets).some((t) => t.enabled) && (
-                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden">
-                  <button
-                    onClick={() => setShowQueuePublish((v) => !v)}
-                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.03] transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      <svg className="w-3.5 h-3.5 text-white/40" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <div className="text-left">
-                        <p className="text-xs font-medium text-white/60">Schedule for later</p>
-                        <p className="text-[10px] text-white/25">Send to platforms at a specific time instead of right now</p>
+              {runs.length > 0 && (
+                <Card>
+                  <CardHeader title="Recent Runs" subtitle={`${runs.length} run${runs.length !== 1 ? "s" : ""} recorded`} />
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-white/[0.03]/80 text-[11px] font-bold text-white/35 uppercase tracking-wide border-b border-white/[0.06]">
+                          {["Run ID","Started","Completed","Tried","Done","Failed","Status"].map(h => (
+                            <th key={h} className={`px-5 py-3 ${["Tried","Done","Failed","Status"].includes(h) ? "text-center" : "text-left"}`}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/[0.05]">
+                        {[...runs].reverse().map((r) => (
+                          <tr key={r.runId} className="hover:bg-white/[0.03]/60 transition-colors">
+                            <td className="px-5 py-3.5 font-mono text-xs text-white/35">{r.runId.slice(4, 22)}</td>
+                            <td className="px-5 py-3.5 text-xs text-white/45 whitespace-nowrap">{fmt(r.startedAt)}</td>
+                            <td className="px-5 py-3.5 text-xs text-white/45 whitespace-nowrap">{fmt(r.completedAt)}</td>
+                            <td className="px-5 py-3.5 text-center text-sm tabular-nums">{r.topicsAttempted}</td>
+                            <td className="px-5 py-3.5 text-center text-sm font-semibold text-emerald-300 tabular-nums">{r.topicsCompleted}</td>
+                            <td className="px-5 py-3.5 text-center text-sm font-semibold text-red-400 tabular-nums">{r.topicsFailed}</td>
+                            <td className="px-5 py-3.5 text-center"><Badge className={RUN_STATUS[r.status]}>{r.status.replace(/_/g, " ")}</Badge></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
+            </>
+          )}
+
+          {/* ══ SETTINGS ═════════════════════════════════════════ */}
+          {tab === "settings" && (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Settings</h1>
+                  <p className="text-sm text-white/45 mt-0.5">When the scheduler runs, how many posts it writes, and the quality &amp; media defaults.</p>
+                </div>
+              </div>
+
+              {settings && (
+                <Card>
+                  <CardHeader title="Scheduler Settings" subtitle="Control when and how posts are generated"
+                    action={savingSettings ? <div className="flex items-center gap-2 text-xs text-white/35"><Spinner /> Saving</div> : undefined} />
+                  <div className="p-6 space-y-6">
+                    <div className={`flex items-center justify-between rounded-2xl px-5 py-4 ${settings.enabled ? "bg-emerald-500/10 border border-emerald-500/25" : "bg-white/[0.03] border border-white/[0.06]"}`}>
+                      <div>
+                        <p className={`text-sm font-semibold ${settings.enabled ? "text-emerald-300" : "text-white/70"}`}>
+                          {settings.enabled ? "Scheduler is running" : "Scheduler is paused"}
+                        </p>
+                        <p className={`text-xs mt-0.5 ${settings.enabled ? "text-emerald-300" : "text-white/35"}`}>
+                          {settings.enabled ? "Generates posts daily at 08:00 UTC" : "Enable to start generating posts automatically"}
+                        </p>
+                      </div>
+                      <Toggle checked={settings.enabled} onChange={() => saveScheduler({ enabled: !settings.enabled })} disabled={savingSettings} />
+                    </div>
+
+                    <div>
+                      <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-1.5">Daily Schedule</p>
+                      <p className="text-xs text-white/45 mb-3 leading-relaxed">
+                        In plain terms: every day at 08:00 UTC the scheduler writes <strong className="text-white/70">{settings.maxPerRun ?? 1} post{(settings.maxPerRun ?? 1) === 1 ? "" : "s"}</strong>, and stops once <strong className="text-white/70">{settings.blogsPerDay} post{settings.blogsPerDay === 1 ? "" : "s"}</strong> have been written that day. Topics with a set time ignore this and run at their own moment.
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                          <p className="text-xs font-medium text-white/45 mb-1">Run time</p>
+                          <p className="text-sm font-bold text-white/80">08:00 UTC</p>
+                          <p className="text-[10px] text-white/35 mt-0.5">Fixed in vercel.json</p>
+                        </div>
+                        <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                          <p className="text-xs font-medium text-white/45 mb-2">Posts per day</p>
+                          <Select value={settings.blogsPerDay} onChange={(e) => saveScheduler({ blogsPerDay: Number(e.target.value) })} disabled={savingSettings} className="w-full">
+                            {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n} {n === 1 ? "post" : "posts"}</option>)}
+                          </Select>
+                        </div>
+                        <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                          <p className="text-xs font-medium text-white/45 mb-2">Posts per run</p>
+                          <Select value={settings.maxPerRun} onChange={(e) => saveScheduler({ maxPerRun: Number(e.target.value) })} disabled={savingSettings} className="w-full">
+                            {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} {n === 1 ? "post" : "posts"}</option>)}
+                          </Select>
+                        </div>
                       </div>
                     </div>
-                    <svg className={`w-3 h-3 text-white/20 transition-transform ${showQueuePublish ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
 
-                  {showQueuePublish && (
-                    <div className="px-4 pb-4 pt-1 border-t border-white/[0.05] space-y-3">
-                      {queuePublishStatus === "added" ? (
-                        <div className="flex items-center gap-2.5 py-2">
-                          <div className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
-                            <svg className="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                          </div>
+                    <div>
+                      <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-3">Quality Controls</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="flex items-center justify-between rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
                           <div>
-                            <p className="text-xs text-emerald-400 font-medium">Scheduled successfully</p>
-                            <p className="text-[10px] text-white/30 mt-0.5">
-                              Your post will be sent to the selected platforms{queueScheduledFor ? ` on ${new Date(queueScheduledFor).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : " within the next hour"}.
-                            </p>
+                            <p className="text-sm font-medium text-white/70">Block on QA warning</p>
+                            <p className="text-xs text-white/35 mt-0.5">Only publish posts that pass all checks</p>
                           </div>
+                          <Toggle checked={settings.blockOnQaWarning} onChange={() => saveScheduler({ blockOnQaWarning: !settings.blockOnQaWarning })} disabled={savingSettings} />
                         </div>
-                      ) : (
-                        <>
-                          <p className="text-[10px] text-white/25 leading-relaxed">
-                            Choose a date and time below, then click the button to schedule. Your post will automatically be sent to the {Object.values(publishingTargets).filter(t => t.enabled).length} selected platform{Object.values(publishingTargets).filter(t => t.enabled).length > 1 ? "s" : ""} at that time. Leave the time blank to send on the next automated run (within the hour).
-                          </p>
-                          <div>
-                            <label className="block text-[10px] text-white/30 mb-1.5">Send at (optional)</label>
-                            <input
-                              type="datetime-local"
-                              value={queueScheduledFor}
-                              onChange={(e) => setQueueScheduledFor(e.target.value)}
-                              className="bg-white/[0.04] border border-white/10 rounded-md px-3 py-2 text-white text-xs focus:outline-none focus:border-[#C9A84C]/40 transition-colors w-full sm:w-auto"
+                        <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                          <p className="text-xs font-medium text-white/45 mb-2">Auto-retries on failure</p>
+                          <Select value={settings.maxRetries} onChange={(e) => saveScheduler({ maxRetries: Number(e.target.value) })} disabled={savingSettings} className="w-full">
+                            {[0,1,2,3,4,5].map(n => <option key={n} value={n}>{n === 0 ? "No retries" : `${n} ${n === 1 ? "retry" : "retries"}`}</option>)}
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-3">Image Generation</p>
+                      <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                        <p className="text-xs font-medium text-white/45 mb-2">Image model</p>
+                        <Select value={settings.imageModel ?? "gpt-image-2"} onChange={(e) => saveScheduler({ imageModel: e.target.value as "imagen-4" | "gpt-image-2" })} disabled={savingSettings} className="w-full">
+                          <option value="gpt-image-2">GPT Image 2 (OpenAI)</option>
+                          <option value="imagen-4">Imagen 4 (Google)</option>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-[11px] font-bold text-white/35 uppercase tracking-widest mb-3">Default Media Outputs</p>
+                      <p className="text-xs text-white/35 mb-3 leading-relaxed">
+                        You normally choose media per post when adding it to <button className="text-gold underline underline-offset-2 hover:text-gold-bright" onClick={() => setTab("queue")}>Generate</button>. These defaults only apply to older queue items that were added before per-post selection existed. Leave them off unless you want media on everything.
+                      </p>
+                      <div className="space-y-2.5">
+                        {([
+                          { key: "audio"   as const, label: "Read-aloud audio", desc: "Kokoro narration MP3, saved to the post's audio player" },
+                          { key: "video"   as const, label: "YouTube video",    desc: "Narrated scene-by-scene video, rendered + uploaded to YouTube" },
+                          { key: "podcast" as const, label: "Podcast episode",  desc: "Two-voice conversation, published to the podcast feed" },
+                        ]).map((m) => (
+                          <div key={m.key} className="flex items-center justify-between rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                            <div>
+                              <p className="text-sm font-medium text-white/80">{m.label}</p>
+                              <p className="text-xs text-white/35 mt-0.5">{m.desc}</p>
+                            </div>
+                            <Toggle
+                              checked={settings.mediaOutputs?.[m.key] ?? false}
+                              onChange={() => saveScheduler({ mediaOutputs: { ...(settings.mediaOutputs ?? { audio: false, video: false, podcast: false }), [m.key]: !(settings.mediaOutputs?.[m.key] ?? false) } })}
+                              disabled={savingSettings}
                             />
                           </div>
-
-                          {/* Also share on social — cross-posts after the blog goes live */}
-                          <div className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3 space-y-2.5">
-                            <p className="text-[10px] uppercase tracking-[0.18em] text-[#C9A84C]/70">Also share on social</p>
-                            <div className="flex flex-wrap gap-2">
-                              {(["linkedin"] as const).map((p) => (
-                                <label key={p} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border cursor-pointer text-[11px] capitalize transition-colors ${socialShare[p] ? "border-[#C9A84C]/50 text-[#C9A84C] bg-[#C9A84C]/[0.06]" : "border-white/10 text-white/45"}`}>
-                                  <input type="checkbox" className="accent-[#C9A84C] w-3 h-3" checked={socialShare[p]} onChange={(e) => setSocialShare((s) => ({ ...s, [p]: e.target.checked }))} />
-                                  {p}
-                                </label>
-                              ))}
-                              {socialShare.linkedin && (
-                                <button
-                                  type="button"
-                                  onClick={handleGenerateSocialCaptions}
-                                  disabled={socialGenStatus === "generating"}
-                                  className="text-[11px] px-2.5 py-1 rounded-full border border-white/10 text-white/60 hover:text-white hover:border-white/25 disabled:opacity-40 transition-colors"
-                                >
-                                  {socialGenStatus === "generating" ? "Writing…" : "Generate captions"}
-                                </button>
-                              )}
-                            </div>
-                            {(["linkedin"] as const)
-                              .filter((p) => socialShare[p] && socialCaptions[p] !== undefined)
-                              .map((p) => (
-                                <textarea
-                                  key={p}
-                                  value={socialCaptions[p] ?? ""}
-                                  onChange={(e) => setSocialCaptions((c) => ({ ...c, [p]: e.target.value }))}
-                                  className="w-full bg-black/30 border border-white/10 rounded-md px-2.5 py-2 text-[11px] text-white/80 focus:outline-none focus:border-[#C9A84C]/40 min-h-[52px] resize-y"
-                                  placeholder={`${p} caption`}
-                                />
-                              ))}
-                            {socialGenStatus === "error" && <p className="text-[10px] text-red-400">Caption generation failed — you can still schedule; the excerpt will be used.</p>}
-                            {socialShare.linkedin && (
-                              <p className="text-[10px] text-white/25">Posts fire automatically once the blog is published. Captions left blank fall back to the excerpt.</p>
-                            )}
+                        ))}
+                        {settings.mediaOutputs?.podcast && (
+                          <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                            <p className="text-xs font-medium text-white/45 mb-2">Podcast length</p>
+                            <Select value={settings.podcastLength ?? 30} onChange={(e) => saveScheduler({ podcastLength: Number(e.target.value) })} disabled={savingSettings} className="w-full">
+                              <option value={3}>3 minutes (test)</option>
+                              <option value={15}>15 minutes</option>
+                              <option value={30}>30 minutes</option>
+                              <option value={45}>45 minutes</option>
+                              <option value={60}>60 minutes</option>
+                            </Select>
                           </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              )}
 
-                          {queuePublishStatus === "error" && (
-                            <div className="flex items-center gap-2 rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2">
-                              <svg className="w-3.5 h-3.5 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                              </svg>
-                              <p className="text-xs text-red-400">Could not schedule — please check your connection and try again.</p>
-                            </div>
-                          )}
-                          <button
-                            onClick={handleQueuePublish}
-                            disabled={queuePublishStatus === "adding"}
-                            className="flex items-center gap-2 text-[11px] px-3 py-1.5 rounded border border-[#C9A84C]/30 text-[#C9A84C]/80 hover:text-[#C9A84C] hover:border-[#C9A84C]/60 disabled:opacity-40 transition-colors"
-                          >
-                            {queuePublishStatus === "adding" ? (
-                              <>
-                                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                </svg>
-                                Scheduling…
-                              </>
-                            ) : (
-                              <>
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                Schedule this post
-                              </>
-                            )}
-                          </button>
-                        </>
-                      )}
+              {/* ── Maintenance / integrations ── */}
+              <Card>
+                <CardHeader title="Podcast → Spotify sync" subtitle="When a podcast goes live on Spotify, its player is embedded back into the blog post. This runs automatically every hour — use this to force it now." />
+                <div className="p-6">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-sm text-white/70">Just published an episode on Spotify and want it on the site immediately?</p>
+                      <p className="text-xs text-white/35 mt-0.5">Only posts whose episode is already live on Spotify get embedded — nothing else is touched.</p>
+                    </div>
+                    <Btn variant="secondary" onClick={runSpotifySync} disabled={spotifySyncing}>
+                      {spotifySyncing ? <><Spinner /> Syncing…</> : <>{I.refresh} Sync Spotify now</>}
+                    </Btn>
+                  </div>
+                  {spotifyResult && (
+                    <div className={`mt-4 flex items-start gap-2.5 rounded-xl px-4 py-3 text-sm border ${spotifyResult.ok ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25" : "bg-red-500/10 text-red-300 border-red-500/25"}`}>
+                      <span className="mt-0.5">{spotifyResult.ok ? "✓" : "✕"}</span>
+                      <span>{spotifyResult.msg}</span>
                     </div>
                   )}
                 </div>
-              )}
+              </Card>
+            </>
+          )}
 
-              <div className="grid grid-cols-2 gap-3">
-                <a href={result.editUrl} target="_blank" rel="noopener noreferrer"
-                  className="btn-gold !py-3">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                  Edit in WordPress
-                </a>
-                <div className="relative">
-                  <a href={result.previewUrl} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 bg-white/[0.05] hover:bg-white/[0.08] border border-white/10 text-white/70 hover:text-white text-sm py-3 rounded-lg transition-all duration-200 w-full">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                    {result.needsReview ? "Preview Draft" : "View Post"}
-                  </a>
-                  {wpSyncStatus === "syncing" && (
-                    <p className="text-[10px] text-amber-400/70 text-center mt-1">Saving changes to WordPress…</p>
-                  )}
-                  {wpSyncStatus === "synced" && (
-                    <p className="text-[10px] text-emerald-400/70 text-center mt-1">✓ WordPress updated — safe to preview</p>
-                  )}
-                  {wpSyncStatus === "error" && (
-                    <p className="text-[10px] text-red-400/70 text-center mt-1">⚠ WordPress sync failed — edit manually in wp-admin</p>
-                  )}
+          {/* ══ GEN QUEUE ════════════════════════════════════════ */}
+          {tab === "queue" && (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Write queue</h1>
+                  <p className="text-sm text-white/45 mt-0.5">Topics here get written automatically — top priority first at the daily run, or at the exact time you set per topic.</p>
                 </div>
+                {!(showAddForm || items.length === 0) && (
+                  <Btn variant="primary" onClick={() => setShowAddForm(true)}>{I.plus} Add topic</Btn>
+                )}
               </div>
 
-              {/* Delete post */}
-              {deleteState !== "deleted" && (
-                <div className="space-y-2">
-                  {deleteState === "idle" && (
-                    <button
-                      onClick={() => setDeleteState("confirming")}
-                      className="w-full flex items-center justify-center gap-2 bg-transparent hover:bg-red-500/10 border border-white/20 hover:border-red-500/40 text-white/50 hover:text-red-400 text-sm py-2.5 rounded-lg transition-all duration-200"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                      Delete this post
-                    </button>
-                  )}
-
-                  {deleteState === "confirming" && (
-                    <div className="rounded-lg border border-red-500/20 bg-red-500/[0.04] px-4 py-3 space-y-3">
-                      <p className="text-xs text-red-400 font-medium">Delete this post and all 4 images permanently?</p>
-                      <p className="text-[11px] text-white/35">This cannot be undone. The draft and its media files will be removed from WordPress.</p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={handleDeletePost}
-                          className="flex-1 bg-red-500/80 hover:bg-red-500 text-white text-xs font-semibold py-2 rounded-lg transition-colors"
-                        >
-                          Yes, delete everything
-                        </button>
-                        <button
-                          onClick={() => setDeleteState("idle")}
-                          className="flex-1 bg-white/[0.05] hover:bg-white/[0.08] text-white/50 text-xs font-medium py-2 rounded-lg transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </div>
+              {(showAddForm || items.length === 0) && (
+              <Card>
+                <CardHeader title="Add a topic" subtitle="It will be written at the next daily run — or pick an exact time below."
+                  action={items.length > 0 ? <Btn variant="ghost" size="sm" onClick={() => setShowAddForm(false)}>Close</Btn> : undefined} />
+                <div className="p-6 space-y-4">
+                  <div>
+                    <Label>Custom prompt <span className="text-white/35 font-normal">(optional if topic set — AI will derive title)</span></Label>
+                    <textarea
+                      value={newCustomPrompt}
+                      onChange={(e) => setNewCustomPrompt(e.target.value)}
+                      placeholder="e.g. I need a post about the German crypto market, what is legal and what is not, and how Aston VIP can help"
+                      rows={2}
+                      className="w-full border border-white/10 rounded-lg px-3 py-2 text-sm text-white/90 placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold/55 resize-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <Label>Topic title <span className="text-white/35 font-normal">(optional if custom prompt set)</span></Label>
+                      <Input value={newTopic} onChange={(e) => setNewTopic(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addQueueItem()} placeholder="e.g. How to open a company in DIFC" />
                     </div>
-                  )}
-
-                  {deleteState === "deleting" && (
-                    <div className="flex items-center justify-center gap-2 py-2.5">
-                      <svg className="w-3.5 h-3.5 text-red-400 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      <p className="text-xs text-red-400/70">Deleting post and images…</p>
+                    <div>
+                      <Label required>Target audience</Label>
+                      <Input value={newAudience} onChange={(e) => setNewAudience(e.target.value)} placeholder="e.g. founders, investors, crypto companies" />
                     </div>
-                  )}
-
-                  {deleteState === "error" && (
-                    <div className="rounded-lg border border-red-500/20 bg-red-500/[0.04] px-4 py-3 space-y-2">
-                      <p className="text-xs text-red-400">{deleteError || "Delete failed — try again or remove manually in WordPress."}</p>
-                      <button
-                        onClick={() => setDeleteState("idle")}
-                        className="text-[11px] text-white/30 hover:text-white/60 transition-colors"
-                      >
-                        Dismiss
-                      </button>
+                  </div>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div>
+                      <Label>Mode</Label>
+                      <Select value={newMode} onChange={(e) => setNewMode(e.target.value as GenerationMode)}>
+                        <option value="topic_only">Topic only</option>
+                        <option value="source_assisted">Source assisted</option>
+                        <option value="improve_existing">Improve existing</option>
+                        <option value="notes_to_article">Notes to article</option>
+                      </Select>
                     </div>
-                  )}
-                </div>
-              )}
-
-              {deleteState === "deleted" && (
-                <div className="flex items-center justify-center gap-2 py-2.5">
-                  <span className="text-emerald-400 text-xs">✓</span>
-                  <p className="text-xs text-emerald-400/70">Post and images deleted. Resetting…</p>
-                </div>
-              )}
-
-              {/* Video generation */}
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
-                <div className="px-4 py-3 border-b border-white/[0.05] flex items-center gap-2">
-                  <svg className="w-4 h-4 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
-                  </svg>
-                  <p className="text-xs font-medium text-white/50 uppercase tracking-wide">Video</p>
-                </div>
-                <div className="px-4 py-4 space-y-4">
-
-                  {/* Idle — generate button */}
-                  {videoStatus === "idle" && (
-                    <button
-                      onClick={handleGenerateVideo}
-                      className="w-full flex items-center justify-center gap-2 bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 hover:border-white/20 text-white/60 hover:text-white/90 text-sm py-3 rounded-lg transition-all duration-200"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
-                      </svg>
-                      Generate video for this post
-                    </button>
-                  )}
-
-                  {/* Generating — progress + elapsed */}
-                  {videoStatus === "generating" && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm text-white/50">{videoProgress || "Preparing…"}</p>
-                        <p className="text-xs text-white/30 tabular-nums">{videoElapsed}s</p>
-                      </div>
-                      <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#C9A84C] rounded-full transition-all duration-1000 ease-linear"
-                          style={{ width: `${Math.min(videoElapsed / 150 * 90, 90)}%` }}
-                        />
-                      </div>
-                      <p className="text-[10px] text-white/20">Generating scenes and images (~2 min)</p>
+                    <div>
+                      <Label>Priority</Label>
+                      <Select value={newPriority} onChange={(e) => setNewPriority(Number(e.target.value))} className="w-32">
+                        <option value={5}>5 — High</option>
+                        <option value={4}>4</option>
+                        <option value={3}>3 — Normal</option>
+                        <option value={2}>2</option>
+                        <option value={1}>1 — Low</option>
+                      </Select>
                     </div>
-                  )}
-
-                  {/* Rendering on Shotstack — pulsing bar */}
-                  {videoStatus === "rendering" && (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <svg className="w-3.5 h-3.5 text-[#C9A84C] animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
-                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeDasharray="31.4" strokeDashoffset="10" />
-                        </svg>
-                        <p className="text-sm text-white/50">{videoProgress || "Rendering video…"}</p>
-                      </div>
-                      <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
-                        <div className="h-full bg-[#C9A84C] rounded-full animate-pulse" style={{ width: "60%" }} />
-                      </div>
-                      <p className="text-[10px] text-white/20">Shotstack typically renders in 2–5 min · checking every 12s</p>
+                    <div>
+                      <Label>Generate</Label>
+                      <Select value={newDelay} onChange={(e) => setNewDelay(e.target.value)} className="w-44">
+                        <option value="">Next scheduled run</option>
+                        <option value="5">In 5 minutes</option>
+                        <option value="30">In 30 minutes</option>
+                        <option value="60">In 1 hour</option>
+                        <option value="180">In 3 hours</option>
+                        <option value="300">In 5 hours</option>
+                        <option value="720">In 12 hours</option>
+                        <option value="1440">In 24 hours</option>
+                      </Select>
                     </div>
-                  )}
+                    <Btn variant="primary" onClick={addQueueItem} disabled={adding || (!newTopic.trim() && newCustomPrompt.trim().length < 10) || !newAudience.trim()}>
+                      {adding ? <><Spinner /> Adding…</> : <>{I.plus} Add to queue</>}
+                    </Btn>
+                  </div>
 
-                  {/* Ready — video preview + upload button */}
-                  {(videoStatus === "ready" || videoStatus === "uploading" || videoStatus === "uploaded") && (videoUrl || videoBase64) && (
-                    <div className="space-y-3">
-                      <video
-                        src={videoUrl ?? `data:${videoMime};base64,${videoBase64}`}
-                        controls
-                        loop
-                        className="w-full rounded-lg aspect-video bg-black"
-                      />
-
-                      {videoStatus === "ready" && (
-                        <button
-                          onClick={handleUploadToYouTube}
-                          className="w-full flex items-center justify-center gap-2 bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 hover:border-red-500/50 text-red-400 hover:text-red-300 text-sm py-2.5 rounded-lg transition-all duration-200"
-                        >
-                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                          </svg>
-                          Upload to YouTube
-                        </button>
+                  {/* Per-post media outputs — chosen here so only the posts
+                      that need a podcast/video/audio get one */}
+                  <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5">
+                    <p className="text-xs font-medium text-white/45 mb-2.5">Media outputs for this post <span className="text-white/30 font-normal">— generated automatically after the draft is saved</span></p>
+                    <div className="flex flex-wrap items-center gap-x-6 gap-y-2.5">
+                      {([
+                        { key: "audio"   as const, label: "Read-aloud audio" },
+                        { key: "video"   as const, label: "YouTube video" },
+                        { key: "podcast" as const, label: "Podcast episode" },
+                      ]).map((m) => (
+                        <label key={m.key} className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={newMedia[m.key]}
+                            onChange={() => setNewMedia(v => ({ ...v, [m.key]: !v[m.key] }))}
+                            className="w-3.5 h-3.5 accent-gold"
+                          />
+                          <span className={`text-sm ${newMedia[m.key] ? "text-white/85" : "text-white/50"}`}>{m.label}</span>
+                        </label>
+                      ))}
+                      {newMedia.podcast && (
+                        <Select value={newPodcastLength} onChange={(e) => setNewPodcastLength(Number(e.target.value))} className="!py-1.5 text-xs">
+                          <option value={3}>3 min (test)</option>
+                          <option value={15}>15 min</option>
+                          <option value={30}>30 min</option>
+                          <option value={45}>45 min</option>
+                          <option value={60}>60 min</option>
+                        </Select>
                       )}
+                    </div>
+                  </div>
 
-                      {videoStatus === "uploading" && (
-                        <div className="flex items-center justify-center gap-2 py-2">
-                          <svg className="w-4 h-4 animate-spin text-red-400" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                          </svg>
-                          <p className="text-sm text-white/40">Uploading to YouTube…</p>
+                  <div>
+                    <button type="button" onClick={() => setShowStrategyInputs(v => !v)}
+                      className="flex items-center gap-1.5 text-xs text-gold hover:text-gold-bright font-semibold transition-colors">
+                      <span className={`transition-transform ${showStrategyInputs ? "rotate-90" : ""}`}>{I.chevron}</span>
+                      Additional strategy inputs (optional)
+                    </button>
+                    {showStrategyInputs && (
+                      <div className="mt-3 p-4 bg-gold/[0.07] rounded-xl border border-gold/25 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <p className="col-span-full text-xs text-white/45">These optional fields shape jurisdiction focus, service emphasis, and output language.</p>
+                        <div>
+                          <Label>Primary country</Label>
+                          <Input value={newPrimaryCountry} onChange={(e) => setNewPrimaryCountry(e.target.value)} placeholder="e.g. UAE" />
                         </div>
-                      )}
+                        <div>
+                          <Label>Secondary countries</Label>
+                          <Input value={newSecondaryCountries} onChange={(e) => setNewSecondaryCountries(e.target.value)} placeholder="e.g. UK, Germany" />
+                        </div>
+                        <div>
+                          <Label>Priority service</Label>
+                          <Input value={newPriorityService} onChange={(e) => setNewPriorityService(e.target.value)} placeholder="e.g. VARA licensing" />
+                        </div>
+                        <div>
+                          <Label>Language</Label>
+                          <Select value={newLanguage} onChange={(e) => setNewLanguage(e.target.value)} className="w-full">
+                            <option value="">Default (British English)</option>
+                            {siteLanguages.map(l => <option key={l.code} value={l.code}>{l.name} ({l.code})</option>)}
+                          </Select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Card>
+              )}
 
-                      {videoStatus === "uploaded" && youtubeUrl && (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <div className="w-3.5 h-3.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
-                              <svg className="w-2 h-2 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                              </svg>
-                            </div>
-                            <p className="text-xs text-white/50">Uploaded · saved to WordPress</p>
+              <Card>
+                <CardHeader title="Queue" subtitle={`${items.length} items · ${items.filter(i => i.status === "queued").length} waiting`} />
+                {items.length === 0 ? (
+                  <EmptyState icon={<svg className="w-12 h-12" fill="none" stroke="currentColor" strokeWidth={1} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>} title="Queue is empty" body="Add a topic above to get started. The scheduler processes items automatically when enabled." />
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-white/[0.03]/80 text-[11px] font-bold text-white/35 uppercase tracking-wide border-b border-white/[0.06]">
+                          <th className="px-5 py-3 text-left">Topic</th>
+                          <th className="px-5 py-3 text-left">Mode</th>
+                          <th className="px-5 py-3 text-center">Priority</th>
+                          <th className="px-5 py-3 text-center">Status</th>
+                          <th className="px-5 py-3 text-left">Added</th>
+                          <th className="px-5 py-3 text-center">QA</th>
+                          <th className="px-5 py-3 text-center">WordPress</th>
+                          <th className="px-5 py-3 text-center">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/[0.05]">
+                        {items.map((item) => (
+                          <tr key={item.id} className="hover:bg-white/[0.03]/60 transition-colors">
+                            <td className="px-5 py-4 max-w-[240px]">
+                              <p className="font-semibold text-white/90 truncate text-sm" title={item.topic}>{item.topic}</p>
+                              {item.lastError && <p className="text-xs text-red-400 mt-0.5 truncate" title={item.lastError}>{item.lastError}</p>}
+                              {item.status === "completed" && item.completedAt && <p className="text-xs text-white/35 mt-0.5">Done {fmt(item.completedAt)}</p>}
+                              {item.status === "processing" && item.progress && (
+                                <div className="mt-1.5 max-w-[220px]">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <p className="text-xs text-amber-300 truncate" title={item.progress.label}>{item.progress.label}</p>
+                                    <span className="text-[10px] text-white/35 tabular-nums shrink-0 ml-2">{item.progress.step}/{item.progress.total}</span>
+                                  </div>
+                                  <div className="progress-track">
+                                    <div className="progress-fill" style={{ width: `${Math.round((item.progress.step / item.progress.total) * 100)}%` }} />
+                                  </div>
+                                </div>
+                              )}
+                              {item.status === "processing" && !item.progress && (
+                                <p className="text-xs text-amber-300 mt-0.5">Starting…</p>
+                              )}
+                              {item.status === "queued" && item.scheduledFor && (
+                                <p className={`text-xs mt-0.5 ${new Date(item.scheduledFor) > new Date() ? "text-gold/80" : "text-white/35"}`}>
+                                  ⏱ Generates {fmt(item.scheduledFor)}
+                                </p>
+                              )}
+                              {item.mediaOutputs && (item.mediaOutputs.audio || item.mediaOutputs.video || item.mediaOutputs.podcast) && (
+                                <span className="flex flex-wrap gap-1 mt-1">
+                                  {item.mediaOutputs.audio   && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gold/10 text-gold/85 border border-gold/25">audio</span>}
+                                  {item.mediaOutputs.video   && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gold/10 text-gold/85 border border-gold/25">video</span>}
+                                  {item.mediaOutputs.podcast && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gold/10 text-gold/85 border border-gold/25">podcast {item.podcastLength ?? 30}m</span>}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-5 py-4 text-xs text-white/45 whitespace-nowrap capitalize">{item.mode.replace(/_/g, " ")}</td>
+                            <td className="px-5 py-4 text-center">
+                              <Select value={item.priority} onChange={(e) => patchQueue(item.id, { priority: Number(e.target.value) })} disabled={item.status === "completed" || item.status === "processing"} className="w-14 text-center disabled:opacity-40">
+                                {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
+                              </Select>
+                            </td>
+                            <td className="px-5 py-4 text-center">
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${Q_STATUS[item.status].dot}`} />
+                                <Badge className={Q_STATUS[item.status].badge}>{Q_STATUS[item.status].label}</Badge>
+                              </span>
+                            </td>
+                            <td className="px-5 py-4 text-xs text-white/35 whitespace-nowrap">{fmt(item.createdAt)}</td>
+                            <td className="px-5 py-4 text-center">
+                              {item.qaScore != null ? (
+                                <span className={`text-xs font-bold tabular-nums ${item.qaScore >= 80 ? "text-emerald-300" : item.qaScore >= 60 ? "text-amber-300" : "text-red-400"}`}>
+                                  {item.qaScore}<span className="font-normal text-white/30">/100</span>
+                                </span>
+                              ) : <span className="text-white/30 text-xs">—</span>}
+                            </td>
+                            <td className="px-5 py-4 text-center">
+                              {item.wpEditUrl ? (
+                                <div className="flex flex-col items-center gap-1">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <a href={item.wpEditUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-gold hover:text-gold-bright hover:underline font-medium">Edit in WP</a>
+                                    {item.wpPostUrl && <a href={item.wpPostUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-white/35 hover:text-white/55 hover:underline">Preview</a>}
+                                  </div>
+                                  {item.wpPostId && (
+                                    <a href={`/media?postId=${item.wpPostId}&title=${encodeURIComponent(item.topic)}`}
+                                      className="text-[11px] text-white/45 hover:text-gold-bright hover:underline inline-flex items-center gap-1">
+                                      🎬 Add media
+                                    </a>
+                                  )}
+                                </div>
+                              ) : <span className="text-white/30 text-xs">—</span>}
+                            </td>
+                            <td className="px-5 py-4">
+                              <div className="flex items-center justify-center gap-1">
+                                {item.status === "paused"  && <Btn variant="ghost" size="sm" onClick={() => patchQueue(item.id, { status: "queued" })}>Resume</Btn>}
+                                {item.status === "queued"  && <Btn variant="ghost" size="sm" onClick={() => patchQueue(item.id, { status: "paused" })}>Pause</Btn>}
+                                {item.status === "failed"  && <Btn variant="ghost" size="sm" onClick={() => patchQueue(item.id, { status: "queued", retryCount: 0, lastError: null } as Partial<QueueItem>)}>Retry</Btn>}
+                                {item.status !== "processing" && (
+                                  confirmDeleteId === item.id ? (
+                                    <span className="flex items-center gap-1">
+                                      <Btn variant="danger" size="sm" onClick={() => deleteQueueItem(item.id)}>Confirm</Btn>
+                                      <Btn variant="ghost" size="sm" onClick={() => setConfirmDeleteId(null)}>Cancel</Btn>
+                                    </span>
+                                  ) : (
+                                    <Btn variant="ghost" size="sm" onClick={() => setConfirmDeleteId(item.id)}>{I.trash}</Btn>
+                                  )
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+            </>
+          )}
+
+          {/* ══ HISTORY ══════════════════════════════════════════ */}
+          {tab === "history" && (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Recent posts</h1>
+                  <p className="text-sm text-white/45 mt-0.5">The 20 most recent articles — from the scheduler and the Generate page. Add media to any of them.</p>
+                </div>
+                <Btn variant="secondary" onClick={() => fetchHistory()} disabled={historyLoading}>
+                  {historyLoading ? <Spinner /> : I.refresh} Refresh
+                </Btn>
+              </div>
+
+              {history.length === 0 ? (
+                <Card>
+                  <EmptyState
+                    icon={I.history}
+                    title="No posts yet"
+                    body="Once you generate a post — here or on the Generate page — it appears here so you can add audio, video or a podcast to it."
+                  />
+                </Card>
+              ) : (
+                <Card>
+                  <div className="divide-y divide-white/[0.05]">
+                    {history.map((h) => (
+                      <div key={h.id} className="flex items-center gap-4 px-6 py-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-semibold text-white/90 text-sm truncate" title={h.title}>{h.title}</p>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ring-1 ring-inset ${h.source === "manual" ? "bg-sky-500/10 text-sky-300 ring-sky-500/25" : "bg-gold/10 text-gold/85 ring-gold/25"}`}>
+                              {h.source === "manual" ? "Generate page" : "Scheduler"}
+                            </span>
+                            {h.needsReview && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 ring-1 ring-inset ring-amber-500/25">needs review</span>}
                           </div>
-                          <a href={youtubeUrl} target="_blank" rel="noopener noreferrer"
-                            className="text-xs text-[#C9A84C]/70 hover:text-[#C9A84C] transition-colors font-mono break-all">
-                            {youtubeUrl}
+                          <p className="text-xs text-white/35 mt-0.5">
+                            {fmt(h.createdAt)}{h.focusKeyword ? ` · ${h.focusKeyword}` : ""}
+                            {h.mediaOutputs && (h.mediaOutputs.audio || h.mediaOutputs.video || h.mediaOutputs.podcast) && (
+                              <span className="text-white/25"> · media at generation: {[h.mediaOutputs.audio && "audio", h.mediaOutputs.video && "video", h.mediaOutputs.podcast && "podcast"].filter(Boolean).join(", ")}</span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <a href={h.wpEditUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-white/45 hover:text-white/70 hover:underline">Edit in WP</a>
+                          {h.wpPostUrl && <a href={h.wpPostUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-white/45 hover:text-white/70 hover:underline">View</a>}
+                          <button onClick={() => addChart(h.wpPostId)} disabled={chartBusyId === h.wpPostId}
+                            title="Generate a data chart from this article and insert it into the post — for when the chart failed during generation"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-gold hover:text-gold-bright disabled:opacity-50">
+                            {chartBusyId === h.wpPostId ? <><Spinner /> Adding…</> : <>📊 Add chart</>}
+                          </button>
+                          <a href={`/media?postId=${h.wpPostId}&title=${encodeURIComponent(h.title)}`}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-gold hover:text-gold-bright">
+                            🎬 Add media
                           </a>
                         </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Error */}
-                  {videoStatus === "error" && (
-                    <div className="space-y-2">
-                      <p className="text-sm text-red-400/80">{videoProgress || "Video generation failed."}</p>
-                      <button onClick={handleGenerateVideo} className="text-xs text-white/40 hover:text-white/70 transition-colors">
-                        Try again
-                      </button>
-                    </div>
-                  )}
-
-                </div>
-              </div>
-
-              {/* ── Audio section ─────────────────────────────── */}
-              <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
-                <div className="px-4 py-3 border-b border-white/[0.06] flex items-center gap-2">
-                  <svg className="w-3.5 h-3.5 text-[#C9A84C]/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
-                  </svg>
-                  <p className="text-xs font-medium text-white/50 uppercase tracking-wide">Audio</p>
-                </div>
-                <div className="px-4 py-4 space-y-4">
-
-                  {/* Idle — generate button */}
-                  {audioStatus === "idle" && (
-                    <button
-                      onClick={handleGenerateAudio}
-                      disabled={!result?.postId}
-                      className="w-full flex items-center justify-center gap-2 bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 hover:border-white/20 text-white/60 hover:text-white/90 text-sm py-3 rounded-lg transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-                      </svg>
-                      Generate audio for this post
-                    </button>
-                  )}
-
-                  {/* Generating — progress bar + status */}
-                  {audioStatus === "generating" && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm text-white/50">{audioProgress || "Generating…"}</p>
-                        <p className="text-xs text-white/30 tabular-nums">{audioElapsed}s</p>
                       </div>
-                      {/* Estimated ~60s — bar fills linearly then holds at 95% */}
-                      <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#C9A84C] rounded-full transition-all duration-1000 ease-linear"
-                          style={{ width: `${Math.min(audioElapsed / 60 * 95, 95)}%` }}
-                        />
-                      </div>
-                      <p className="text-[10px] text-white/20">ElevenLabs typically takes 30–90 seconds</p>
-                    </div>
-                  )}
-
-                  {/* Done — inline audio player + WordPress link */}
-                  {audioStatus === "done" && audioUrl && (
-                    <div className="space-y-3">
-                      <audio controls src={audioUrl} className="w-full h-10 rounded-lg" />
-                      <div className="flex items-center gap-2">
-                        <div className="w-3.5 h-3.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
-                          <svg className="w-2 h-2 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        </div>
-                        <p className="text-xs text-white/50">Saved to WordPress ACF <code className="text-white/30">audio_url</code></p>
-                      </div>
-                      <a href={audioUrl} target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-[#C9A84C]/70 hover:text-[#C9A84C] transition-colors font-mono break-all">
-                        {audioUrl}
-                      </a>
-                    </div>
-                  )}
-
-                  {/* Error */}
-                  {audioStatus === "error" && (
-                    <div className="space-y-2">
-                      <p className="text-sm text-red-400/80">{audioProgress || "Audio generation failed."}</p>
-                      <button onClick={handleGenerateAudio} className="text-xs text-white/40 hover:text-white/70 transition-colors">
-                        Try again
-                      </button>
-                    </div>
-                  )}
-
-                </div>
-              </div>
-
-              {/* Podcast — conversational two-voice episode for Spotify */}
-              <div className="border border-white/[0.07] rounded-xl overflow-hidden">
-                <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06] bg-white/[0.02]">
-                  <svg className="w-4 h-4 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-                  </svg>
-                  <p className="text-xs font-medium text-white/50 uppercase tracking-wide">Podcast (Spotify)</p>
-                </div>
-                <div className="px-4 py-4 space-y-4">
-                  {podcastStatus === "idle" && (
-                    <>
-                      <div className="flex gap-1.5">
-                        {([15, 30, 45, 60] as const).map((mins) => (
-                          <button
-                            key={mins}
-                            onClick={() => setPodcastLength(mins)}
-                            className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${podcastLength === mins ? "bg-[#C9A84C]/20 border border-[#C9A84C]/40 text-[#C9A84C]" : "bg-white/[0.04] border border-white/[0.08] text-white/40 hover:text-white/60"}`}
-                          >
-                            {mins} min
-                          </button>
-                        ))}
-                      </div>
-                      <button
-                        onClick={handleGeneratePodcast}
-                        disabled={!result?.postId}
-                        className="w-full flex items-center justify-center gap-2 bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 hover:border-white/20 text-white/60 hover:text-white/90 text-sm py-3 rounded-lg transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        Generate {podcastLength}-min episode
-                      </button>
-                      <p className="text-[10px] text-white/20">Two AI voices (host + expert) with a music intro/outro. Creates a published episode in the Podcasts post type, served on the Spotify feed.</p>
-                    </>
-                  )}
-
-                  {podcastStatus === "generating" && (
-                    <div className="space-y-3">
-                      <p className="text-sm text-white/50">{podcastProgress || "Generating…"}</p>
-                      <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
-                        <div className="h-full bg-[#C9A84C] rounded-full animate-pulse" style={{ width: "60%" }} />
-                      </div>
-                      <p className="text-[10px] text-white/20">Writing the dialogue, voicing both speakers, and stitching the music — a couple of minutes.</p>
-                    </div>
-                  )}
-
-                  {podcastStatus === "done" && podcastUrl && (
-                    <div className="space-y-3">
-                      <audio controls src={podcastUrl} className="w-full h-10 rounded-lg" />
-                      <div className="flex items-center gap-2">
-                        <div className="w-3.5 h-3.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
-                          <svg className="w-2 h-2 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        </div>
-                        <p className="text-xs text-white/50">Published as an episode in the Podcasts post type — it&apos;s now in the Spotify feed.</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {podcastStatus === "error" && (
-                    <div className="space-y-2">
-                      <p className="text-sm text-red-400/80">{podcastProgress || "Podcast generation failed."}</p>
-                      <button onClick={handleGeneratePodcast} className="text-xs text-white/40 hover:text-white/70 transition-colors">
-                        Try again
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <button onClick={handleReset} className="w-full text-sm text-white/30 hover:text-white/60 py-2 transition-colors duration-150">
-                ← Generate another post
-              </button>
-            </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+            </>
           )}
-        </main>
 
-        <footer className="mt-20 pt-6 border-t border-white/[0.05]">
-          <p className="text-white/15 text-xs text-center">
-            Aston.ae internal tool · Posts are saved as drafts for review
-          </p>
-        </footer>
-      </div>
+          {/* ══ PUBLISH QUEUE ════════════════════════════════════ */}
+          {tab === "publish_queue" && (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Go live</h1>
+                  <p className="text-sm text-white/45 mt-0.5">Finished drafts scheduled to go live. Each publishes automatically at its set time (checked hourly) — or push one live now.</p>
+                </div>
+                <Btn variant="secondary" onClick={() => { setPqLoading(true); fetchPublishQueue().finally(() => setPqLoading(false)); }} disabled={pqLoading}>
+                  {pqLoading ? <Spinner /> : I.refresh} Refresh
+                </Btn>
+              </div>
+
+              {publishQueueStats && (
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-4">
+                  <StatCard label="Total" value={publishQueueStats.total} />
+                  <StatCard label="Scheduled" value={publishQueueStats.queued} color="text-blue-300" />
+                  <StatCard label="Publishing" value={publishQueueStats.processing} color="text-amber-300" />
+                  <StatCard label="Published" value={publishQueueStats.published} color="text-emerald-300" />
+                  <StatCard label="Failed" value={publishQueueStats.failed} color="text-red-400" />
+                  <StatCard label="Paused" value={publishQueueStats.paused} color="text-white/35" />
+                </div>
+              )}
+
+              {publishQueue.length === 0 ? (
+                <Card>
+                  <EmptyState
+                    icon={<svg className="w-12 h-12" fill="none" stroke="currentColor" strokeWidth={1} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" /></svg>}
+                    title="Publish queue is empty"
+                    body="Generate an article on the Blog Generator page, then choose 'Queue for publishing' to schedule it for external platforms."
+                  />
+                </Card>
+              ) : (
+                <div className="space-y-3">
+                  {publishQueue.map((item) => {
+                    const canAct = item.status === "queued" || item.status === "failed" || item.status === "paused";
+                    const isPublishing = publishingId === item.id;
+                    return (
+                      <Card key={item.id} className={item.status === "published" ? "opacity-70" : ""}>
+                        {/* Status bar */}
+                        <div className={`h-1 rounded-t-2xl ${PQ_STATUS[item.status].bar}`} />
+                        <div className="p-5">
+                          <div className="flex items-start justify-between gap-4">
+                            {/* Left: title + meta */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2.5 flex-wrap">
+                                <span className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${PQ_STATUS[item.status].badge}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${PQ_STATUS[item.status].dot}`} />
+                                  {PQ_STATUS[item.status].label}
+                                </span>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {item.targets.map((t) => (
+                                    <span key={t.target} className="text-[10px] font-bold uppercase tracking-wide text-white/45 bg-white/[0.07] rounded-md px-2 py-0.5">{t.target}</span>
+                                  ))}
+                                </div>
+                              </div>
+                              <h3 className="text-sm font-semibold text-white/90 mt-2 leading-snug" title={item.title}>{item.title}</h3>
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-xs text-white/35">
+                                <span className="flex items-center gap-1">{I.clock}
+                                  {item.scheduledFor ? fmt(item.scheduledFor) : <span className="text-blue-300 font-semibold">ASAP</span>}
+                                </span>
+                                <span>Added {fmt(item.createdAt)}</span>
+                                {item.retryCount > 0 && <span className="text-amber-500">{item.retryCount} {item.retryCount === 1 ? "retry" : "retries"}</span>}
+                              </div>
+                              {/* Results */}
+                              {item.results.length > 0 && (
+                                <div className="flex flex-wrap gap-2 mt-3">
+                                  {item.results.map((r) => (
+                                    <span key={r.target} className={`inline-flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1 font-medium ${r.ok ? "bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-200" : "bg-red-500/10 text-red-300 ring-1 ring-red-200"}`}>
+                                      <span className={`w-1.5 h-1.5 rounded-full ${r.ok ? "bg-emerald-500" : "bg-red-500"}`} />
+                                      <span className="capitalize">{r.target}</span>
+                                      {r.externalUrl && <a href={r.externalUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 opacity-70 hover:opacity-100">↗</a>}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {item.lastError && !item.results.length && (
+                                <p className="text-xs text-red-400 mt-2 bg-red-500/10 rounded-lg px-3 py-2 border border-red-500/25">{item.lastError}</p>
+                              )}
+                            </div>
+
+                            {/* Right: actions */}
+                            <div className="flex-shrink-0 flex flex-col gap-2 min-w-[130px]">
+                              {canAct && (
+                                <Btn variant="success" size="sm" className="w-full" disabled={isPublishing} onClick={() => publishNow(item)}>
+                                  {isPublishing ? <><Spinner /> Publishing…</> : <>{I.bolt} Publish now</>}
+                                </Btn>
+                              )}
+                              {item.status === "queued" && (
+                                <Btn variant="secondary" size="sm" className="w-full" onClick={async () => {
+                                  await fetch("/api/publish-queue", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, status: "paused" }) });
+                                  fetchPublishQueue();
+                                }}>Pause</Btn>
+                              )}
+                              {item.status === "paused" && (
+                                <Btn variant="secondary" size="sm" className="w-full" onClick={async () => {
+                                  await fetch("/api/publish-queue", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, status: "queued" }) });
+                                  fetchPublishQueue();
+                                }}>Resume</Btn>
+                              )}
+                              {item.status === "failed" && (
+                                <Btn variant="secondary" size="sm" className="w-full" onClick={async () => {
+                                  await fetch("/api/publish-queue", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, status: "queued" }) });
+                                  fetchPublishQueue();
+                                }}>Retry (cron)</Btn>
+                              )}
+                              <Btn variant="danger" size="sm" className="w-full" onClick={async () => {
+                                if (!confirm("Remove this item from the publish queue?")) return;
+                                await fetch(`/api/publish-queue?id=${item.id}`, { method: "DELETE" });
+                                fetchPublishQueue();
+                              }}>{I.trash} Remove</Btn>
+                            </div>
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ══ LINKS ════════════════════════════════════════════ */}
+          {tab === "links" && (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Links</h1>
+                  <p className="text-sm text-white/45 mt-0.5">The approved links every generated article can weave in — internal aston.ae pages and trusted external sources.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {wpSyncResult && (
+                    <p className={`text-xs font-medium ${wpSyncResult.ok ? "text-emerald-300" : "text-red-400"}`}>{wpSyncResult.msg}</p>
+                  )}
+                  <Btn variant="secondary" onClick={syncWpLinks} disabled={wpSyncing}>
+                    {wpSyncing ? <><Spinner /> Syncing…</> : "Sync from WordPress"}
+                  </Btn>
+                </div>
+              </div>
+
+              <Card>
+                {editingLink ? (
+                  <>
+                    <CardHeader title="Edit Link" action={<Btn variant="ghost" size="sm" onClick={() => setEditingLink(null)}>Cancel</Btn>} />
+                    <div className="p-6 space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="sm:col-span-2">
+                          <Label required>URL</Label>
+                          <Input value={editingLink.url} onChange={(e) => setEditingLink({ ...editingLink, url: e.target.value })} />
+                        </div>
+                        <div>
+                          <Label required>Title</Label>
+                          <Input value={editingLink.title} onChange={(e) => setEditingLink({ ...editingLink, title: e.target.value })} />
+                        </div>
+                        <div>
+                          <Label>Category</Label>
+                          <Input value={editingLink.category} onChange={(e) => setEditingLink({ ...editingLink, category: e.target.value })} />
+                        </div>
+                        <div>
+                          <Label>Keywords <span className="text-white/35 font-normal">(comma-separated)</span></Label>
+                          <Input value={editingLink.keywords.join(", ")} onChange={(e) => setEditingLink({ ...editingLink, keywords: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} />
+                        </div>
+                        <div>
+                          <Label>Anchor texts <span className="text-white/35 font-normal">(comma-separated)</span></Label>
+                          <Input value={editingLink.anchors.join(", ")} onChange={(e) => setEditingLink({ ...editingLink, anchors: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} />
+                        </div>
+                        <div>
+                          <Label>Type</Label>
+                          <Select value={editingLink.type} onChange={(e) => setEditingLink({ ...editingLink, type: e.target.value as "internal"|"external" })} className="w-full">
+                            <option value="internal">Internal</option>
+                            <option value="external">External</option>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>Language</Label>
+                          <Select value={editingLink.language ?? ""} onChange={(e) => setEditingLink({ ...editingLink, language: e.target.value || undefined })} className="w-full">
+                            <option value="">All languages</option>
+                            {siteLanguages.map(l => <option key={l.code} value={l.code}>{l.name} ({l.code})</option>)}
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>Status</Label>
+                          <Select value={editingLink.status} onChange={(e) => setEditingLink({ ...editingLink, status: e.target.value as "active"|"inactive" })} className="w-full">
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                          </Select>
+                        </div>
+                      </div>
+                      <Btn variant="primary" onClick={saveEditLink}>Save changes</Btn>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <CardHeader title="Add Link" subtitle="Links are automatically inserted into generated posts based on keyword matching." />
+                    <div className="p-6 space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="sm:col-span-2">
+                          <Label required>URL</Label>
+                          <Input value={lForm.url} onChange={(e) => setLForm({ ...lForm, url: e.target.value })} placeholder="https://aston.ae/…" />
+                        </div>
+                        <div>
+                          <Label required>Title</Label>
+                          <Input value={lForm.title} onChange={(e) => setLForm({ ...lForm, title: e.target.value })} placeholder="Page title" />
+                        </div>
+                        <div>
+                          <Label>Category</Label>
+                          <Input value={lForm.category} onChange={(e) => setLForm({ ...lForm, category: e.target.value })} placeholder="e.g. company-formation" />
+                        </div>
+                        <div>
+                          <Label>Keywords <span className="text-white/35 font-normal">(comma-separated)</span></Label>
+                          <Input value={lForm.keywords} onChange={(e) => setLForm({ ...lForm, keywords: e.target.value })} placeholder="vara, crypto licence, …" />
+                        </div>
+                        <div>
+                          <Label>Anchor texts <span className="text-white/35 font-normal">(comma-separated)</span></Label>
+                          <Input value={lForm.anchors} onChange={(e) => setLForm({ ...lForm, anchors: e.target.value })} placeholder="VARA licence, crypto licence in Dubai" />
+                        </div>
+                        <div>
+                          <Label>Type</Label>
+                          <Select value={lForm.type} onChange={(e) => setLForm({ ...lForm, type: e.target.value as "internal"|"external" })} className="w-full">
+                            <option value="internal">Internal</option>
+                            <option value="external">External</option>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>Language</Label>
+                          <Select value={lForm.language} onChange={(e) => setLForm({ ...lForm, language: e.target.value })} className="w-full">
+                            <option value="">All languages</option>
+                            {siteLanguages.map(l => <option key={l.code} value={l.code}>{l.name} ({l.code})</option>)}
+                          </Select>
+                        </div>
+                      </div>
+                      <Btn variant="primary" onClick={addLink} disabled={addingLink || !lForm.url.trim() || !lForm.title.trim()}>
+                        {addingLink ? <><Spinner /> Adding…</> : <>{I.plus} Add link</>}
+                      </Btn>
+                    </div>
+                  </>
+                )}
+              </Card>
+
+              <Card>
+                <CardHeader title="Links" subtitle={`${links.filter(l => l.status === "active").length} active · ${links.length} total`} />
+                {links.length === 0 ? (
+                  <EmptyState icon={<svg className="w-12 h-12" fill="none" stroke="currentColor" strokeWidth={1} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>} title="No links yet" body="Add internal Aston pages and trusted external sources above." />
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-white/[0.03]/80 text-[11px] font-bold text-white/35 uppercase tracking-wide border-b border-white/[0.06]">
+                          <th className="px-5 py-3 text-left">Title</th>
+                          <th className="px-5 py-3 text-left">URL</th>
+                          <th className="px-5 py-3 text-left">Type</th>
+                          <th className="px-5 py-3 text-left">Language</th>
+                          <th className="px-5 py-3 text-left">Category</th>
+                          <th className="px-5 py-3 text-left">Keywords</th>
+                          <th className="px-5 py-3 text-center">Status</th>
+                          <th className="px-5 py-3 text-center">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/[0.05]">
+                        {links.map((l) => (
+                          <tr key={l.id} className={`hover:bg-white/[0.03]/60 transition-colors ${l.status === "inactive" ? "opacity-50" : ""}`}>
+                            <td className="px-5 py-4 max-w-[140px]">
+                              <p className="font-semibold text-white/90 truncate text-xs">{l.title}</p>
+                            </td>
+                            <td className="px-5 py-4 max-w-[180px]">
+                              <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-xs text-gold hover:underline truncate block">{l.url}</a>
+                            </td>
+                            <td className="px-5 py-4">
+                              <Badge className={l.type === "internal" ? "bg-blue-500/10 text-blue-300 ring-blue-500/25" : "bg-violet-500/10 text-violet-300 ring-violet-500/25"}>{l.type}</Badge>
+                            </td>
+                            <td className="px-5 py-4 text-xs text-white/55 font-medium uppercase tracking-wide">
+                              {l.language
+                                ? <span className="px-2 py-0.5 bg-gold/10 text-gold-bright rounded font-semibold">{l.language}</span>
+                                : <span className="text-white/30">—</span>}
+                            </td>
+                            <td className="px-5 py-4 text-xs text-white/45">{l.category || <span className="text-white/30">—</span>}</td>
+                            <td className="px-5 py-4 text-xs text-white/45 max-w-[160px] truncate" title={l.keywords.join(", ")}>{l.keywords.join(", ") || <span className="text-white/30">—</span>}</td>
+                            <td className="px-5 py-4 text-center">
+                              <button onClick={() => toggleLinkStatus(l.id, l.status)}
+                                className={`text-xs font-semibold px-2.5 py-1 rounded-lg ring-1 ring-inset transition-all ${l.status === "active" ? "bg-emerald-500/10 text-emerald-300 ring-emerald-500/25 hover:bg-red-500/10 hover:text-red-300 hover:ring-red-500/25" : "bg-white/[0.07] text-white/45 ring-white/15 hover:bg-emerald-500/10 hover:text-emerald-300 hover:ring-emerald-500/25"}`}>
+                                {l.status}
+                              </button>
+                            </td>
+                            <td className="px-5 py-4">
+                              <div className="flex items-center justify-center gap-1">
+                                <Btn variant="ghost" size="sm" onClick={() => setEditingLink(l)}>{I.edit}</Btn>
+                                {confirmLinkId === l.id ? (
+                                  <>
+                                    <Btn variant="danger" size="sm" onClick={() => deleteLink(l.id)}>Confirm</Btn>
+                                    <Btn variant="ghost" size="sm" onClick={() => setConfirmLinkId(null)}>Cancel</Btn>
+                                  </>
+                                ) : (
+                                  <Btn variant="ghost" size="sm" onClick={() => setConfirmLinkId(l.id)}>{I.trash}</Btn>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+            </>
+          )}
+
+          {/* ══ PERFORMANCE ══════════════════════════════════════ */}
+          {tab === "performance" && (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="font-display text-2xl text-white/95 tracking-tight">Performance</h1>
+                  <p className="text-sm text-white/45 mt-0.5">How published posts are doing in Google Search — synced weekly.</p>
+                </div>
+              </div>
+
+              <Card>
+                <div className="p-6 flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-base font-semibold text-white/90">Performance Sync</h2>
+                    <p className="text-xs text-white/45 mt-1">Pulls last 90 days from Google Search Console + GA4. Auto-runs every Monday 03:00 UTC.</p>
+                    {syncResult && (
+                      <p className={`mt-2.5 text-xs font-semibold ${syncResult.ok ? "text-emerald-300" : "text-red-400"}`}>{syncResult.msg}</p>
+                    )}
+                  </div>
+                  <Btn variant="primary" onClick={() => syncPerformance("sync_all")} disabled={syncing}>
+                    {syncing ? <><Spinner /> Syncing…</> : "Sync all posts"}
+                  </Btn>
+                </div>
+              </Card>
+
+              {perfRecords.length > 0 && (() => {
+                const high    = perfRecords.filter(p => p.classification === "high").length;
+                const medium  = perfRecords.filter(p => p.classification === "medium").length;
+                const low     = perfRecords.filter(p => p.classification === "low").length;
+                const unknown = perfRecords.filter(p => p.classification === "unknown").length;
+                const tracked = perfRecords.filter(p => p.impressions > 0);
+                const avgPos  = tracked.length ? (tracked.reduce((s, p) => s + p.avgPosition, 0) / tracked.length).toFixed(1) : "—";
+                const avgCtr  = tracked.length ? (tracked.reduce((s, p) => s + p.ctr, 0) / tracked.length).toFixed(1) : "—";
+                const totalClicks = perfRecords.reduce((s, p) => s + p.clicks, 0);
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-4">
+                    <StatCard label="High" value={high} color="text-emerald-300" />
+                    <StatCard label="Medium" value={medium} color="text-amber-300" />
+                    <StatCard label="Low" value={low} color="text-red-400" />
+                    <StatCard label="Not indexed" value={unknown} color="text-white/35" />
+                    <StatCard label="Avg position" value={avgPos} />
+                    <StatCard label="Avg CTR %" value={avgCtr} />
+                    <StatCard label="Total clicks" value={totalClicks.toLocaleString()} color="text-gold" />
+                  </div>
+                );
+              })()}
+
+              <Card>
+                <CardHeader title="Posts" subtitle={`${perfRecords.length} tracked`} />
+                {perfRecords.length === 0 ? (
+                  <EmptyState icon={<svg className="w-12 h-12" fill="none" stroke="currentColor" strokeWidth={1} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>} title="No performance data yet" body="Click 'Sync all posts' to pull data from Google Search Console. Ensure GSC credentials are set in Vercel env vars." />
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-white/[0.03]/80 text-[11px] font-bold text-white/35 uppercase tracking-wide border-b border-white/[0.06]">
+                          <th className="px-5 py-3 text-left">Topic</th>
+                          <th className="px-5 py-3 text-center">Class</th>
+                          <th className="px-5 py-3 text-right">Impressions</th>
+                          <th className="px-5 py-3 text-right">Clicks</th>
+                          <th className="px-5 py-3 text-right">Avg pos</th>
+                          <th className="px-5 py-3 text-right">CTR</th>
+                          <th className="px-5 py-3 text-right">Pageviews</th>
+                          <th className="px-5 py-3 text-right">Avg time</th>
+                          <th className="px-5 py-3 text-left">Synced</th>
+                          <th className="px-5 py-3 text-center">Sync</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/[0.05]">
+                        {[...perfRecords]
+                          .sort((a, b) => {
+                            const o: Record<PerformanceClass, number> = { high: 0, medium: 1, low: 2, unknown: 3 };
+                            return (o[a.classification] - o[b.classification]) || (a.avgPosition - b.avgPosition);
+                          })
+                          .map((p) => (
+                            <tr key={p.postId} className="hover:bg-white/[0.03]/60 transition-colors">
+                              <td className="px-5 py-4 max-w-[200px]">
+                                <a href={p.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-white/90 hover:text-gold-bright truncate block text-sm">{p.topic}</a>
+                                {p.cluster && <p className="text-xs text-white/35 mt-0.5">{p.cluster}</p>}
+                              </td>
+                              <td className="px-5 py-4 text-center"><Badge className={PERF_STATUS[p.classification].badge}>{PERF_STATUS[p.classification].label}</Badge></td>
+                              <td className="px-5 py-4 text-right text-xs text-white/55 tabular-nums">{p.impressions.toLocaleString()}</td>
+                              <td className="px-5 py-4 text-right text-xs font-semibold text-white/90 tabular-nums">{p.clicks.toLocaleString()}</td>
+                              <td className="px-5 py-4 text-right text-xs text-white/55 tabular-nums">{p.avgPosition.toFixed(1)}</td>
+                              <td className="px-5 py-4 text-right text-xs text-white/55 tabular-nums">{p.ctr.toFixed(1)}%</td>
+                              <td className="px-5 py-4 text-right text-xs text-white/55 tabular-nums">{p.pageviews.toLocaleString()}</td>
+                              <td className="px-5 py-4 text-right text-xs text-white/55 tabular-nums">{Math.round(p.avgTimeOnPage)}s</td>
+                              <td className="px-5 py-4 text-xs text-white/35 whitespace-nowrap">{fmt(p.lastSyncedAt)}</td>
+                              <td className="px-5 py-4 text-center">
+                                <Btn variant="ghost" size="sm" onClick={() => syncPerformance("sync_post", p.postId)} disabled={syncing}>
+                                  {I.refresh}
+                                </Btn>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+            </>
+          )}
+
+        </div>
+      </main>
     </div>
   );
 }
