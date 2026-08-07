@@ -21,8 +21,9 @@ import { GenerationMode } from "@/lib/source";
 import { start } from "workflow/api";
 import { scheduleGenerationWorkflow } from "@/lib/workflows/scheduleGeneration";
 
-// Allowed enqueue delays (minutes): 5m, 30m, 1h, 3h, 5h, 12h, 24h
-const ALLOWED_DELAYS = [5, 30, 60, 180, 300, 720, 1440];
+// Allowed enqueue delays (minutes). 0 = instant: the item is queued and its
+// scheduling workflow fires the targeted cron immediately instead of sleeping.
+const ALLOWED_DELAYS = [0, 5, 30, 60, 180, 300, 720, 1440];
 
 function authOk(req: NextRequest): boolean {
   return req.cookies.get("__aston_session")?.value === process.env.API_SECRET;

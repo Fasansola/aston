@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import InstantGenerate from "./components/InstantGenerate";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -481,7 +480,11 @@ export default function AdminPage() {
       setNewAudience(""); setNewPrimaryCountry(""); setNewSecondaryCountries(""); setNewPriorityService(""); setNewLanguage(""); setNewCustomPrompt("");
       await fetchDashboard();
       setShowAddForm(false);
-      showToast(newDelay ? `Topic queued — generates in ${Number(newDelay) < 60 ? `${newDelay} min` : `${Number(newDelay) / 60}h`}` : "Topic added to queue");
+      showToast(
+        newDelay === "0" ? "Topic queued — starting now" :
+        newDelay ? `Topic queued — generates in ${Number(newDelay) < 60 ? `${newDelay} min` : `${Number(newDelay) / 60}h`}` :
+        "Topic added to queue"
+      );
     } finally { setAdding(false); }
   }
 
@@ -787,9 +790,6 @@ export default function AdminPage() {
                   {showHelp ? "Hide guide" : "How does this work?"}
                 </Btn>
               </div>
-
-              {/* ── Instant generation — write a post now, no queue ── */}
-              <InstantGenerate />
 
               {/* ── First-time explainer: the whole tool in four sentences ── */}
               {showHelp && (
@@ -1126,6 +1126,7 @@ export default function AdminPage() {
                       <Label>Generate</Label>
                       <Select value={newDelay} onChange={(e) => setNewDelay(e.target.value)} className="w-44">
                         <option value="">Next scheduled run</option>
+                        <option value="0">Instantly — start now</option>
                         <option value="5">In 5 minutes</option>
                         <option value="30">In 30 minutes</option>
                         <option value="60">In 1 hour</option>
