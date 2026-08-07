@@ -1,6 +1,7 @@
 /**
  * app/api/links/sync-wp/route.ts
- * POST /api/links/sync-wp
+ * POST /api/links/sync-wp  — dashboard "Sync from WP" button (session cookie)
+ * GET  /api/links/sync-wp  — daily Vercel cron (CRON_SECRET bearer)
  *
  * Fetches all published posts from the WordPress REST API and merges them
  * into the internal links pool stored in KV. Existing entries (matched by
@@ -17,6 +18,10 @@ export const maxDuration = 60;
 
 function authOk(req: NextRequest): boolean {
   return req.cookies.get("__aston_session")?.value === process.env.API_SECRET;
+}
+
+function cronAuthOk(req: NextRequest): boolean {
+  return req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`;
 }
 
 const STOP_WORDS = new Set([
@@ -137,9 +142,7 @@ function detectLanguage(post: WpPost): string | undefined {
   return undefined;
 }
 
-export async function POST(req: NextRequest) {
-  if (!authOk(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+async function runLinkSync(): Promise<NextResponse> {
   const WP_URL      = process.env.WP_URL!;
   const WP_USERNAME = process.env.WP_USERNAME!;
   const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD!;
@@ -227,4 +230,16 @@ export async function POST(req: NextRequest) {
       : err instanceof Error ? err.message : "Sync failed";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
+}
+
+export async function POST(req: NextRequest) {
+  if (!authOk(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  return runLinkSync();
+}
+
+// Vercel Cron fires GET with the CRON_SECRET bearer — same sync, no cookie.
+export async function GET(req: NextRequest) {
+  if (!cronAuthOk(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  console.log("[sync-wp] Cron-triggered link sync starting");
+  return runLinkSync();
 }

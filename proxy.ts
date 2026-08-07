@@ -23,6 +23,16 @@ export function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Vercel Cron sends no cookie — a valid CRON_SECRET bearer is equivalent
+  // trust. Lets crons target routes outside /api/cron* (e.g. the daily
+  // /api/links/sync-wp refresh); each such route re-checks the bearer itself.
+  if (
+    process.env.CRON_SECRET &&
+    req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`
+  ) {
+    return NextResponse.next();
+  }
+
   const session = req.cookies.get(SESSION_COOKIE)?.value;
   if (!session || session !== process.env.API_SECRET) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

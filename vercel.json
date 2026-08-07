@@ -7,6 +7,7 @@
     "app/api/cron-social-tokens/route.ts": { "maxDuration": 60 }
   },
   "crons": [
+    { "path": "/api/links/sync-wp",    "schedule": "0 6 * * *"  },
     { "path": "/api/cron",             "schedule": "0 8 * * *"  },
     { "path": "/api/cron-performance", "schedule": "0 3 * * 1"  },
     { "path": "/api/cron-publish",     "schedule": "0 9 * * *"  },
