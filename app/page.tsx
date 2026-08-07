@@ -6,6 +6,33 @@ import { useState, useEffect, useCallback } from "react";
 
 type QueueStatus = "queued" | "processing" | "completed" | "failed" | "paused";
 type GenerationMode = "topic_only" | "source_assisted" | "improve_existing" | "notes_to_article";
+
+const MODES: { id: GenerationMode; label: string; description: string; placeholder: string }[] = [
+  {
+    id: "topic_only",
+    label: "Topic only",
+    description: "Write from scratch",
+    placeholder: "",
+  },
+  {
+    id: "source_assisted",
+    label: "Source-assisted",
+    description: "Paste a reference article",
+    placeholder: "Paste the source article text here. The AI will extract facts and write a fully original Aston article — not a rewrite.",
+  },
+  {
+    id: "improve_existing",
+    label: "Improve existing",
+    description: "Refresh an Aston post",
+    placeholder: "Paste the existing Aston blog post here. The AI will improve structure, SEO, links, and FAQ while preserving the best content.",
+  },
+  {
+    id: "notes_to_article",
+    label: "From notes",
+    description: "Expand rough notes",
+    placeholder: "Paste your notes or bullet points here. The AI will expand them into a full structured article.",
+  },
+];
 type PerformanceClass = "high" | "medium" | "low" | "unknown";
 
 interface QueueItem {
@@ -307,6 +334,14 @@ export default function AdminPage() {
   const [items, setItems]         = useState<QueueItem[]>([]);
   const [newTopic, setNewTopic]   = useState("");
   const [newMode, setNewMode]     = useState<GenerationMode>("topic_only");
+  const [newSourceText, setNewSourceText] = useState("");
+  const [newSourceUrl, setNewSourceUrl]   = useState("");
+  const [fetchState, setFetchState] = useState<"idle" | "fetching" | "done" | "error">("idle");
+  const [fetchError, setFetchError] = useState("");
+  const [wpQuery, setWpQuery]         = useState("");
+  const [wpResults, setWpResults]     = useState<{ id: number; title: string }[]>([]);
+  const [wpSearching, setWpSearching] = useState(false);
+  const [wpPicked, setWpPicked]       = useState<string | null>(null);
   const [newPriority, setNewPriority] = useState(3);
   const [newDelay, setNewDelay] = useState("");   // "" = next scheduled run; otherwise minutes
   const [newMedia, setNewMedia] = useState({ audio: false, video: false, podcast: false });
@@ -452,11 +487,62 @@ export default function AdminPage() {
     return () => clearInterval(t);
   }, [isAuthed, anyProcessing, tab, fetchDashboard]);
 
+  // ── Source-input helpers (non-topic modes) ─────────────────────
+  const needsSource = newMode !== "topic_only";
+
+  async function fetchSourceUrl() {
+    if (!newSourceUrl.trim()) return;
+    setFetchState("fetching");
+    setFetchError("");
+    try {
+      const res = await fetch("/api/fetch-source", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: newSourceUrl.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setFetchState("error");
+        setFetchError(data.error ?? "Failed to fetch URL");
+      } else {
+        setNewSourceText(data.text);
+        setFetchState("done");
+      }
+    } catch {
+      setFetchState("error");
+      setFetchError("Network error — could not reach the server");
+    }
+  }
+
+  async function searchWpPosts() {
+    if (!wpQuery.trim()) return;
+    setWpSearching(true);
+    setWpResults([]);
+    try {
+      const res = await fetch(`/api/fetch-wp-post?search=${encodeURIComponent(wpQuery.trim())}`);
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.posts)) setWpResults(data.posts);
+    } catch { /* leave results empty */ }
+    setWpSearching(false);
+  }
+
+  async function pickWpPost(post: { id: number; title: string }) {
+    setWpResults([]);
+    setWpPicked(post.title);
+    if (!newTopic.trim()) setNewTopic(post.title);
+    try {
+      const res = await fetch(`/api/fetch-wp-post?id=${post.id}`);
+      const data = await res.json();
+      if (res.ok && data.content) setNewSourceText(data.content);
+    } catch { /* user can still paste manually */ }
+  }
+
   // ── Queue actions ──────────────────────────────────────────────
   async function addQueueItem() {
     const hasTopic = !!newTopic.trim();
     const hasPrompt = newCustomPrompt.trim().length >= 10;
     if ((!hasTopic && !hasPrompt) || !newAudience.trim()) return;
+    if (needsSource && !newSourceText.trim()) return;
     setAdding(true);
     try {
       await fetch("/api/queue", {
@@ -464,6 +550,7 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           topic: newTopic.trim(), mode: newMode, priority: newPriority,
+          sourceText: needsSource ? newSourceText.trim() : "",
           audience: newAudience.trim() || undefined,
           primary_country: newPrimaryCountry.trim() || undefined,
           secondary_countries: newSecondaryCountries.trim() || undefined,
@@ -476,6 +563,8 @@ export default function AdminPage() {
         }),
       });
       setNewTopic(""); setNewPriority(3); setNewDelay("");
+      setNewMode("topic_only"); setNewSourceText(""); setNewSourceUrl("");
+      setFetchState("idle"); setFetchError(""); setWpQuery(""); setWpPicked(null);
       setNewMedia({ audio: false, video: false, podcast: false }); setNewPodcastLength(30);
       setNewAudience(""); setNewPrimaryCountry(""); setNewSecondaryCountries(""); setNewPriorityService(""); setNewLanguage(""); setNewCustomPrompt("");
       await fetchDashboard();
@@ -1102,16 +1191,69 @@ export default function AdminPage() {
                       <Input value={newAudience} onChange={(e) => setNewAudience(e.target.value)} placeholder="e.g. founders, investors, crypto companies" />
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-end gap-3">
-                    <div>
-                      <Label>Mode</Label>
-                      <Select value={newMode} onChange={(e) => setNewMode(e.target.value as GenerationMode)}>
-                        <option value="topic_only">Topic only</option>
-                        <option value="source_assisted">Source assisted</option>
-                        <option value="improve_existing">Improve existing</option>
-                        <option value="notes_to_article">Notes to article</option>
-                      </Select>
+                  {/* Mode cards — how the article gets written */}
+                  <div>
+                    <Label>Mode</Label>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                      {MODES.map((m) => (
+                        <button key={m.id} type="button"
+                          onClick={() => { setNewMode(m.id); setNewSourceText(""); setFetchState("idle"); setFetchError(""); setWpPicked(null); setWpResults([]); }}
+                          className={`text-left rounded-xl px-3.5 py-3 border transition-all ${
+                            newMode === m.id
+                              ? "bg-gold/10 border-gold/40"
+                              : "bg-white/[0.03] border-white/[0.06] hover:border-white/15"
+                          }`}>
+                          <p className={`text-[13px] font-semibold ${newMode === m.id ? "text-gold" : "text-white/75"}`}>{m.label}</p>
+                          <p className="text-[10px] text-white/35 mt-0.5">{m.description}</p>
+                        </button>
+                      ))}
                     </div>
+                  </div>
+
+                  {/* Source input, per mode */}
+                  {needsSource && (
+                    <div className="space-y-2.5">
+                      {newMode === "source_assisted" && (
+                        <div className="flex gap-2">
+                          <Input value={newSourceUrl} onChange={(e) => setNewSourceUrl(e.target.value)}
+                            placeholder="https:// — or paste the article below" className="flex-1" />
+                          <Btn variant="secondary" onClick={fetchSourceUrl}
+                            disabled={!newSourceUrl.trim() || fetchState === "fetching"}>
+                            {fetchState === "fetching" ? <><Spinner /> Fetching…</> : "Fetch"}
+                          </Btn>
+                        </div>
+                      )}
+                      {newMode === "improve_existing" && (
+                        <div className="space-y-2">
+                          <div className="flex gap-2">
+                            <Input value={wpQuery} onChange={(e) => setWpQuery(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); searchWpPosts(); } }}
+                              placeholder="Search aston.ae posts by title…" className="flex-1" />
+                            <Btn variant="secondary" onClick={searchWpPosts} disabled={!wpQuery.trim() || wpSearching}>
+                              {wpSearching ? <><Spinner /> Searching…</> : "Search"}
+                            </Btn>
+                          </div>
+                          {wpResults.length > 0 && (
+                            <div className="rounded-xl border border-white/[0.08] divide-y divide-white/[0.06] overflow-hidden">
+                              {wpResults.slice(0, 6).map((p) => (
+                                <button key={p.id} type="button" onClick={() => pickWpPost(p)}
+                                  className="w-full text-left px-3.5 py-2.5 text-sm text-white/70 hover:bg-white/[0.05] hover:text-white transition-colors">
+                                  {p.title}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {wpPicked && <p className="text-[11px] text-emerald-400/80">Loaded: {wpPicked}</p>}
+                        </div>
+                      )}
+                      <textarea value={newSourceText} onChange={(e) => setNewSourceText(e.target.value)}
+                        placeholder={MODES.find((m) => m.id === newMode)!.placeholder} rows={5}
+                        className="block w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-gold/55 focus:outline-none focus:ring-2 focus:ring-gold/15 transition resize-y" />
+                      {fetchState === "error" && <p className="text-[11px] text-red-300">{fetchError}</p>}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-end gap-3">
                     <div>
                       <Label>Priority</Label>
                       <Select value={newPriority} onChange={(e) => setNewPriority(Number(e.target.value))} className="w-32">
@@ -1136,7 +1278,8 @@ export default function AdminPage() {
                         <option value="1440">In 24 hours</option>
                       </Select>
                     </div>
-                    <Btn variant="primary" onClick={addQueueItem} disabled={adding || (!newTopic.trim() && newCustomPrompt.trim().length < 10) || !newAudience.trim()}>
+                    <Btn variant="primary" onClick={addQueueItem}
+                      disabled={adding || (!newTopic.trim() && newCustomPrompt.trim().length < 10) || !newAudience.trim() || (needsSource && !newSourceText.trim())}>
                       {adding ? <><Spinner /> Adding…</> : <>{I.plus} Add to queue</>}
                     </Btn>
                   </div>
