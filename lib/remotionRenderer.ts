@@ -9,7 +9,7 @@ import {
   getRenderProgress,
   type AwsRegion,
 } from "@remotion/lambda-client";
-import { INTRO_FRAMES, OUTRO_FRAMES, type VideoSegment } from "@/src/remotion/VideoComposition";
+import type { VideoSegment } from "@/src/remotion/VideoComposition";
 
 const REGION        = (process.env.REMOTION_AWS_REGION   ?? "us-east-1") as AwsRegion;
 const FUNCTION_NAME =  process.env.REMOTION_FUNCTION_NAME ?? "";
@@ -27,6 +27,14 @@ export interface RenderInput {
 }
 
 const FPS = 30;
+
+// Local copies of the composition's intro/outro lengths (3s + 5s at 30fps).
+// Importing the real INTRO_FRAMES/OUTRO_FRAMES from VideoComposition pulls
+// Remotion's React runtime into the server bundle and breaks `next build`
+// ("Remotion requires React.createContext"), so only the type may be imported
+// from that module. Keep in sync with src/remotion/VideoComposition.tsx.
+const INTRO_FRAMES = 3 * FPS;
+const OUTRO_FRAMES = 5 * FPS;
 
 /**
  * Remotion Lambda refuses to spawn more than 200 functions per render, so a

@@ -195,16 +195,15 @@ async function videoAssetsStep(): Promise<{ logoS3Url: string; musicS3Url: strin
   return prepareStaticAssets(process.env.ASTON_LOGO_URL ?? "", process.env.BACKGROUND_MUSIC_URL ?? "");
 }
 
+// Always voices the 3–4 minute scene script. The full-article read-aloud
+// audio must NOT be reused here: the scenes are a summary, so stretching them
+// across a 20+ minute article narration produced hour-of-scenes videos whose
+// burned-in captions and chapters didn't match the spoken audio at all.
 async function videoAudioStep(
-  segments: TimedVideoSegment[], slug: string, providedAudioUrl: string | null
+  segments: TimedVideoSegment[], slug: string
 ): Promise<{ audioUrl: string; durationSeconds: number }> {
   "use step";
-  const { generateNarrationAsset, rehostProvidedAudioAsset } = await import("@/lib/videoAssets");
-  if (providedAudioUrl) {
-    console.log(`[generateMedia] Re-hosting provided narration for video…`);
-    const totalWords = segments.reduce((s, seg) => s + seg.wordCount, 0);
-    return rehostProvidedAudioAsset(providedAudioUrl, slug, totalWords);
-  }
+  const { generateNarrationAsset } = await import("@/lib/videoAssets");
   console.log(`[generateMedia] Generating video narration…`);
   const script = segments.map((s) => s.narration).join(" ");
   return generateNarrationAsset(script, slug);
@@ -228,17 +227,28 @@ async function videoSubmitRenderStep(params: {
  * audio → submit. Runs in the workflow body (not a step) so each awaited step
  * is checkpointed individually.
  */
-async function submitVideoDurably(input: GenerateMediaInput, reusableAudioUrl: string | null): Promise<VideoSubmission> {
+async function submitVideoDurably(input: GenerateMediaInput): Promise<VideoSubmission> {
   const slug = slugify(input.title);
   const segments = await videoSegmentStep(input);
 
+  // Batches of 3 concurrent image steps (matching the browser route's
+  // concurrency) — cuts ~7 sequential generations to ~3 batch waits while
+  // each image stays its own checkpoint.
+  const IMAGE_CONCURRENCY = 3;
   const imageUrls: string[] = new Array(segments.length).fill(FALLBACK_IMG);
-  for (let i = 0; i < segments.length; i++) {
-    imageUrls[i] = await videoImageStep(segments[i].imagePrompt, segments[i].sectionTitle, slug, i);
+  for (let batch = 0; batch < segments.length; batch += IMAGE_CONCURRENCY) {
+    const indexes = Array.from(
+      { length: Math.min(IMAGE_CONCURRENCY, segments.length - batch) },
+      (_, k) => batch + k
+    );
+    const results = await Promise.all(indexes.map((i) =>
+      videoImageStep(segments[i].imagePrompt, segments[i].sectionTitle, slug, i)
+    ));
+    indexes.forEach((i, k) => { imageUrls[i] = results[k]; });
   }
 
   const { logoS3Url, musicS3Url } = await videoAssetsStep();
-  const audio = await videoAudioStep(segments, slug, reusableAudioUrl);
+  const audio = await videoAudioStep(segments, slug);
 
   return videoSubmitRenderStep({
     segments, imageUrls, audioUrl: audio.audioUrl, audioDurationSeconds: audio.durationSeconds,
@@ -305,9 +315,15 @@ export interface GenerateMediaResult {
   errors: string[];
 }
 
-// Poll the Remotion render every 30s for up to ~20 minutes.
-const VIDEO_POLL_INTERVAL = "30s";
-const VIDEO_POLL_MAX = 40;
+// Poll the Remotion render every 30s. The cap scales with the video's length
+// (a floor of ~20 minutes, plus ~4x realtime for longer videos) so a slow but
+// healthy render isn't abandoned — and its Lambda spend wasted — at a fixed
+// cutoff.
+const VIDEO_POLL_INTERVAL_SECS = 30;
+function videoPollMax(totalDurationSecs: number): number {
+  const budgetSecs = Math.max(1200, Math.round(totalDurationSecs * 4) + 300);
+  return Math.ceil(budgetSecs / VIDEO_POLL_INTERVAL_SECS);
+}
 
 export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<GenerateMediaResult> {
   "use workflow";
@@ -322,7 +338,7 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
 
   await emit({ type: "progress", message: "Starting media generation…" });
 
-  // 1 — Read-aloud audio (also reused as the video narration track)
+  // 1 — Read-aloud audio (blog player only — the video voices its own script)
   if (input.outputs.audio) {
     await emit({ type: "progress", output: "audio", message: "Generating read-aloud audio…" });
     try {
@@ -339,16 +355,17 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
       await emit({ type: "progress", output: "video", message: "Building scenes and submitting the video render…" });
       // Durable pre-render: segment → 7 image steps → assets → audio → submit,
       // each checkpointed so an overrun resumes instead of regenerating.
-      const submission = await submitVideoDurably(input, result.audioUrl);
+      const submission = await submitVideoDurably(input);
       await emit({ type: "progress", output: "video", message: "Rendering video on Remotion Lambda… (this can take a few minutes)" });
+      const pollMax = videoPollMax(submission.totalDurationSecs);
       let videoUrl: string | null = null;
-      for (let i = 0; i < VIDEO_POLL_MAX; i++) {
-        await sleep(VIDEO_POLL_INTERVAL);
+      for (let i = 0; i < pollMax; i++) {
+        await sleep(`${VIDEO_POLL_INTERVAL_SECS}s`);
         const check = await checkRenderStep(submission.renderId, submission.bucketName);
         if (check.status === "done" && check.url) { videoUrl = check.url; break; }
         if (check.status === "error") throw new Error(`render failed: ${check.error ?? "unknown"}`);
       }
-      if (!videoUrl) throw new Error(`render did not finish within ${VIDEO_POLL_MAX} polls`);
+      if (!videoUrl) throw new Error(`render did not finish within ${pollMax} polls (${Math.round(pollMax * VIDEO_POLL_INTERVAL_SECS / 60)} min)`);
       await emit({ type: "progress", output: "video", message: "Uploading the finished video to YouTube…" });
       result.youtubeUrl = await uploadVideoStep(input, videoUrl, submission);
       await emit({ type: "media_done", output: "video", url: result.youtubeUrl });
