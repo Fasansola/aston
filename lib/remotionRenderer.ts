@@ -9,7 +9,7 @@ import {
   getRenderProgress,
   type AwsRegion,
 } from "@remotion/lambda-client";
-import type { VideoSegment } from "@/src/remotion/VideoComposition";
+import { INTRO_FRAMES, OUTRO_FRAMES, type VideoSegment } from "@/src/remotion/VideoComposition";
 
 const REGION        = (process.env.REMOTION_AWS_REGION   ?? "us-east-1") as AwsRegion;
 const FUNCTION_NAME =  process.env.REMOTION_FUNCTION_NAME ?? "";
@@ -24,6 +24,23 @@ export interface RenderInput {
   logoUrl:   string;
   musicUrl?: string;
   outName:   string;
+}
+
+const FPS = 30;
+
+/**
+ * Remotion Lambda refuses to spawn more than 200 functions per render, so a
+ * fixed framesPerLambda breaks on long videos (a ~21-min narration is ~39k
+ * frames → 260 chunks at 150). Mirror Root.tsx's calculateMetadata to know
+ * the frame count up front and grow the chunk size to stay under the cap.
+ * 190 (not 200) leaves margin for rounding drift between this estimate and
+ * the composition's own duration calculation.
+ */
+function framesPerLambdaFor(segments: VideoSegment[]): number {
+  const frameCount =
+    segments.reduce((acc, s) => acc + Math.round(s.durationSeconds * FPS), 0) +
+    INTRO_FRAMES + OUTRO_FRAMES;
+  return Math.max(150, Math.ceil(frameCount / 190));
 }
 
 export async function submitRemotionRender(
@@ -52,7 +69,7 @@ export async function submitRemotionRender(
     privacy:     "public",
     outName:     input.outName,
     downloadBehavior: { type: "play-in-browser" },
-    framesPerLambda: 150,
+    framesPerLambda: framesPerLambdaFor(input.segments),
   });
 
   return { renderId, bucketName };
