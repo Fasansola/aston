@@ -58,6 +58,15 @@ export interface GeneratePostInput {
   language: string;
   customInstruction?: string;
   imageModel: ImageModel;
+  // ── Queue context (scheduled/instant runs only) ─────────────
+  // When set, the workflow owns the queue bookkeeping the cron used to do
+  // inline: item progress/completion/failure, the per-run log entry, and
+  // starting the post-publish media workflow (which now always includes
+  // images). Browser runs omit these and behave exactly as before.
+  queueItemId?: string;
+  runLogId?: string;
+  mediaOutputs?: { audio?: boolean; video?: boolean; podcast?: boolean };
+  podcastLength?: number;
 }
 
 // ── Progress streaming (must happen in a step, not the workflow) ──
@@ -274,7 +283,9 @@ async function publishStep(
 // scheduler) so manual-route posts also appear in the "recent posts" view
 // and can have media added later. Non-fatal — never blocks the workflow.
 async function recordHistoryStep(
-  postId: number, link: string | null, content: BlogContent, needsReview: boolean
+  postId: number, link: string | null, content: BlogContent, needsReview: boolean,
+  source: "manual" | "scheduler" = "manual",
+  mediaOutputs?: { audio?: boolean; video?: boolean; podcast?: boolean }
 ): Promise<void> {
   "use step";
   if (!postId) return;
@@ -287,11 +298,129 @@ async function recordHistoryStep(
       focusKeyword: content.focus_keyword,
       wpEditUrl: `${process.env.WP_URL}/wp-admin/post.php?post=${postId}&action=edit`,
       wpPostUrl: link,
-      source: "manual",
+      source,
       needsReview,
+      ...(mediaOutputs ? { mediaOutputs: {
+        audio: mediaOutputs.audio === true,
+        video: mediaOutputs.video === true,
+        podcast: mediaOutputs.podcast === true,
+      } } : {}),
     });
   } catch (err) {
     console.warn(`[wf] post-history write failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// ── Queue bookkeeping steps (no-ops for browser runs) ─────────
+
+const ITEM_TOTAL_STEPS = 6;
+
+async function itemProgressStep(itemId: string, step: number, label: string): Promise<void> {
+  "use step";
+  try {
+    const { updateQueueItem } = await import("@/lib/storage");
+    await updateQueueItem(itemId, { progress: { step, total: ITEM_TOTAL_STEPS, label, updatedAt: new Date().toISOString() } });
+  } catch (err) {
+    console.warn(`[wf] item progress write failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function completeItemStep(
+  itemId: string, runLogId: string | undefined, postId: number, link: string | null,
+  qaScore: number, qaWarnings: string[]
+): Promise<void> {
+  "use step";
+  const { updateQueueItem, updateRunLog } = await import("@/lib/storage");
+  await updateQueueItem(itemId, {
+    status: "completed",
+    completedAt: new Date().toISOString(),
+    progress: null,
+    wpPostId: postId,
+    wpEditUrl: `${process.env.WP_URL}/wp-admin/post.php?post=${postId}&action=edit`,
+    wpPostUrl: link,
+    qaScore,
+    qaWarnings,
+    lastError: null,
+  });
+  if (runLogId) {
+    await updateRunLog(runLogId, { completedAt: new Date().toISOString(), topicsCompleted: 1, status: "completed" });
+  }
+  console.log(`[wf] queue item ${itemId} completed — WP post ${postId}, QA ${qaScore}/100`);
+}
+
+async function failItemStep(itemId: string, runLogId: string | undefined, topic: string, message: string): Promise<void> {
+  "use step";
+  try {
+    const { getQueueItem, updateQueueItem, updateRunLog } = await import("@/lib/storage");
+    const { notify } = await import("@/lib/notify");
+    const item = await getQueueItem(itemId);
+    await updateQueueItem(itemId, {
+      status: "failed",
+      retryCount: (item?.retryCount ?? 0) + 1,
+      lastError: message,
+      progress: null,
+    });
+    if (runLogId) {
+      await updateRunLog(runLogId, { completedAt: new Date().toISOString(), topicsFailed: 1, status: "failed" });
+    }
+    await notify(
+      `❌ Post generation failed: "${topic}"`,
+      `${message}\n\nRetry from the dashboard queue (Retry now).`
+    );
+  } catch (err) {
+    console.warn(`[wf] fail-item bookkeeping failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// Start the post-publish media workflow (start() must run inside a step).
+// Images ALWAYS generate for queue-driven posts — the cron no longer renders
+// them inline. For a needs-review draft only images run: video would publish
+// the WP post as a side effect, which a draft awaiting review must not do.
+async function startMediaStep(
+  input: GeneratePostInput,
+  published: Awaited<ReturnType<typeof publishStep>>,
+  content: BlogContent,
+  needsReview: boolean
+): Promise<void> {
+  "use step";
+  try {
+    const { start } = await import("workflow/api");
+    const { generateMediaWorkflow } = await import("@/lib/workflows/generateMedia");
+    const outputs = needsReview
+      ? { audio: false, video: false, podcast: false, images: true }
+      : {
+          audio:   input.mediaOutputs?.audio   === true,
+          video:   input.mediaOutputs?.video   === true,
+          podcast: input.mediaOutputs?.podcast === true,
+          images:  true,
+        };
+    const run = await start(generateMediaWorkflow, [{
+      postId: published.postId,
+      title: content.seo_title || input.title,
+      focusKeyword: content.focus_keyword ?? "",
+      secondaryKeywords: content.secondary_keywords ?? [],
+      summary: content.meta_description || content.excerpt || "",
+      blogUrl: published.link,
+      language: input.language || null,
+      content: {
+        main_content:   published.assembled.main_content,
+        more_content_1: published.assembled.more_content_1,
+        more_content_2: content.more_content_2 ?? "",
+        more_content_3: published.assembled.more_content_3,
+        more_content_4: published.assembled.more_content_4,
+        more_content_5: content.more_content_5 ?? "",
+        more_content_6: content.more_content_6 ?? "",
+        final_points:   content.final_points ?? "",
+      },
+      outputs,
+      podcastLength: input.podcastLength ?? 30,
+    }]);
+    console.log(`[wf] media workflow started for post ${published.postId} (run ${run.runId}) — images:true audio:${outputs.audio} video:${outputs.video} podcast:${outputs.podcast}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[wf] could not start media workflow for post ${published.postId} — post has NO images until run from /media: ${msg}`);
+    const { notify } = await import("@/lib/notify");
+    await notify(`⚠️ Media workflow failed to start for post ${published.postId}`, `${msg}\nGenerate images from /media.`);
   }
 }
 
@@ -355,8 +484,9 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
   "use workflow";
 
   try {
-  console.log("[wf] start — hasTopic:", input.hasTopic, "mode:", input.mode, "lang:", input.language);
+  console.log("[wf] start — hasTopic:", input.hasTopic, "mode:", input.mode, "lang:", input.language, "queueItem:", input.queueItemId ?? "none");
   await emit({ type: "progress", message: "Researching and planning…" });
+  if (input.queueItemId) await itemProgressStep(input.queueItemId, 1, "Researching the search landscape…");
 
   // Title / topic
   let title = input.title;
@@ -385,11 +515,13 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
   console.log("[wf] step: strategy");
   const strategy = await strategyStep(input, strategyTopic, research);
   await emit({ type: "progress", message: `Strategy ready — keyword "${strategy.keyword_model.primary_keyword}"` });
+  if (input.queueItemId) await itemProgressStep(input.queueItemId, 2, "Planning the article blueprint…");
   console.log("[wf] step: blueprint");
   const blueprint = await blueprintStep(title, selectedLinks, sourceBrief, strategy, input.customInstruction, input.language);
   console.log("[wf] step: authorityLinks");
   const authorityLinks = await authorityLinksStep(title, strategy);
   await emit({ type: "progress", message: "Writing the article…" });
+  if (input.queueItemId) await itemProgressStep(input.queueItemId, 3, "Writing the article…");
 
   // QA loop
   let prevContent: BlogContent | null = null;
@@ -415,6 +547,7 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
     console.log("[wf] step: imagePrompts attempt", attempt, "regen:", needNewImagePrompts);
     const imagePrompts: ImagePrompts = needNewImagePrompts ? await imagePromptsStep(title, content) : prevImagePrompts!;
     console.log("[wf] step: qa attempt", attempt);
+    if (input.queueItemId) await itemProgressStep(input.queueItemId, 4, attempt === 1 ? "Running quality checks…" : `Quality checks (attempt ${attempt} of ${MAX_QA})…`);
     const { qa, readMins } = await qaStep(content, imagePrompts, title);
     content = { ...content, read_mins: readMins };
     console.log("[wf] qa result — status:", qa.status, "score:", qa.score);
@@ -430,8 +563,14 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
       }
       // EXHAUSTED — save as draft (failed QA should not go live) + notify.
       console.log("[wf] step: publish (qa-exhausted)");
+      if (input.queueItemId) await itemProgressStep(input.queueItemId, 5, "Saving draft to WordPress (needs review)…");
       const published = await publishStep(title, content, imagePrompts, input.language, "draft");
-      await recordHistoryStep(published.postId, published.link, content, true);
+      await recordHistoryStep(published.postId, published.link, content, true,
+        input.queueItemId ? "scheduler" : "manual", input.mediaOutputs);
+      if (input.queueItemId) {
+        await completeItemStep(input.queueItemId, input.runLogId, published.postId, published.link, qa.score, qa.blocking_issues);
+        await startMediaStep(input, published, content, true);
+      }
       await emit(buildDoneEvent({
         published, content, imagePrompts, fileSlug, imageModel: input.imageModel,
         readMins, wordCount: qa.wordCount, language: input.language,
@@ -453,8 +592,14 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
 
     // PASS → publish draft
     console.log("[wf] step: publish (pass)");
+    if (input.queueItemId) await itemProgressStep(input.queueItemId, 5, "Publishing draft to WordPress…");
     const published = await publishStep(title, content, imagePrompts, input.language);
-    await recordHistoryStep(published.postId, published.link, content, false);
+    await recordHistoryStep(published.postId, published.link, content, false,
+      input.queueItemId ? "scheduler" : "manual", input.mediaOutputs);
+    if (input.queueItemId) {
+      await completeItemStep(input.queueItemId, input.runLogId, published.postId, published.link, qa.score, qa.warnings);
+      await startMediaStep(input, published, content, false);
+    }
     await emit(buildDoneEvent({
       published, content, imagePrompts, fileSlug, imageModel: input.imageModel,
       readMins, wordCount: qa.wordCount, language: input.language,
@@ -480,6 +625,9 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
       : (() => { try { return JSON.stringify(err); } catch { return String(err); } })();
     console.error(`[generatePost] Workflow failed — ${errName}: ${errMsg}`, err);
     const message = errMsg || "Generation failed unexpectedly. Please try again.";
+    if (input.queueItemId) {
+      await failItemStep(input.queueItemId, input.runLogId, input.title || input.customInstruction?.slice(0, 60) || "untitled", message);
+    }
     await emit({ type: "error", message });
     await closeStream();
     throw err;

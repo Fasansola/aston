@@ -1,0 +1,44 @@
+# Build gate: main auto-deploys straight to production, so every push must
+# prove it typechecks AND survives a full `next build` — tsc alone has let a
+# build-breaking commit through before (Remotion imports in the server bundle).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The build only needs env vars to EXIST (module-scope `process.env.X!`
+      # reads); real values are never used because no route executes at build
+      # time. Placeholders keep page-data collection from tripping on undefined.
+      - name: Stub env
+        run: |
+          cat > .env <<'EOF'
+          WP_URL=https://example.com
+          WP_USERNAME=ci
+          WP_APP_PASSWORD=ci
+          API_SECRET=ci
+          CRON_SECRET=ci
+          OPENAI_API_KEY=ci
+          GEMINI_API_KEY=ci
+          EOF
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build

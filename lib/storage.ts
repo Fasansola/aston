@@ -306,11 +306,17 @@ export async function recoverStuckProcessingItems(maxRetries = 2): Promise<numbe
 
   for (const item of queue) {
     if (item.status !== "processing") continue;
-    // Prefer the explicit start stamp; fall back to the last progress tick.
-    // A processing item with neither is from before this field existed and is
-    // therefore already stale — recover it.
-    const startedIso = item.processingStartedAt ?? item.progress?.updatedAt ?? null;
-    if (startedIso && now - new Date(startedIso).getTime() < STUCK_PROCESSING_MS) continue;
+    // Use the FRESHEST heartbeat — the durable workflow patches
+    // progress.updatedAt at each pipeline milestone, so a healthy run that
+    // simply outlives STUCK_PROCESSING_MS (QA retries) is not "stuck" as long
+    // as its progress keeps ticking. Judging by processingStartedAt alone
+    // would re-queue such a run and risk a duplicate post. An item with no
+    // timestamp at all predates these fields and is already stale.
+    const stamps = [item.processingStartedAt, item.progress?.updatedAt]
+      .filter((s): s is string => !!s)
+      .map((s) => new Date(s).getTime());
+    const freshest = stamps.length > 0 ? Math.max(...stamps) : 0;
+    if (freshest > 0 && now - freshest < STUCK_PROCESSING_MS) continue;
 
     const nextRetry = (item.retryCount ?? 0) + 1;
     item.status = nextRetry <= maxRetries ? "queued" : "failed";

@@ -2,11 +2,12 @@
   "functions": {
     "app/api/generate/route.ts":      { "maxDuration": 300 },
     "app/api/post-chart/route.ts":    { "maxDuration": 300 },
-    "app/api/cron/route.ts":          { "maxDuration": 800 },
+    "app/api/cron/route.ts":          { "maxDuration": 60 },
     "app/api/cron-publish/route.ts":  { "maxDuration": 60 },
     "app/api/cron-social-tokens/route.ts": { "maxDuration": 60 }
   },
   "crons": [
+    { "path": "/api/cron-watchdog",    "schedule": "*/30 * * * *" },
     { "path": "/api/links/sync-wp",    "schedule": "0 6 * * *"  },
     { "path": "/api/cron",             "schedule": "0 8 * * *"  },
     { "path": "/api/cron-performance", "schedule": "0 3 * * 1"  },

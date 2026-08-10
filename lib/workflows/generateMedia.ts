@@ -149,6 +149,13 @@ async function callSseRoute(
 
 // ── Durable steps ─────────────────────────────────────────────
 
+// Alert on output failure — headless runs have no one watching the stream.
+async function notifyStep(subject: string, body: string): Promise<void> {
+  "use step";
+  const { notify } = await import("@/lib/notify");
+  await notify(subject, body);
+}
+
 async function audioStep(input: GenerateMediaInput): Promise<string> {
   "use step";
   console.log(`[generateMedia] Generating read-aloud audio for post ${input.postId}…`);
@@ -371,6 +378,10 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
     console.error(`[generateMedia] ${msg}`);
     result.errors.push(msg);
     await emit({ type: "media_failed", output: label, message: err instanceof Error ? err.message : String(err) });
+    await notifyStep(
+      `⚠️ ${label} generation failed for post ${input.postId}`,
+      `"${input.title}"\n${err instanceof Error ? err.message : String(err)}\nRetry from /media?postId=${input.postId}.`
+    );
   };
 
   await emit({ type: "progress", message: "Starting media generation…" });

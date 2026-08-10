@@ -1,17 +1,23 @@
 /**
  * app/api/cron/route.ts
  * ─────────────────────────────────────────────────────────────
- * GET /api/cron — invoked by Vercel Cron (see vercel.json)
+ * GET /api/cron            — daily scheduled generation (Vercel Cron)
+ * GET /api/cron?itemId=…   — targeted generation for one due queue item
+ *                            (invoked by the scheduleGeneration workflow)
  *
- * On each run the handler:
- *  1. Checks scheduler is enabled and daily quota not hit
- *  2. Processes up to min(maxPerRun, remaining daily quota) queue items
- *  3. Runs the full blog generation pipeline for each
- *  4. Updates each queue item with result / error
- *  5. Writes a run log entry
+ * This route no longer runs the generation pipeline inline. It only:
+ *  1. Recovers items stuck in "processing" (watchdog)
+ *  2. Picks eligible queue item(s)
+ *  3. STARTS the durable generatePostWorkflow for each and returns
+ *
+ * The workflow owns everything else — pipeline steps (checkpointed and
+ * auto-retried, resumable after a function kill), queue-item progress and
+ * completion/failure bookkeeping, run-log updates, failure notifications,
+ * and starting the post-publish media workflow (which always includes
+ * images). A killed function therefore no longer loses work: the run
+ * resumes from its last completed step instead of restarting from zero.
  *
  * Vercel Cron passes the CRON_SECRET header automatically.
- * Set CRON_SECRET in your Vercel project env vars.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -24,279 +30,87 @@ import {
   addRunLog,
   updateRunLog,
   recoverStuckProcessingItems,
-  addPostHistory,
+  type QueueItem,
 } from "@/lib/storage";
-import { selectLinks } from "@/lib/links";
-import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePrompts, IMAGE_QA_CHECKS } from "@/lib/openai";
-import { createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
-import { runQA } from "@/lib/qa";
-import { enforceApprovedLinks, scrubBrokenExternalLinks } from "@/lib/linkScrubber";
-import { selectAuthorityLinks, mergeWithDiscovered } from "@/lib/authorityLinks";
-import { emptyBrief, processSourceInput, SourceBrief } from "@/lib/source";
-import { generateStrategy, StrategyBrief, StrategyContext } from "@/lib/strategy";
-import { researchTopic, deriveTitle, findExternalAuthorityLinks, ResearchBrief } from "@/lib/research";
 import { start } from "workflow/api";
-import { generateMediaWorkflow } from "@/lib/workflows/generateMedia";
+import { generatePostWorkflow, type GeneratePostInput } from "@/lib/workflows/generatePost";
+import { notify } from "@/lib/notify";
+import type { ImageModel } from "@/lib/openai";
 
-// 800s (Fluid Compute max) — the full pipeline with QA rewrites routinely
-// exceeds 300s; overrunning the limit was killing scheduled generations
-// mid-run and pinning items in "processing". The video/podcast routes already
-// use 800. The stuck-item watchdog covers anything that still overruns.
-export const maxDuration = 800;
+// Starting workflows + Redis bookkeeping only — the heavy pipeline runs in
+// the durable workflow, so this function needs none of its old 800s budget.
+export const maxDuration = 60;
 
 function authOk(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`;
 }
 
-async function processOneItem(
-  itemId: string,
-  topic: string,
-  mode: string,
-  sourceText: string,
-  settings: Awaited<ReturnType<typeof getSettings>>,
-  strategyInputs?: StrategyContext & { customPrompt?: string },
-  // Per-item media selection (chosen at enqueue time). Items without their
-  // own selection fall back to the scheduler-settings defaults. The image
-  // model is not taken here — the media workflow reads it from settings.
-  media?: { outputs?: { audio: boolean; video: boolean; podcast: boolean }; podcastLength?: number }
-) {
-  const customInstruction = strategyInputs?.customPrompt?.trim() || undefined;
-
-  // Persist coarse pipeline progress onto the queue item so the admin can show
-  // step-by-step status for headless (scheduled) generation. Non-fatal — a
-  // failed progress write never interrupts generation.
-  const TOTAL_STEPS = 7;
-  const reportProgress = async (step: number, label: string) => {
-    try {
-      await updateQueueItem(itemId, { progress: { step, total: TOTAL_STEPS, label, updatedAt: new Date().toISOString() } });
-    } catch (err) {
-      console.warn(`[cron:item] progress write failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
-    }
+function buildWorkflowInput(
+  item: QueueItem,
+  imageModel: ImageModel,
+  runLogId: string
+): GeneratePostInput {
+  return {
+    hasTopic: !!item.topic?.trim(),
+    title: item.topic?.trim() ?? "",
+    mode: item.mode,
+    sourceText: item.sourceText ?? "",
+    audience: item.audience ?? "",
+    primary_country: item.primary_country ?? "",
+    secondary_countries: item.secondary_countries ?? "",
+    priority_service: item.priority_service ?? "",
+    language: item.language ?? "",
+    customInstruction: item.customPrompt?.trim() || undefined,
+    imageModel,
+    queueItemId: item.id,
+    runLogId,
+    mediaOutputs: item.mediaOutputs,
+    podcastLength: item.podcastLength,
   };
+}
 
-  // Step 0 — derive title from custom prompt if no topic provided
-  let resolvedTopic = topic.trim();
-  if (!resolvedTopic && customInstruction) {
-    console.log(`[cron:item] No topic — deriving title from custom prompt`);
-    const derived = await deriveTitle(customInstruction, strategyInputs?.primary_country);
-    resolvedTopic = derived.title;
-    console.log(`[cron:item] Derived title: "${resolvedTopic}"`);
-  }
-
-  // Step 1 — SEO research
-  await reportProgress(1, "Researching the search landscape…");
-  let research: ResearchBrief | undefined;
-  try {
-    research = await researchTopic(resolvedTopic, strategyInputs?.primary_country, customInstruction);
-    console.log(`[cron:item] Research ready. Keywords: ${research.dominant_keywords.slice(0, 3).join(", ")}`);
-  } catch (err) {
-    console.warn("[cron:item] Research step failed — continuing without SERP data:", err);
-  }
-
-  // Step 2 — strategy engine
-  await reportProgress(2, "Running 12-step strategy analysis…");
-  console.log(`[cron:item] Running strategy engine for "${resolvedTopic}"`);
-  const strategy: StrategyBrief = await generateStrategy({
-    topic:               resolvedTopic,
-    audience:            strategyInputs?.audience,
-    primary_country:     strategyInputs?.primary_country,
-    secondary_countries: strategyInputs?.secondary_countries,
-    priority_service:    strategyInputs?.priority_service,
-    language:            strategyInputs?.language,
-    customPrompt:        customInstruction,
-    research,
+/** Mark the item processing, write a run log, start the durable workflow. */
+async function launchItem(
+  item: QueueItem,
+  imageModel: ImageModel,
+  label: "targeted" | "daily"
+): Promise<{ ok: true; workflowRunId: string; runLogId: string } | { ok: false; error: string }> {
+  const runLogId = `run_scheduled_${new Date().toISOString().replace(/[:.]/g, "-")}_${item.id.slice(-6)}`;
+  await addRunLog({
+    runId: runLogId,
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+    topicsAttempted: 1,
+    topicsCompleted: 0,
+    topicsFailed: 0,
+    status: "running",
   });
-  console.log(`[cron:item] Strategy ready. Keyword: "${strategy.keyword_model.primary_keyword}", intent: ${strategy.search_intent_type}`);
+  await updateQueueItem(item.id, { status: "processing", processingStartedAt: new Date().toISOString(), progress: null });
 
-  let sourceBrief: SourceBrief;
-  if (mode === "topic_only" || !sourceText?.trim()) {
-    sourceBrief = emptyBrief();
-  } else {
-    sourceBrief = await processSourceInput(mode as Parameters<typeof processSourceInput>[0], resolvedTopic, sourceText);
-  }
-
-  await reportProgress(3, "Planning the article blueprint…");
-  const selectedLinks = await selectLinks(resolvedTopic, strategyInputs?.language);
-  const blueprint = await generateBlueprint(resolvedTopic, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language);
-
-  const jurisdictions = (strategy?.jurisdiction_map ?? []).map((j) => j.jurisdiction);
-  const curatedLinks = selectAuthorityLinks(`${resolvedTopic} ${strategy?.keyword_model.primary_keyword ?? ""}`, jurisdictions);
-  let discoveredLinks: Awaited<ReturnType<typeof findExternalAuthorityLinks>> = [];
   try {
-    discoveredLinks = await findExternalAuthorityLinks(
-      resolvedTopic,
-      strategy?.keyword_model.primary_keyword ?? resolvedTopic,
-      jurisdictions
-    );
-    console.log(`[cron:item] Discovered ${discoveredLinks.length} external authority links`);
+    const run = await start(generatePostWorkflow, [buildWorkflowInput(item, imageModel, runLogId)]);
+    console.log(`[cron:${label}] Item ${item.id} ("${item.topic}") → workflow ${run.runId} (log ${runLogId})`);
+    return { ok: true, workflowRunId: run.runId, runLogId };
   } catch (err) {
-    console.warn("[cron:item] External link discovery failed — using curated list only:", err);
-  }
-  const authorityLinks = mergeWithDiscovered(curatedLinks, discoveredLinks);
-
-  const MAX_ATTEMPTS = 3;
-
-  let prevContent:      BlogContent | null = null;
-  let prevImagePrompts: ImagePrompts | null = null;
-  let prevQAChecks:     Record<string, boolean> | null = null;
-  let prevBrokenUrls:   string[] = [];
-
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    let content: BlogContent;
-    let imagePrompts: ImagePrompts;
-
-    if (attempt === 1) {
-      await reportProgress(4, "Writing the article…");
-      content = await generateBlogContent(resolvedTopic, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, strategyInputs?.language, authorityLinks);
-    } else {
-      await reportProgress(4, `Revising for quality (attempt ${attempt} of ${MAX_ATTEMPTS})…`);
-      const failingFields = Object.entries(prevQAChecks!).filter(([, v]) => !v).map(([k]) => k).join(", ");
-      console.log(`[cron:item] QA retry ${attempt}/${MAX_ATTEMPTS} — fixing: ${failingFields}`);
-      content = await fixBlogContent(resolvedTopic, prevContent!, blueprint, selectedLinks, prevQAChecks!, strategyInputs?.language, prevBrokenUrls.length > 0 ? prevBrokenUrls : undefined, authorityLinks);
-    }
-
-    // ── Pass 1: strip URLs not on an approved domain ─────────────
-    const approvedUrls = authorityLinks.map((l) => l.url);
-    const { content: enforcedContent, removed: unapproved } = enforceApprovedLinks(content, approvedUrls);
-    if (unapproved.length > 0) {
-      console.warn(`[cron:item] Removed ${unapproved.length} unapproved external URL(s): ${unapproved.join(", ")}`);
-    }
-    content = enforcedContent;
-
-    // ── Pass 2: remove genuine 404s only ─────────────────────────
-    const { content: scrubbedContent, removed: brokenUrls } = await scrubBrokenExternalLinks(content);
-    if (brokenUrls.length > 0) {
-      console.warn(`[cron:item] Removed ${brokenUrls.length} 404 external link(s): ${brokenUrls.join(", ")}`);
-    }
-    content = scrubbedContent;
-    prevBrokenUrls = [...unapproved, ...brokenUrls];
-
-    // Image PROMPTS still run inline (one fast LLM call — QA validates them).
-    // The actual image generation + upload moved post-publish into the media
-    // workflow (outputs.images), because slow gpt-image calls inside this
-    // function were pushing runs past the 800s ceiling and killing them.
-    const needNewImagePrompts = attempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevQAChecks![k]);
-    if (needNewImagePrompts) {
-      await reportProgress(5, "Writing image prompts…");
-      imagePrompts = await generateImagePrompts(resolvedTopic, content);
-    } else {
-      imagePrompts = prevImagePrompts!;
-    }
-    const placeholderImageIds = { keypointOneImg: 0, keypointTwoImg: 0, postSplitImg: 0, featuredImg: 0 };
-
-    await reportProgress(6, "Running quality checks…");
-    const qa = runQA(content, imagePrompts, placeholderImageIds, resolvedTopic);
-    console.log(`[cron:item] QA attempt ${attempt}: ${qa.status.toUpperCase()} (score ${qa.score}/100)`);
-
-    prevContent      = content;
-    prevImagePrompts = imagePrompts;
-    prevQAChecks     = qa.checks;
-
-    if (qa.status === "fail") {
-      console.warn(`[cron:item] QA FAIL (attempt ${attempt}/${MAX_ATTEMPTS}) — ${qa.blocking_issues.join("; ")}`);
-      if (attempt < MAX_ATTEMPTS) continue;
-      throw new Error(`QA failed after ${MAX_ATTEMPTS} attempts: ${qa.blocking_issues.join("; ")}`);
-    }
-
-    if (settings.blockOnQaWarning && qa.status === "warn") {
-      throw new Error(`QA warnings blocked publish: ${qa.warnings.join("; ")}`);
-    }
-
-    const assembled = {
-      main_content:   content.main_content.replace("IMGSLOT_MAIN", ""),
-      more_content_1: content.more_content_1.replace("IMGSLOT_ONE", ""),
-      more_content_3: content.more_content_3.replace("IMGSLOT_TWO", ""),
-      more_content_4: content.more_content_4.replace("IMGSLOT_SPLIT", ""),
-    };
-
-    await reportProgress(7, "Publishing draft to WordPress…");
-    const post = await createWordPressPost(content.seo_title || resolvedTopic, content, imagePrompts, assembled, null, strategyInputs?.language);
-
-    await updateQueueItem(itemId, {
-      status: "completed",
-      completedAt: new Date().toISOString(),
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[cron:${label}] Could not start workflow for item ${item.id}: ${msg}`);
+    await updateQueueItem(item.id, {
+      status: "failed",
+      retryCount: (item.retryCount ?? 0) + 1,
+      lastError: `Could not start generation workflow: ${msg}`,
       progress: null,
-      wpPostId: post.id,
-      wpEditUrl: `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
-      wpPostUrl: post.link ?? null,
-      qaScore: qa.score,
-      qaWarnings: qa.warnings,
-      lastError: null,
     });
-
-    // Record in the unified post history (scheduler + manual routes share it).
-    try {
-      await addPostHistory({
-        wpPostId: post.id,
-        title: content.seo_title || resolvedTopic,
-        slug: content.slug,
-        focusKeyword: content.focus_keyword,
-        wpEditUrl: `${process.env.WP_URL}/wp-admin/post.php?post=${post.id}&action=edit`,
-        wpPostUrl: post.link ?? null,
-        source: "scheduler",
-        needsReview: false,
-        mediaOutputs: media?.outputs ?? settings.mediaOutputs,
-      });
-    } catch (histErr) {
-      console.warn(`[cron:item] post-history write failed (non-fatal): ${histErr instanceof Error ? histErr.message : String(histErr)}`);
-    }
-
-    // ── Post-publish media outputs (parity with the manual page) ──
-    // Fire-and-forget: start() enqueues the durable workflow and returns
-    // immediately, so audio/video/podcast generation (up to ~20 min) never
-    // presses on this cron invocation's budget. Failures are logged inside
-    // the workflow and never affect the completed queue item.
-    // Images ALWAYS generate here now (they no longer run inside this
-    // function's 800s budget), alongside whatever media the item selected.
-    const mediaOutputs = media?.outputs ?? settings.mediaOutputs;
-    {
-      try {
-        const run = await start(generateMediaWorkflow, [{
-          postId: post.id,
-          title: content.seo_title || resolvedTopic,
-          focusKeyword: content.focus_keyword ?? "",
-          secondaryKeywords: content.secondary_keywords ?? [],
-          summary: content.meta_description || content.excerpt || "",
-          blogUrl: post.link ?? null,
-          language: strategyInputs?.language || null,
-          content: {
-            main_content:   assembled.main_content,
-            more_content_1: assembled.more_content_1,
-            more_content_2: content.more_content_2,
-            more_content_3: assembled.more_content_3,
-            more_content_4: assembled.more_content_4,
-            more_content_5: content.more_content_5,
-            more_content_6: content.more_content_6,
-            final_points:   content.final_points,
-          },
-          outputs: {
-            audio:   mediaOutputs?.audio   === true,
-            video:   mediaOutputs?.video   === true,
-            podcast: mediaOutputs?.podcast === true,
-            images:  true,
-          },
-          podcastLength: media?.podcastLength ?? settings.podcastLength ?? 30,
-        }]);
-        console.log(`[cron:item] Media workflow started for post ${post.id} (run ${run.runId}) — images:true audio:${mediaOutputs?.audio === true} video:${mediaOutputs?.video === true} podcast:${mediaOutputs?.podcast === true}`);
-      } catch (mediaErr) {
-        console.error(`[cron:item] Could not start media workflow for post ${post.id} — the post has NO images until one is run from /media: ${mediaErr instanceof Error ? mediaErr.message : String(mediaErr)}`);
-      }
-    }
-
-    return { postId: post.id, qaScore: qa.score };
+    await updateRunLog(runLogId, { completedAt: new Date().toISOString(), topicsFailed: 1, status: "failed" });
+    await notify(`❌ Could not start generation for "${item.topic}"`, msg);
+    return { ok: false, error: msg };
   }
-
-  throw new Error("Unexpected state after QA retry loop");
 }
 
 /**
  * Targeted mode — GET /api/cron?itemId=…
- * Invoked by the scheduleGeneration workflow when a time-scheduled queue item
- * becomes due. Runs the exact same pipeline + retries as a daily run, but for
- * ONE item, bypassing the enabled/daily-quota gates: the user scheduled this
- * item explicitly, so it generates even if the daily scheduler is paused.
- * Refuses items that are not "queued" (409) so the daily backstop and this
- * path can never double-generate.
+ * Refuses items that are not "queued" (409) so the daily backstop and the
+ * per-item timers can never double-generate. Returns 202 as soon as the
+ * durable workflow is started; progress lands on the queue item.
  */
 async function processTargetedItem(itemId: string) {
   const item = await getQueueItem(itemId);
@@ -309,44 +123,14 @@ async function processTargetedItem(itemId: string) {
   }
 
   const settings = await getSettings();
-  const runId = `run_scheduled_${new Date().toISOString().replace(/[:.]/g, "-")}`;
-  console.log(`[cron:targeted] Run ${runId} — generating item ${itemId} ("${item.topic}")`);
-  await addRunLog({
-    runId,
-    startedAt: new Date().toISOString(),
-    completedAt: null,
-    topicsAttempted: 1,
-    topicsCompleted: 0,
-    topicsFailed: 0,
-    status: "running",
-  });
-  await updateQueueItem(item.id, { status: "processing", processingStartedAt: new Date().toISOString(), progress: null });
-
-  const MAX_TECH_RETRIES = 3;
-  let lastError = "Unknown error";
-  for (let attempt = 1; attempt <= MAX_TECH_RETRIES; attempt++) {
-    try {
-      const result = await processOneItem(item.id, item.topic, item.mode, item.sourceText, settings, {
-        audience:            item.audience,
-        primary_country:     item.primary_country,
-        secondary_countries: item.secondary_countries,
-        priority_service:    item.priority_service,
-        language:            item.language,
-        customPrompt:        item.customPrompt,
-      },
-      { outputs: item.mediaOutputs, podcastLength: item.podcastLength });
-      await updateRunLog(runId, { completedAt: new Date().toISOString(), topicsCompleted: 1, status: "completed" });
-      console.log(`[cron:targeted] Item ${item.id} completed — WP post ${result.postId}, QA ${result.qaScore}/100`);
-      return NextResponse.json({ runId, itemId: item.id, postId: result.postId, qaScore: result.qaScore });
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : "Unknown error";
-      console.warn(`[cron:targeted] Item ${item.id} attempt ${attempt}/${MAX_TECH_RETRIES} failed: ${lastError}`);
-    }
+  const launched = await launchItem(item, settings.imageModel ?? "gpt-image-2", "targeted");
+  if (!launched.ok) {
+    return NextResponse.json({ error: launched.error, itemId: item.id }, { status: 500 });
   }
-
-  await updateQueueItem(item.id, { status: "failed", retryCount: (item.retryCount ?? 0) + 1, lastError, progress: null });
-  await updateRunLog(runId, { completedAt: new Date().toISOString(), topicsFailed: 1, status: "failed" });
-  return NextResponse.json({ error: lastError, itemId: item.id }, { status: 500 });
+  return NextResponse.json(
+    { started: true, itemId: item.id, workflowRunId: launched.workflowRunId, runId: launched.runLogId },
+    { status: 202 }
+  );
 }
 
 export async function GET(req: NextRequest) {
@@ -355,10 +139,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Watchdog: re-queue any item pinned in "processing" by a previous run that
-  // overran its function limit and was killed mid-pipeline. Runs before both
-  // the targeted and daily paths so a stuck item (including the very item now
-  // being targeted) is recovered and can generate again.
+  // Watchdog: re-queue any item pinned in "processing" by a killed run. Also
+  // runs from /api/cron-watchdog every 30 minutes; kept here as well so a
+  // targeted/daily pass never trips over a stale item.
   try {
     const { maxRetries } = await getSettings();
     const recovered = await recoverStuckProcessingItems(maxRetries ?? 2);
@@ -370,122 +153,42 @@ export async function GET(req: NextRequest) {
   const targetItemId = req.nextUrl.searchParams.get("itemId");
   if (targetItemId) return processTargetedItem(targetItemId);
 
-  const runId = `run_${new Date().toISOString().replace(/[:.]/g, "-")}`;
-  console.log(`[cron] Run ${runId} started`);
-
-  const run = {
-    runId,
-    startedAt: new Date().toISOString(),
-    completedAt: null as string | null,
-    topicsAttempted: 0,
-    topicsCompleted: 0,
-    topicsFailed: 0,
-    status: "running" as const,
-  };
-  await addRunLog(run);
-
+  // ── Daily mode: start workflows for eligible items up to the quota ──
+  console.log("[cron] Daily run started");
   try {
-    // ── 1. Check scheduler settings ──────────────────────
     const settings = await getSettings();
     if (!settings.enabled) {
       console.log("[cron] Scheduler is disabled — skipping");
-      await updateRunLog(runId, { completedAt: new Date().toISOString(), status: "completed" });
       return NextResponse.json({ skipped: true, reason: "scheduler_disabled" });
     }
 
     const doneToday = await completedTodayCount();
     if (doneToday >= settings.blogsPerDay) {
       console.log(`[cron] Daily quota reached (${doneToday}/${settings.blogsPerDay}) — skipping`);
-      await updateRunLog(runId, { completedAt: new Date().toISOString(), status: "completed" });
       return NextResponse.json({ skipped: true, reason: "daily_quota_reached", doneToday });
     }
 
-    // ── 2. Process items up to min(maxPerRun, remaining quota) ──
-    const maxPerRun   = settings.maxPerRun ?? 1;
-    const remaining   = settings.blogsPerDay - doneToday;
-    const limit       = Math.min(maxPerRun, remaining);
+    const limit = Math.min(settings.maxPerRun ?? 1, settings.blogsPerDay - doneToday);
+    console.log(`[cron] Starting up to ${limit} workflow(s) (${doneToday}/${settings.blogsPerDay} done today)`);
 
-    console.log(`[cron] Will process up to ${limit} item(s) this run (${doneToday}/${settings.blogsPerDay} done today)`);
-
+    const started: string[] = [];
+    const failed: string[] = [];
     for (let i = 0; i < limit; i++) {
       const item = await getNextEligibleItem();
       if (!item) {
         console.log("[cron] No more queued items");
         break;
       }
-
-      console.log(`[cron] Processing item ${item.id}: "${item.topic}" (${i + 1}/${limit})`);
-      await updateQueueItem(item.id, { status: "processing", processingStartedAt: new Date().toISOString(), progress: null });
-      run.topicsAttempted++;
-
-      const MAX_TECH_RETRIES = 3;
-      let itemDone = false;
-
-      for (let techAttempt = 1; techAttempt <= MAX_TECH_RETRIES; techAttempt++) {
-        if (techAttempt > 1) {
-          console.log(`[cron] Item ${item.id} — technical retry ${techAttempt}/${MAX_TECH_RETRIES}...`);
-        }
-        try {
-          const result = await processOneItem(item.id, item.topic, item.mode, item.sourceText, settings, {
-            audience:            item.audience,
-            primary_country:     item.primary_country,
-            secondary_countries: item.secondary_countries,
-            priority_service:    item.priority_service,
-            language:            item.language,
-            customPrompt:        item.customPrompt,
-          },
-          { outputs: item.mediaOutputs, podcastLength: item.podcastLength });
-          run.topicsCompleted++;
-          console.log(`[cron] Item ${item.id} completed — WP post ${result.postId}, QA ${result.qaScore}/100`);
-          itemDone = true;
-          break;
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : "Unknown error";
-          if (techAttempt < MAX_TECH_RETRIES) {
-            console.warn(`[cron] Item ${item.id} error (attempt ${techAttempt}/${MAX_TECH_RETRIES}), retrying: ${message}`);
-          } else {
-            console.error(`[cron] Item ${item.id} failed after ${MAX_TECH_RETRIES} attempts: ${message}`);
-            const nextRetry = (item.retryCount ?? 0) + 1;
-            const maxRetries = settings.maxRetries ?? 2;
-            await updateQueueItem(item.id, {
-              status: nextRetry <= maxRetries ? "queued" : "failed",
-              retryCount: nextRetry,
-              lastError: message,
-              progress: null,
-            });
-            run.topicsFailed++;
-          }
-        }
-      }
-
-      if (!itemDone) {
-        // already handled above — just ensures the outer loop variable is used
-      }
+      const launched = await launchItem(item, settings.imageModel ?? "gpt-image-2", "daily");
+      (launched.ok ? started : failed).push(item.id);
     }
 
-    // ── 3. Write final run log ────────────────────────────
-    const finalStatus = run.topicsFailed > 0 ? "completed_with_errors" : "completed";
-    await updateRunLog(runId, {
-      completedAt: new Date().toISOString(),
-      topicsAttempted: run.topicsAttempted,
-      topicsCompleted: run.topicsCompleted,
-      topicsFailed: run.topicsFailed,
-      status: finalStatus,
-    });
-
-    console.log(`[cron] Run ${runId} finished: ${finalStatus} (${run.topicsCompleted} completed, ${run.topicsFailed} failed)`);
-    return NextResponse.json({
-      runId,
-      status: finalStatus,
-      topicsAttempted: run.topicsAttempted,
-      topicsCompleted: run.topicsCompleted,
-      topicsFailed: run.topicsFailed,
-    });
-
+    console.log(`[cron] Daily run finished — ${started.length} workflow(s) started, ${failed.length} failed to start`);
+    return NextResponse.json({ started, failedToStart: failed });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    console.error(`[cron] Run ${runId} crashed: ${message}`);
-    await updateRunLog(runId, { completedAt: new Date().toISOString(), status: "failed" });
+    console.error(`[cron] Daily run crashed: ${message}`);
+    await notify("❌ Daily generation cron crashed", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
