@@ -79,7 +79,7 @@ async function fetchSourceText(postId: number): Promise<{ title: string; text: s
   const ct = res.headers.get("content-type") ?? "";
   if (!ct.includes("application/json")) {
     const body = await res.text();
-    const hint = body.includes("sgcaptcha") ? " (SiteGround anti-bot is blocking Vercel — exclude /wp-json/ in SiteGround Site Tools → Security → Anti-Bot AI Protection)" : "";
+    const hint = body.includes("sgcaptcha") ? " (SiteGround anti-bot is blocking Vercel — ask SiteGround support to exempt /wp-json/ from the Anti-Bot AI; no self-service setting exists)" : "";
     throw new Error(`Could not load post ${postId} — WordPress returned non-JSON (${ct})${hint}`);
   }
   const post = await res.json() as { title?: { rendered?: string }; content?: { rendered?: string }; acf?: Record<string, unknown> };

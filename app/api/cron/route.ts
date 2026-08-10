@@ -27,8 +27,8 @@ import {
   addPostHistory,
 } from "@/lib/storage";
 import { selectLinks } from "@/lib/links";
-import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePrompts, generateImage, IMAGE_QA_CHECKS, type ImageModel } from "@/lib/openai";
-import { uploadImageToWordPress, createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
+import { generateBlueprint, generateBlogContent, fixBlogContent, generateImagePrompts, IMAGE_QA_CHECKS } from "@/lib/openai";
+import { createWordPressPost, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { runQA } from "@/lib/qa";
 import { enforceApprovedLinks, scrubBrokenExternalLinks } from "@/lib/linkScrubber";
 import { selectAuthorityLinks, mergeWithDiscovered } from "@/lib/authorityLinks";
@@ -44,24 +44,6 @@ import { generateMediaWorkflow } from "@/lib/workflows/generateMedia";
 // use 800. The stuck-item watchdog covers anything that still overruns.
 export const maxDuration = 800;
 
-async function generateImageWithRetry(
-  prompt: string,
-  model: ImageModel,
-  label: string,
-  maxAttempts = 2
-): Promise<Buffer> {
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await generateImage(prompt, model);
-    } catch (err) {
-      lastErr = err;
-      console.warn(`[cron:item] Image "${label}" failed (attempt ${attempt}/${maxAttempts}): ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-  throw new Error(`Image "${label}" failed after ${maxAttempts} attempts: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
-}
-
 function authOk(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`;
 }
@@ -73,9 +55,9 @@ async function processOneItem(
   sourceText: string,
   settings: Awaited<ReturnType<typeof getSettings>>,
   strategyInputs?: StrategyContext & { customPrompt?: string },
-  imageModel: ImageModel = "gpt-image-2",
   // Per-item media selection (chosen at enqueue time). Items without their
-  // own selection fall back to the scheduler-settings defaults.
+  // own selection fall back to the scheduler-settings defaults. The image
+  // model is not taken here — the media workflow reads it from settings.
   media?: { outputs?: { audio: boolean; video: boolean; podcast: boolean }; podcastLength?: number }
 ) {
   const customInstruction = strategyInputs?.customPrompt?.trim() || undefined;
@@ -153,19 +135,15 @@ async function processOneItem(
   const authorityLinks = mergeWithDiscovered(curatedLinks, discoveredLinks);
 
   const MAX_ATTEMPTS = 3;
-  const fileSlug = resolvedTopic.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
 
-  type ImageIds = { keypointOneImg: number; keypointTwoImg: number; postSplitImg: number; featuredImg: number };
   let prevContent:      BlogContent | null = null;
   let prevImagePrompts: ImagePrompts | null = null;
-  let prevImageIds:     ImageIds | null = null;
   let prevQAChecks:     Record<string, boolean> | null = null;
   let prevBrokenUrls:   string[] = [];
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let content: BlogContent;
     let imagePrompts: ImagePrompts;
-    let imageIds: ImageIds;
 
     if (attempt === 1) {
       await reportProgress(4, "Writing the article…");
@@ -193,44 +171,25 @@ async function processOneItem(
     content = scrubbedContent;
     prevBrokenUrls = [...unapproved, ...brokenUrls];
 
-    const needNewImages = attempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevQAChecks![k]);
-    if (needNewImages) {
-      await reportProgress(5, "Generating and uploading images…");
+    // Image PROMPTS still run inline (one fast LLM call — QA validates them).
+    // The actual image generation + upload moved post-publish into the media
+    // workflow (outputs.images), because slow gpt-image calls inside this
+    // function were pushing runs past the 800s ceiling and killing them.
+    const needNewImagePrompts = attempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevQAChecks![k]);
+    if (needNewImagePrompts) {
+      await reportProgress(5, "Writing image prompts…");
       imagePrompts = await generateImagePrompts(resolvedTopic, content);
-      const [kp1Buffer, kp2Buffer, splitBuffer, featuredBuffer] = await Promise.all([
-        generateImageWithRetry(imagePrompts.keypoint_one_img_prompt, imageModel, "kp1"),
-        generateImageWithRetry(imagePrompts.keypoint_two_img_prompt, imageModel, "kp2"),
-        generateImageWithRetry(imagePrompts.post_split_img_prompt,   imageModel, "split"),
-        generateImageWithRetry(imagePrompts.featured_img_prompt,     imageModel, "featured"),
-      ]);
-      const uploadResults = await Promise.allSettled([
-        uploadImageToWordPress(kp1Buffer,    `${fileSlug}-kp1.png`,      imagePrompts.keypoint_one_img_alt),
-        uploadImageToWordPress(kp2Buffer,    `${fileSlug}-kp2.png`,      imagePrompts.keypoint_two_img_alt),
-        uploadImageToWordPress(splitBuffer,  `${fileSlug}-split.png`,    imagePrompts.post_split_img_alt),
-        uploadImageToWordPress(featuredBuffer, `${fileSlug}-featured.png`, imagePrompts.featured_img_alt),
-      ]);
-      const uploadLabels = ["kp1", "kp2", "split", "featured"];
-      const uploadErrors = uploadResults
-        .map((r, i) => r.status === "rejected" ? `${uploadLabels[i]}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}` : null)
-        .filter(Boolean);
-      if (uploadErrors.length > 0) throw new Error(`Image upload(s) failed: ${uploadErrors.join("; ")}`);
-      const [kp1Media, kp2Media, splitMedia, featuredMedia] = uploadResults.map(
-        (r) => (r as PromiseFulfilledResult<{ id: number; url: string }>).value
-      );
-      imageIds = { keypointOneImg: kp1Media.id, keypointTwoImg: kp2Media.id, postSplitImg: splitMedia.id, featuredImg: featuredMedia.id };
     } else {
-      console.log(`[cron:item] Reusing images from attempt 1 — no image QA failures`);
       imagePrompts = prevImagePrompts!;
-      imageIds     = prevImageIds!;
     }
+    const placeholderImageIds = { keypointOneImg: 0, keypointTwoImg: 0, postSplitImg: 0, featuredImg: 0 };
 
     await reportProgress(6, "Running quality checks…");
-    const qa = runQA(content, imagePrompts, imageIds, resolvedTopic);
+    const qa = runQA(content, imagePrompts, placeholderImageIds, resolvedTopic);
     console.log(`[cron:item] QA attempt ${attempt}: ${qa.status.toUpperCase()} (score ${qa.score}/100)`);
 
     prevContent      = content;
     prevImagePrompts = imagePrompts;
-    prevImageIds     = imageIds;
     prevQAChecks     = qa.checks;
 
     if (qa.status === "fail") {
@@ -251,7 +210,7 @@ async function processOneItem(
     };
 
     await reportProgress(7, "Publishing draft to WordPress…");
-    const post = await createWordPressPost(content.seo_title || resolvedTopic, content, imagePrompts, assembled, imageIds, strategyInputs?.language);
+    const post = await createWordPressPost(content.seo_title || resolvedTopic, content, imagePrompts, assembled, null, strategyInputs?.language);
 
     await updateQueueItem(itemId, {
       status: "completed",
@@ -287,8 +246,10 @@ async function processOneItem(
     // immediately, so audio/video/podcast generation (up to ~20 min) never
     // presses on this cron invocation's budget. Failures are logged inside
     // the workflow and never affect the completed queue item.
+    // Images ALWAYS generate here now (they no longer run inside this
+    // function's 800s budget), alongside whatever media the item selected.
     const mediaOutputs = media?.outputs ?? settings.mediaOutputs;
-    if (mediaOutputs && (mediaOutputs.audio || mediaOutputs.video || mediaOutputs.podcast)) {
+    {
       try {
         const run = await start(generateMediaWorkflow, [{
           postId: post.id,
@@ -308,12 +269,17 @@ async function processOneItem(
             more_content_6: content.more_content_6,
             final_points:   content.final_points,
           },
-          outputs: { audio: mediaOutputs.audio, video: mediaOutputs.video, podcast: mediaOutputs.podcast },
+          outputs: {
+            audio:   mediaOutputs?.audio   === true,
+            video:   mediaOutputs?.video   === true,
+            podcast: mediaOutputs?.podcast === true,
+            images:  true,
+          },
           podcastLength: media?.podcastLength ?? settings.podcastLength ?? 30,
         }]);
-        console.log(`[cron:item] Media workflow started for post ${post.id} (run ${run.runId}) — audio:${mediaOutputs.audio} video:${mediaOutputs.video} podcast:${mediaOutputs.podcast}`);
+        console.log(`[cron:item] Media workflow started for post ${post.id} (run ${run.runId}) — images:true audio:${mediaOutputs?.audio === true} video:${mediaOutputs?.video === true} podcast:${mediaOutputs?.podcast === true}`);
       } catch (mediaErr) {
-        console.error(`[cron:item] Could not start media workflow for post ${post.id} (non-fatal): ${mediaErr instanceof Error ? mediaErr.message : String(mediaErr)}`);
+        console.error(`[cron:item] Could not start media workflow for post ${post.id} — the post has NO images until one is run from /media: ${mediaErr instanceof Error ? mediaErr.message : String(mediaErr)}`);
       }
     }
 
@@ -367,7 +333,7 @@ async function processTargetedItem(itemId: string) {
         priority_service:    item.priority_service,
         language:            item.language,
         customPrompt:        item.customPrompt,
-      }, settings.imageModel ?? "gpt-image-2",
+      },
       { outputs: item.mediaOutputs, podcastLength: item.podcastLength });
       await updateRunLog(runId, { completedAt: new Date().toISOString(), topicsCompleted: 1, status: "completed" });
       console.log(`[cron:targeted] Item ${item.id} completed — WP post ${result.postId}, QA ${result.qaScore}/100`);
@@ -467,7 +433,7 @@ export async function GET(req: NextRequest) {
             priority_service:    item.priority_service,
             language:            item.language,
             customPrompt:        item.customPrompt,
-          }, settings.imageModel ?? "gpt-image-2",
+          },
           { outputs: item.mediaOutputs, podcastLength: item.podcastLength });
           run.topicsCompleted++;
           console.log(`[cron] Item ${item.id} completed — WP post ${result.postId}, QA ${result.qaScore}/100`);

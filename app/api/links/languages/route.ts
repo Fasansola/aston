@@ -38,13 +38,19 @@ export async function GET() {
       timeout: 10000,
     });
 
-    const raw = res.data as Array<{
+    // SiteGround's anti-bot can serve an HTML captcha page instead of JSON,
+    // in which case res.data is a string — treat any non-array as "no data"
+    // instead of crashing on .filter.
+    const raw = (Array.isArray(res.data) ? res.data : []) as Array<{
       slug?: string;
       locale?: string;
       name?: string;
       is_default?: boolean;
       term_id?: number;
     }>;
+    if (!Array.isArray(res.data)) {
+      console.warn(`[languages] Polylang returned non-array (${typeof res.data}) — likely the SiteGround captcha page; returning empty list`);
+    }
 
     const languages: SiteLanguage[] = raw
       .filter((l) => l.slug)

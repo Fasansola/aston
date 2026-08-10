@@ -64,7 +64,7 @@ export class SiteGroundBlockedError extends Error {
   constructor(label: string) {
     super(
       `${label} skipped — SiteGround anti-bot is persistently blocking this deployment's IP. ` +
-      `Exclude /wp-json/ in SiteGround Site Tools → Security.`
+      `Ask SiteGround support to exempt /wp-json/ (or the AstonBlogTool user-agent) from the Anti-Bot AI — there is no self-service setting for this.`
     );
     this.name = "SiteGroundBlockedError";
   }
@@ -529,7 +529,7 @@ export async function createWordPressPost(
         ? String(rawData).slice(0, 600)
         : JSON.stringify(rawData).slice(0, 600);
     const hint = isSgCaptcha(rawData)
-      ? " (SiteGround anti-bot is blocking Vercel — exclude /wp-json/ in SiteGround Site Tools → Security)"
+      ? " (SiteGround anti-bot is blocking Vercel — ask SiteGround support to exempt /wp-json/ from the Anti-Bot AI; no self-service setting exists)"
       : "";
     throw new Error(
       `WP post creation returned unexpected response (HTTP ${response!.status}, no numeric post id). ` +
