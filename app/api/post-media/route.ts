@@ -95,6 +95,11 @@ async function loadPost(opts: { id?: string | number; url?: string }) {
       video:   !!str(acf.video_url).trim(),
       // best-effort: content already carries a Spotify embed once the podcast synced
       podcast: content.main_content.includes("open.spotify.com/embed"),
+      // A post "has images" when its hero is set or any in-article image is
+      // attached (ACF stores WP attachment IDs; unset serialises as 0/""/null).
+      images:  Number(post.featured_media ?? 0) > 0 ||
+               [acf.keypoint_one_img, acf.keypoint_two_img, acf.post_split_img]
+                 .some((v) => Number(v ?? 0) > 0 || (typeof v === "object" && v !== null)),
     },
   };
 }
@@ -131,13 +136,13 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!authOk(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  let body: { postId?: number; outputs?: { audio?: boolean; video?: boolean; podcast?: boolean }; podcastLength?: number };
+  let body: { postId?: number; outputs?: { audio?: boolean; video?: boolean; podcast?: boolean; images?: boolean }; podcastLength?: number };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid body" }, { status: 400 }); }
 
   const { postId, outputs, podcastLength = 30 } = body;
   if (!postId || typeof postId !== "number") return NextResponse.json({ error: "postId is required" }, { status: 400 });
-  const wanted = { audio: outputs?.audio === true, video: outputs?.video === true, podcast: outputs?.podcast === true };
-  if (!wanted.audio && !wanted.video && !wanted.podcast) {
+  const wanted = { audio: outputs?.audio === true, video: outputs?.video === true, podcast: outputs?.podcast === true, images: outputs?.images === true };
+  if (!wanted.audio && !wanted.video && !wanted.podcast && !wanted.images) {
     return NextResponse.json({ error: "Select at least one media output" }, { status: 400 });
   }
   if (![3, 15, 30, 45, 60].includes(podcastLength)) {

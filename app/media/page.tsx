@@ -4,7 +4,7 @@ import { Suspense, useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import StudioNav from "../components/StudioNav";
 
-type MediaKey = "audio" | "video" | "podcast";
+type MediaKey = "audio" | "video" | "podcast" | "images";
 type OutputState = "idle" | "running" | "done" | "error";
 
 interface PostInfo {
@@ -19,6 +19,7 @@ const MEDIA: { key: MediaKey; label: string; desc: string; icon: string }[] = [
   { key: "audio",   label: "Read-aloud audio", desc: "Kokoro narration MP3, added to the post's audio player", icon: "🔊" },
   { key: "video",   label: "YouTube video",    desc: "Narrated scene-by-scene video, rendered and uploaded to YouTube", icon: "🎬" },
   { key: "podcast", label: "Podcast episode",  desc: "Two-voice conversation, published to the podcast feed", icon: "🎙️" },
+  { key: "images",  label: "Article images",   desc: "Hero + 3 in-article images, generated from the post's content and attached", icon: "🖼️" },
 ];
 
 function MediaWorkspace() {
@@ -28,17 +29,17 @@ function MediaWorkspace() {
 
   const [postIdInput, setPostIdInput] = useState(initialPostId);
   const [post, setPost] = useState<PostInfo | null>(null);
-  const [existing, setExisting] = useState<Record<MediaKey, boolean>>({ audio: false, video: false, podcast: false });
+  const [existing, setExisting] = useState<Record<MediaKey, boolean>>({ audio: false, video: false, podcast: false, images: false });
   const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const [selected, setSelected] = useState<Record<MediaKey, boolean>>({ audio: false, video: false, podcast: false });
+  const [selected, setSelected] = useState<Record<MediaKey, boolean>>({ audio: false, video: false, podcast: false, images: false });
   const [podcastLength, setPodcastLength] = useState(30);
 
   const [running, setRunning] = useState(false);
-  const [outState, setOutState] = useState<Record<MediaKey, OutputState>>({ audio: "idle", video: "idle", podcast: "idle" });
-  const [outMsg, setOutMsg] = useState<Record<MediaKey, string>>({ audio: "", video: "", podcast: "" });
-  const [outUrl, setOutUrl] = useState<Record<MediaKey, string>>({ audio: "", video: "", podcast: "" });
+  const [outState, setOutState] = useState<Record<MediaKey, OutputState>>({ audio: "idle", video: "idle", podcast: "idle", images: "idle" });
+  const [outMsg, setOutMsg] = useState<Record<MediaKey, string>>({ audio: "", video: "", podcast: "", images: "" });
+  const [outUrl, setOutUrl] = useState<Record<MediaKey, string>>({ audio: "", video: "", podcast: "", images: "" });
 
   // Data chart — separate from the media workflow (one LLM call + field PATCH,
   // synchronous). Added for posts whose chart failed during generation.
@@ -59,7 +60,7 @@ function MediaWorkspace() {
       setPost(data.post);
       setExisting(data.existing);
       // Pre-select the media the post does NOT already have.
-      setSelected({ audio: !data.existing.audio, video: !data.existing.video, podcast: !data.existing.podcast });
+      setSelected({ audio: !data.existing.audio, video: !data.existing.video, podcast: !data.existing.podcast, images: !data.existing.images });
       // Chart status is independent of media — load it alongside.
       setChartState("idle"); setChartMsg(""); setChartExists(false);
       const cq = /^\d+$/.test(v) ? `id=${encodeURIComponent(v)}` : `url=${encodeURIComponent(v)}`;
@@ -74,16 +75,16 @@ function MediaWorkspace() {
   // Auto-load when arriving with ?postId=
   useEffect(() => { if (initialPostId) loadPost(initialPostId); }, [initialPostId, loadPost]);
 
-  const anySelected = selected.audio || selected.video || selected.podcast;
+  const anySelected = selected.audio || selected.video || selected.podcast || selected.images;
 
   const generate = async () => {
     if (!post || !anySelected || running) return;
     setRunning(true);
-    const initial: Record<MediaKey, OutputState> = { audio: "idle", video: "idle", podcast: "idle" };
+    const initial: Record<MediaKey, OutputState> = { audio: "idle", video: "idle", podcast: "idle", images: "idle" };
     (Object.keys(selected) as MediaKey[]).forEach((k) => { if (selected[k]) initial[k] = "running"; });
     setOutState(initial);
-    setOutMsg({ audio: "", video: "", podcast: "" });
-    setOutUrl({ audio: "", video: "", podcast: "" });
+    setOutMsg({ audio: "", video: "", podcast: "", images: "" });
+    setOutUrl({ audio: "", video: "", podcast: "", images: "" });
 
     try {
       const startRes = await fetch("/api/post-media", {
@@ -286,7 +287,7 @@ function MediaWorkspace() {
             </div>
           )}
 
-          {!running && (outState.audio === "done" || outState.video === "done" || outState.podcast === "done") && (
+          {!running && (outState.audio === "done" || outState.video === "done" || outState.podcast === "done" || outState.images === "done") && (
             <p className="text-center text-sm text-emerald-300 rise-in">Done. Media has been attached to the post.</p>
           )}
 

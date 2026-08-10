@@ -72,7 +72,9 @@ export interface GenerateMediaInput {
   blogUrl: string | null;
   language: string | null;
   content: MediaContentFields;
-  outputs: { audio: boolean; video: boolean; podcast: boolean };
+  // `images` is optional: only the /media page requests it (posts whose image
+  // phase failed) — scheduled posts generate images in their own pipeline.
+  outputs: { audio: boolean; video: boolean; podcast: boolean; images?: boolean };
   podcastLength: number;      // minutes: 3 | 15 | 30 | 45 | 60
 }
 
@@ -292,6 +294,41 @@ async function uploadVideoStep(input: GenerateMediaInput, videoUrl: string, subm
   return youtubeUrl;
 }
 
+// Regenerate the four article images (kp1, kp2, split, featured) for an
+// existing post: derive fresh prompts from the post's own content, then drive
+// the production /api/generate-images route (generation + WP upload + attach).
+async function imagesStep(input: GenerateMediaInput): Promise<void> {
+  "use step";
+  console.log(`[generateMedia] Generating article images for post ${input.postId}…`);
+  const { generateImagePrompts } = await import("@/lib/openai");
+  const { getSettings } = await import("@/lib/storage");
+
+  const c = input.content;
+  const promptContent = {
+    focus_keyword:      input.focusKeyword || input.title,
+    secondary_keywords: input.secondaryKeywords,
+    main_content:       c.main_content,
+    more_content_1:     c.more_content_1,
+    more_content_2:     c.more_content_2,
+    more_content_3:     c.more_content_3,
+    more_content_4:     c.more_content_4,
+    more_content_5:     c.more_content_5,
+    more_content_6:     c.more_content_6,
+    final_points:       c.final_points,
+  } as unknown as Parameters<typeof generateImagePrompts>[1];
+
+  const imagePrompts = await generateImagePrompts(input.title, promptContent);
+  const settings = await getSettings();
+
+  const event = await callSseRoute("/api/generate-images", {
+    postId:      input.postId,
+    fileSlug:    slugify(input.title),
+    imageModel:  settings.imageModel ?? "gpt-image-2",
+    imagePrompts,
+  }, ["done"], "images");
+  console.log(`[generateMedia] Images attached for post ${input.postId}: ${JSON.stringify(event.imageIds ?? {})}`);
+}
+
 async function podcastStep(input: GenerateMediaInput): Promise<string> {
   "use step";
   console.log(`[generateMedia] Generating ${input.podcastLength}-minute podcast for post ${input.postId}…`);
@@ -346,6 +383,17 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
       await emit({ type: "media_done", output: "audio", url: result.audioUrl });
     } catch (err) {
       await fail("audio", err);
+    }
+  }
+
+  // 1b — Article images (kp1, kp2, split, featured) for posts missing them
+  if (input.outputs.images === true) {
+    await emit({ type: "progress", output: "images", message: "Writing image prompts and generating 4 article images…" });
+    try {
+      await imagesStep(input);
+      await emit({ type: "media_done", output: "images", url: input.blogUrl ?? "" });
+    } catch (err) {
+      await fail("images", err);
     }
   }
 
