@@ -20,6 +20,11 @@ jobs:
           node-version: 22
           cache: npm
 
+      # The lockfile is maintained by npm 11 locally; the runner's bundled
+      # npm 10 resolves some transitive deps differently and rejects it as
+      # out-of-sync (@swc/helpers, chokidar). Pin the same npm major.
+      - run: npm i -g npm@11
+
       - run: npm ci
 
       # The build only needs env vars to EXIST (module-scope `process.env.X!`
