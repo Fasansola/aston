@@ -17,7 +17,7 @@
 
 import OpenAI from "openai";
 import { PRIMARY_MODEL, classifyLlmError, errorMessage } from "./llm";
-import { WP_API_BASE, WP_API_VIA_RELAY } from "./wpApi";
+import { WP_API_BASE, WP_API_VIA_RELAY, WP_USER_AGENT } from "./wpApi";
 import { isSgCaptcha } from "./wordpress";
 import { getSettings, kset, type UsageTotals } from "./storage";
 import { getMonthlyUsage, monthlyTokenBudget, formatTokens, monthKey } from "./usage";
@@ -49,7 +49,7 @@ export interface HealthReport {
   wpApiViaRelay: boolean;
 }
 
-const UA = "AstonBlogTool/1.0 (Vercel; +https://aston.ae)";
+const UA = WP_USER_AGENT;
 
 /** A real (tiny) completion — model listing succeeds even with zero credits, a completion does not. */
 export async function checkOpenAI(timeoutMs = 30_000): Promise<HealthCheck> {

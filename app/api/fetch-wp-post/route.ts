@@ -11,13 +11,13 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import axios from "axios";
-import { WP_API_BASE } from "@/lib/wpApi";
+import { WP_API_BASE, WP_USER_AGENT } from "@/lib/wpApi";
 
 const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
 const WP_USERNAME = process.env.WP_USERNAME!;
 const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD!;
 
-const AUTH = { auth: { username: WP_USERNAME, password: WP_APP_PASSWORD } };
+const AUTH = { auth: { username: WP_USERNAME, password: WP_APP_PASSWORD }, headers: { "User-Agent": WP_USER_AGENT } };
 
 function authOk(req: NextRequest): boolean {
   return req.cookies.get("__aston_session")?.value === process.env.API_SECRET;

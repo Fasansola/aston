@@ -27,7 +27,7 @@
 
 import { NextResponse } from "next/server";
 import { getShowEpisodes, spotifyEpisodeUrl } from "@/lib/spotify";
-import { WP_API_BASE } from "@/lib/wpApi";
+import { WP_API_BASE, WP_USER_AGENT } from "@/lib/wpApi";
 
 export const maxDuration = 60;
 
@@ -73,7 +73,7 @@ async function handler() {
   try {
     const res = await fetch(
       `${WP_URL}/wp-json/wp/v2/${CPT_BASE}?per_page=100&orderby=date&order=desc`,
-      { headers: { Authorization: `Basic ${WP_AUTH}` }, signal: AbortSignal.timeout(20_000) }
+      { headers: { Authorization: `Basic ${WP_AUTH}`, "User-Agent": WP_USER_AGENT }, signal: AbortSignal.timeout(20_000) }
     );
     if (res.ok) {
       cptPosts = (await res.json()) as WpCptPost[];
@@ -117,7 +117,7 @@ async function handler() {
     try {
       const postRes = await fetch(
         `${WP_URL}/wp-json/wp/v2/posts/${sourcePostId}?_fields=id,acf`,
-        { headers: { Authorization: `Basic ${WP_AUTH}` }, signal: AbortSignal.timeout(10_000) }
+        { headers: { Authorization: `Basic ${WP_AUTH}`, "User-Agent": WP_USER_AGENT }, signal: AbortSignal.timeout(10_000) }
       );
       if (!postRes.ok) {
         skipped.push({ cptId: cpt.id, title: cptTitle, reason: `blog post ${sourcePostId} not found (${postRes.status})` });
@@ -145,7 +145,7 @@ async function handler() {
     try {
       await fetch(`${WP_URL}/wp-json/wp/v2/posts/${sourcePostId}`, {
         method: "POST",
-        headers: { Authorization: `Basic ${WP_AUTH}`, "Content-Type": "application/json" },
+        headers: { Authorization: `Basic ${WP_AUTH}`, "Content-Type": "application/json", "User-Agent": WP_USER_AGENT },
         body: JSON.stringify({
           acf: {
             spotify_embed_url: embedUrl,

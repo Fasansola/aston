@@ -20,7 +20,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { deleteYouTubeVideo } from "@/lib/video";
-import { WP_API_BASE } from "@/lib/wpApi";
+import { WP_API_BASE, WP_USER_AGENT } from "@/lib/wpApi";
 
 const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
 const WP_USERNAME = process.env.WP_USERNAME!;
@@ -28,6 +28,7 @@ const WP_APP_PASS = process.env.WP_APP_PASSWORD!;
 const WP_AUTH     = Buffer.from(`${WP_USERNAME}:${WP_APP_PASS}`).toString("base64");
 const WP_HEADERS  = {
   Authorization:  `Basic ${WP_AUTH}`,
+  "User-Agent":   WP_USER_AGENT,
   "Content-Type": "application/json",
 };
 

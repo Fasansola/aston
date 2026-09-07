@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { WP_API_BASE } from "@/lib/wpApi";
+import { WP_API_BASE, WP_USER_AGENT } from "@/lib/wpApi";
 
 export const maxDuration = 300;
 
@@ -27,6 +27,7 @@ const WP_APP_PASS = process.env.WP_APP_PASSWORD!;
 const WP_AUTH     = Buffer.from(`${WP_USERNAME}:${WP_APP_PASS}`).toString("base64");
 const WP_HEADERS  = {
   Authorization:  `Basic ${WP_AUTH}`,
+  "User-Agent":   WP_USER_AGENT,
   "Content-Type": "application/json",
 };
 

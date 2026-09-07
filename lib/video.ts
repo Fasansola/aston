@@ -21,7 +21,7 @@ import { google } from "googleapis";
 import { Readable } from "stream";
 import axios from "axios";
 import { axiosWithSgRetry } from "./wordpress";
-import { WP_API_BASE } from "./wpApi";
+import { WP_API_BASE, WP_USER_AGENT } from "./wpApi";
 import { chatWithRetry, MEDIA_MODEL } from "./llm";
 
 const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
@@ -32,6 +32,7 @@ const WP_AUTH = Buffer.from(`${WP_USERNAME}:${WP_APP_PASSWORD}`).toString("base6
 const BASE_HEADERS = {
   Authorization: `Basic ${WP_AUTH}`,
   "Content-Type": "application/json",
+  "User-Agent": WP_USER_AGENT,
 };
 
 // ── 1. Prompt generation ──────────────────────────────────────────────────────
