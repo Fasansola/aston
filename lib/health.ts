@@ -16,7 +16,7 @@
  */
 
 import OpenAI from "openai";
-import { PRIMARY_MODEL, classifyLlmError, errorMessage } from "./llm";
+import { PRIMARY_MODEL, FALLBACK_MODEL, classifyLlmError, errorMessage } from "./llm";
 import { WP_API_BASE, WP_API_VIA_RELAY, WP_USER_AGENT } from "./wpApi";
 import { isSgCaptcha } from "./wordpress";
 import { getSettings, kset, type UsageTotals } from "./storage";
@@ -57,16 +57,34 @@ export async function checkOpenAI(timeoutMs = 30_000): Promise<HealthCheck> {
     return { status: "fail", message: "OPENAI_API_KEY is not set", hint: "Add it in Vercel → Settings → Environment Variables.", blocking: true };
   }
   const t0 = Date.now();
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const ping = (model: string) => openai.chat.completions.create(
+    { model, messages: [{ role: "user", content: "Reply with OK." }], max_completion_tokens: 32 },
+    { signal: AbortSignal.timeout(timeoutMs) }
+  );
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    await openai.chat.completions.create(
-      { model: PRIMARY_MODEL, messages: [{ role: "user", content: "Reply with OK." }], max_completion_tokens: 32 },
-      { signal: AbortSignal.timeout(timeoutMs) }
-    );
+    await ping(PRIMARY_MODEL);
     return { status: "ok", message: `${PRIMARY_MODEL} responded`, ms: Date.now() - t0 };
   } catch (err) {
-    const ms = Date.now() - t0;
     const fatal = classifyLlmError(err);
+    if (fatal?.kind === "model" && FALLBACK_MODEL !== PRIMARY_MODEL) {
+      // Same degradation chatWithRetry applies: the run works on the fallback,
+      // so this is a warning for the operator, not a blocker.
+      try {
+        await ping(FALLBACK_MODEL);
+        return {
+          status: "warn",
+          message: `${PRIMARY_MODEL} is not available on this account; generation is using ${FALLBACK_MODEL} instead`,
+          hint: `Set OPENAI_MODEL in Vercel → Settings → Environment Variables to a model the account can use, or enable ${PRIMARY_MODEL} at platform.openai.com, then redeploy.`,
+          ms: Date.now() - t0,
+        };
+      } catch (fallbackErr) {
+        const fatal2 = classifyLlmError(fallbackErr);
+        if (fatal2) return { status: "fail", message: `${fatal.message} Fallback ${FALLBACK_MODEL} also failed: ${fatal2.message}`, blocking: true, ms: Date.now() - t0 };
+        return { status: "warn", message: `${PRIMARY_MODEL} unavailable and the ${FALLBACK_MODEL} ping failed (transient?): ${errorMessage(fallbackErr).slice(0, 160)}`, ms: Date.now() - t0 };
+      }
+    }
+    const ms = Date.now() - t0;
     if (fatal) {
       return { status: "fail", message: fatal.message, blocking: true, ms };
     }

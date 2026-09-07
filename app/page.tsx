@@ -106,7 +106,11 @@ interface PostHistoryEntry {
   wpEditUrl: string; wpPostUrl: string | null;
   source: "scheduler" | "manual"; needsReview?: boolean; createdAt: string;
   mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
+  imageConcepts?: Partial<Record<"featured" | "keypoint_one" | "post_split" | "keypoint_two", string>>;
 }
+const IMAGE_SLOT_ORDER: Array<["featured" | "keypoint_one" | "post_split" | "keypoint_two", string]> = [
+  ["featured", "Hero"], ["keypoint_one", "Keypoint 1"], ["post_split", "Split"], ["keypoint_two", "Keypoint 2"],
+];
 
 // ── Status maps ────────────────────────────────────────────────
 
@@ -1628,6 +1632,16 @@ export default function AdminPage() {
                               <span className="text-white/25"> · media at generation: {[h.mediaOutputs.audio && "audio", h.mediaOutputs.video && "video", h.mediaOutputs.podcast && "podcast"].filter(Boolean).join(", ")}</span>
                             )}
                           </p>
+                          {h.imageConcepts && (
+                            <details className="mt-1">
+                              <summary className="text-[11px] text-white/35 cursor-pointer hover:text-white/55 select-none">🖼️ What the four images show</summary>
+                              <ul className="mt-1 space-y-0.5 text-[11px] text-white/45 leading-relaxed">
+                                {IMAGE_SLOT_ORDER.map(([slot, label]) => h.imageConcepts?.[slot] ? (
+                                  <li key={slot}><span className="text-white/30">{label}:</span> {h.imageConcepts[slot]}</li>
+                                ) : null)}
+                              </ul>
+                            </details>
+                          )}
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
                           <a href={h.wpEditUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-white/45 hover:text-white/70 hover:underline">Edit in WP</a>

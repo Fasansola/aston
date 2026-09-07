@@ -13,8 +13,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { applyAutoFixes } from "@/lib/readinessValidator";
 import OpenAI from "openai";
+import { chatWithRetry } from "@/lib/llm";
 
-// 300s: the AI rewrite is a full-article pass on gpt-5.5 (up to 32k tokens);
+// 300s: the AI rewrite is a full-article pass on the primary model (up to 32k tokens);
 // 120s was tuned for the gpt-4o era and now times the function out.
 export const maxDuration = 300;
 
@@ -111,14 +112,14 @@ Return the complete fixed HTML. No markdown, no code fences, no explanation — 
 ARTICLE HTML:
 ${html}`;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.5",
+    // PRIMARY_MODEL with the shared fallback/classification (plain text, not JSON).
+    const response = await chatWithRetry(openai, {
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: prompt },
       ],
       max_completion_tokens: 32000,
-    });
+    }, { label: "autofix", timeoutMs: 280_000, json: false });
 
     const raw = response.choices[0]?.message?.content?.trim() ?? "";
     if (raw) {

@@ -8,11 +8,19 @@ Production: `app.aston.ae` (Vercel project `aston`). Pushing to `main` deploys s
 
 1. **Queue** — add a topic on the dashboard (`/`), optionally with an exact generation time, audience, jurisdictions, language and media outputs.
 2. **Dispatch** — the daily cron (`/api/cron`, 08:00 UTC) or a per-item timer (`scheduleGeneration` workflow) runs a **pre-flight check** (OpenAI credits, storage, token budget) and starts the durable `generatePost` workflow.
-3. **Pipeline** (each stage is a checkpointed Workflow step, resumable after a function kill): research → strategy brief → title engine + blueprint → authority links → article → link scrubbing → image prompts → QA (up to 3 passes, targeted fixes) → WordPress draft.
+3. **Pipeline** (each stage is a checkpointed Workflow step, resumable after a function kill): research → strategy brief → title engine + blueprint → authority links → article → link scrubbing → image briefs (one per image slot, anchored to the text beside it) → QA (up to 3 passes, targeted fixes) → WordPress draft.
 4. **Media** — the `generateMedia` workflow adds article images, and any requested audio / video / podcast, after the draft exists.
 5. **Go live** — approved drafts are scheduled in the publish queue and cross-posted to social targets.
 
 Failures are recorded on the queue item in plain English with a next action, in the run log, and (once configured) sent as an alert.
+
+## Article images
+
+Each post carries four generated pictures, and the page template fixes where they sit: the **hero** under the title, **keypoint 1** beside the first pull-out sentence after the introduction, the **split** image after the Aston VIP section and its closing quote (just before the FAQ), and **keypoint 2** beside the second pull-out sentence between the FAQ and the final points. `lib/imageBrief.ts` turns the finished article into one brief per slot: the exact sentence or quote beside the picture, what the reader has just read, and what comes next. `generateImagePrompts` (`lib/openai.ts`) then asks the model, as an art director, for a concept per slot (the specific idea from that text), a different visual approach for each of the four (place, human moment, object detail, concept made physical, process made physical), and a 45 to 80 word photographic brief.
+
+Hard limits on the set: at most one office interior, no "binders on a desk in front of a skyline window", at most one two-people-at-a-table scene, legible in-scene text in at most one image, never overlaid text, logos, flags or coins. `assessPromptDiversity` checks the draft for those patterns and for two prompts that describe the same picture; a flagged draft is sent back to the model once with the reasons. The four concepts of the last twelve posts are kept in Redis (`aston:image_concepts`) and passed to the next article as "already used", so consecutive posts on the same theme stop converging on one photograph.
+
+The scheduled pipeline renders the briefs the generation run wrote (they are passed into the media workflow with the article), so the pictures match the alt text the article was checked with. The Recent posts tab shows "What the four images show" for every post. To re-image an existing post, open Add media for it and tick Article images: the briefs are rebuilt from the post's own text, including its pull-out sentences and quotes.
 
 ## Crons (vercel.json)
 
@@ -61,6 +69,8 @@ Reliability and cost (all optional):
 | `OPENAI_PRICING` | JSON price table, USD per 1M tokens, e.g. `{"gpt-5.5":{"input":1.25,"output":10},"gpt-4o":{"input":2.5,"output":10}}`. Enables cost estimates per run and per month. Prices change, so they live here rather than in code. |
 | `OPENAI_MONTHLY_TOKEN_BUDGET` | Total tokens per calendar month. Past it, pre-flight blocks new generations until the next month or a higher budget. |
 | `MEDIA_LLM_MODEL` | Model for the media pipeline copy (video/HeyGen scripts, YouTube SEO, podcast dialogue). Default `gpt-4o` for latency; set `gpt-5.5` to use the reasoning model there too (temperature is stripped automatically). |
+| `OPENAI_MODEL` | Primary chat model for the article pipeline. Default `gpt-6-astra` (requested 2026-09-07). If the account cannot use it, the first call gets a 404, every call for the next ten minutes goes straight to `OPENAI_FALLBACK_MODEL`, and the status card's OpenAI light turns amber with the reason. A wrong model name therefore degrades a run, never fails it. |
+| `OPENAI_FALLBACK_MODEL` | Model used when the primary is unavailable or fails twice on transient errors. Default `gpt-5.5`, the last model proven on this account (`gpt-5.3` does not exist here). |
 | `WP_API_URL` | Base URL for WordPress REST calls when they must go through a fixed-IP relay. Public links keep using `WP_URL`. See *SiteGround anti-bot*. |
 
 Media and social: ElevenLabs, HeyGen, Remotion/AWS, YouTube, Spotify, Meta, LinkedIn, TikTok, S3 and podcast feed settings. The `/social/connect` page lists what each platform needs.

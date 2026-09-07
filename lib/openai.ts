@@ -8,8 +8,8 @@
  *            targets, angles, FAQ questions) — no prose written yet
  *  Step 2 — generateBlogContent(): full article written strictly to the
  *            blueprint — consistent layout, correct word counts
- *  Step 3 — generateImagePrompts(): 4 DALL·E prompts derived from the
- *            actual written content, not the title alone
+ *  Step 3 — generateImagePrompts(): 4 image briefs, each anchored to the
+ *            text that sits beside that image on the page (lib/imageBrief.ts)
  */
 
 import OpenAI from "openai";
@@ -23,6 +23,10 @@ import { AuthorityLink, formatAuthorityLinksForPrompt } from "./authorityLinks";
 import { selectOptimalTitle } from "./titleEngine";
 import { chatWithRetry, assertCompleted, extractJson, recordUsage } from "./llm";
 import { IMAGE_QA_CHECKS } from "./qaChecks";
+import {
+  IMAGE_SLOTS, buildImageBriefs, formatImageBriefs, articleOutline, formatRecentConcepts,
+  assessPromptDiversity, type ImageSlot, type ImageBriefContent, type RecentImageConcept,
+} from "./imageBrief";
 
 // ── Model configuration ───────────────────────────────────────
 // Model constants and the retry/fallback/JSON helpers live in lib/llm.ts,
@@ -1084,106 +1088,200 @@ ${linksBlock}`;
 
 // ── Step 3: Generate content-aware image prompts ──────────────
 
+const IMAGE_SYSTEM_PROMPT = `You are the art director for Aston VIP (aston.ae), an international corporate advisory firm headquartered in London and Dubai that advises founders, investors, family offices and regulated financial businesses on company formation, regulatory licensing, corporate banking and cross-border tax structuring.
+
+You brief a photographer (an image model) for the pictures that sit inside long-form advisory articles. The house look is premium, credible, real-world editorial photography of the kind found in the Financial Times Weekend, Monocle or Bloomberg Businessweek: real places, real materials, natural or motivated light, restrained colour, unhurried composition. Never stock-photo clichés, never 3D renders or fantasy, never infographics, never text layered over the picture.
+
+Your job for each article is to choose FOUR clearly different pictures, each anchored in the exact text it sits beside on the page, and to write a precise photographic brief for each. A reader should be able to tell from the picture alone which part of the article they are in.`;
+
+interface ImagePromptDraft {
+  slot: ImageSlot;
+  concept: string;
+  approach: string;
+  setting: string;
+  prompt: string;
+  alt: string;
+}
+
+const SLOT_LABEL: Record<ImageSlot, string> = {
+  featured: "Hero (featured)", keypoint_one: "Keypoint 1", post_split: "Split", keypoint_two: "Keypoint 2",
+};
+
+function parseImagePromptDraft(raw: string, label: string): Record<ImageSlot, ImagePromptDraft> {
+  const parsed = extractJson<{ images?: Array<Partial<ImagePromptDraft>> }>(raw, label);
+  const list = Array.isArray(parsed.images) ? parsed.images : [];
+  const out = {} as Record<ImageSlot, ImagePromptDraft>;
+  for (const slot of IMAGE_SLOTS) {
+    const d = list.find((x) => x?.slot === slot);
+    const prompt = d?.prompt?.trim() ?? "";
+    const alt = d?.alt?.trim() ?? "";
+    if (!d || prompt.length < 30 || !alt) {
+      throw new Error(`${label}: model response is missing a usable "${slot}" image (prompt ${prompt.length} chars, alt ${alt ? "present" : "missing"})`);
+    }
+    out[slot] = {
+      slot,
+      concept: d.concept?.trim() ?? "",
+      approach: d.approach?.trim() ?? "",
+      setting: d.setting?.trim() ?? "",
+      prompt,
+      alt: alt.replace(/[."]/g, "").trim(),
+    };
+  }
+  return out;
+}
+
+function toImagePrompts(d: Record<ImageSlot, ImagePromptDraft>): ImagePrompts {
+  return {
+    keypoint_one_img_prompt:  d.keypoint_one.prompt,
+    keypoint_one_img_alt:     d.keypoint_one.alt,
+    keypoint_one_img_concept: d.keypoint_one.concept,
+    keypoint_two_img_prompt:  d.keypoint_two.prompt,
+    keypoint_two_img_alt:     d.keypoint_two.alt,
+    keypoint_two_img_concept: d.keypoint_two.concept,
+    post_split_img_prompt:    d.post_split.prompt,
+    post_split_img_alt:       d.post_split.alt,
+    post_split_img_concept:   d.post_split.concept,
+    featured_img_prompt:      d.featured.prompt,
+    featured_img_alt:         d.featured.alt,
+    featured_img_concept:     d.featured.concept,
+  };
+}
+
+export interface ImagePromptOptions {
+  /** Pictures briefed for earlier posts; fetched from storage when omitted. */
+  recentConcepts?: RecentImageConcept[];
+  /** Store this article's four concepts so later posts avoid them (default true). */
+  remember?: boolean;
+}
+
 /**
- * Write 4 DALL·E prompts from the actual written content.
- * Called after generateBlogContent() so each prompt references the real
- * section topic, not just the article title.
+ * Brief the four article images from the finished article.
+ *
+ * Each picture is anchored to the text that sits beside it on the page (the
+ * pull-out sentence, the closing quote, the key takeaways) and to the
+ * sections before and after it — see lib/imageBrief.ts for the page map.
+ * The model must give the four pictures four different visual approaches,
+ * and a diversity check (assessPromptDiversity) sends the draft back once
+ * when two prompts are the same picture or the set leans on the office /
+ * binders-on-a-desk / two-men-at-a-table recipe. Concepts from previous
+ * posts are passed in as "already used" so consecutive articles on the same
+ * theme do not converge on the same photograph.
  */
 export async function generateImagePrompts(
   title: string,
-  content: BlogContent
+  content: ImageBriefContent,
+  opts: ImagePromptOptions = {}
 ): Promise<ImagePrompts> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-  const strip = (html: string, len = 400) =>
-    html.slice(0, len).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  const briefs  = buildImageBriefs(title, content);
+  const outline = articleOutline(content);
+  const focus   = content.focus_keyword?.trim() || title;
+  const related = (content.secondary_keywords ?? []).filter(Boolean).join(", ");
 
-  const keywords = [content.focus_keyword, ...(content.secondary_keywords ?? [])].join(", ");
+  let recent: RecentImageConcept[] = opts.recentConcepts ?? [];
+  if (!opts.recentConcepts) {
+    try {
+      const { getRecentImageConcepts } = await import("./storage");
+      recent = await getRecentImageConcepts();
+    } catch (err) {
+      console.warn(`[imagePrompts] could not load recent image concepts (continuing without): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
-  const userPrompt = `You are creating 4 distinct, topic-specific image prompts for a blog post.
+  const userPrompt = `ARTICLE: "${title}"
+Focus keyword: "${focus}"${related ? `\nRelated terms: ${related}` : ""}
+Section headings in page order: ${outline.length ? outline.join(" / ") : "(none found)"}
 
-ARTICLE TITLE: "${title}"
-FOCUS KEYWORD: "${content.focus_keyword}"
-KEY TOPICS: ${keywords}
+THE FOUR IMAGE SLOTS AND THE TEXT AROUND EACH ONE
+The page template fixes where each image appears. Read the text beside each slot and brief a picture for THAT text, not for the topic in general.
 
-SECTION CONTENT (use these to determine what each image should show):
+${formatImageBriefs(briefs)}
+${recent.length ? `
+PICTURES ALREADY USED ON THE SITE RECENTLY (do not repeat these settings or subjects, and do not fall back to a generic version of them):
+${formatRecentConcepts(recent)}
+` : ""}
+HOW TO BRIEF EACH PICTURE
+1. Concept first. In one sentence, name the specific idea from the text beside the slot that the picture makes visible: a step in a process, a decision, a consequence, a place, a threshold, a document that matters, a person doing the thing described. "ADGM licensing" is a topic, not a concept; "the moment a founder's business model is tested against the FSRA perimeter before anything is incorporated" is a concept.
+2. Choose a visual approach. The four pictures must use FOUR DIFFERENT approaches from this list, one each, in whichever order suits the text:
+   A. Place: a real, identifiable location the text refers to, seen from street level, the water, the air or a doorway (the Al Maryah Island promenade, the DIFC Gate walkway, a free-zone registry hall, a Cypriot harbour town, a Frankfurt bank tower at dusk, a Dubai customs yard, a London chambers doorway).
+   B. Human moment: a person or people doing what the text describes, candid and mid-task, documentary style: a founder at a service counter, a compliance officer at a screen, a courier with a sealed envelope, a signature being witnessed, a family reviewing a plan at a kitchen table, an auditor counting stock. Faces are fine; posed smiles to camera are not.
+   C. Object or detail: one telling object, close and tactile: a stamped certificate, an embossed seal, a hardware wallet, a card reader, a bank security token, a passport page, a bound ledger, a keycard, a customs tag, a fibre cable in a data hall.
+   D. Concept made physical: a clean visual metaphor for the idea, staged in a real environment: a corridor that forks for a choice, stacked glass floors for a holding structure, a row of gates for a perimeter test, a balance for a threshold, a bridge between two districts for cross-border flows.
+   E. Process made physical: the steps or numbers in the text laid out as real things: a timeline pinned along a wall, cards arranged in sequence on a table, an architectural model, a whiteboard mid-session. Drawn shapes are fine; legible words are not required.
+3. Vary the craft across the set: different settings (indoor and outdoor, city and room and object), different times of day and light, different camera distances (at least one wide, one medium, one close), different dominant materials and colour accents. The brand feel comes from craft, not from repeating one look.
+4. Hard limits for the set: at most ONE picture set in an office, boardroom or meeting room. NONE showing binders, folders or documents on a desk in front of a window with a skyline. At most ONE showing two people at a table. At most ONE with legible in-scene text (a real sign, a document title, a nameplate); the others must contain no readable text at all. Never text overlays, captions, title cards, watermarks, logos, flags, coins or currency symbols. No real people's likenesses.
+5. Write the prompt: 45 to 80 words, British English. Concrete nouns. One clear subject, its environment, the light, the camera distance and lens, the mood, ending with "photorealistic editorial photograph". State the text rule explicitly in every prompt: "no readable text anywhere in the frame", or, for the one permitted image, exactly what the in-scene text says.
 
-IMAGE 1 — keypoint_one (illustrates the article introduction):
-"${strip(content.main_content)}"
-
-IMAGE 2 — keypoint_two (illustrates the mid-article insight):
-"${strip(content.more_content_3)}"
-
-IMAGE 3 — post_split (illustrates the Aston VIP advisory/process section):
-"${strip(content.more_content_4)}"
-
-IMAGE 4 — featured hero (represents the full article topic — this must be the most specific and striking image, directly visualising "${content.focus_keyword}")
-
-TOPIC-TO-SCENE GUIDE — use this to pick the right setting for each image:
-- DIFC / DFSA → DIFC Gate building exterior, glass towers, financial district walkway
-- ADGM / Abu Dhabi → Al Maryah Island skyline, ADGM square glass towers, waterfront
-- VARA / crypto / virtual assets → clean minimalist tech office, abstract digital network nodes, server room with cool blue lighting — NO coins or currency symbols
-- UAE mainland / trade license → modern Dubai business district, government service centre, document signing
-- Tax / corporate tax / VAT → financial documents spread on a desk, calculator, structured corporate paperwork
-- Banking / EMI / payment license → modern private bank interior, vault corridor, payment terminal close-up
-- Company formation / incorporation → corporate seal, certificate of incorporation on a desk, handshake in a modern lobby
-- Offshore / Seychelles / BVI → tropical island aerial with clean blue water, corporate office contrast with island backdrop
-- Cyprus / EU jurisdiction → Limassol or Nicosia modern skyline, Mediterranean light, EU-style corporate building
-- Germany / Frankfurt / EU → Frankfurt banking district skyline, Commerzbank Tower area, glass and steel architecture
-- Holding company / structuring → layered corporate org chart visualised as glass building floors, abstract structure
-- Family office / wealth management → private members club library, quiet panelled boardroom, leather and brass, discreet luxury
-- Trust / foundation / succession → solicitor's chambers, bound legal volumes, fountain pen on parchment, heritage architecture
-- Nominee / corporate governance → empty executive boardroom, single high-backed chair at a polished table, formal and discreet
-- Pension / retirement structuring → calm wealth advisory lounge, long horizon view through tall windows, considered and unhurried
-- Startups / founders → bright co-working space, whiteboard, young professionals collaborating
-- Golden Visa / residency → luxury Dubai apartment view, residence document, passport on a desk
-- Residency by investment / citizenship → refined airport private terminal, elegant luggage, departures hall with warm light
-- General / mixed → neutral modern international office, floor-to-ceiling windows, city view below
-
-RULES FOR EVERY PROMPT:
-- Each image must visualise a DIFFERENT aspect of the topic — no two prompts should describe the same scene
-- Featured image must show the most striking, instantly recognisable visual for "${content.focus_keyword}"
-- Apply Aston VIP visual style: high-end corporate editorial photography, bright and airy interiors, natural daylight through floor-to-ceiling windows or soft warm studio lighting, neutral whites/warm greys/muted golds, never oversaturated — think Architectural Digest meets Bloomberg editorial
-- Let the architectural setting or object carry the topic — do not add people unless the scene requires a human interaction (e.g. document signing, consultation). When people are included they must be dressed in formal business attire and shown from behind or side-on — no faces
-- TEXT IS ALLOWED ONLY WHEN IT IS A NATURAL, REAL PART OF THE SCENE — the way text genuinely exists in the physical world: a name on a building or office signboard, a title on a book spine or a report cover lying on a desk, a heading on a printed document, a brass nameplate or plaque, a wayfinding/directory sign. Such in-scene text should be accurate and relevant to the article (e.g. a regulator or jurisdiction name on a building, a document titled with the topic), spelled correctly, and look physically embedded in the scene with correct perspective and lighting.
-- NEVER add text as a graphic overlay sitting ON TOP of the image — no caption band, title card, lower-third, subtitle, headline strip, watermark or floating logo layered over the composition. If text cannot exist naturally inside the scene, leave it out. Also avoid: fake logos, flags, currency symbols, coins.
-- End every prompt with: "shot on Canon EOS R5, 85mm f/1.4 lens, shallow depth of field, soft natural light or warm studio lighting, ultra-sharp focus on subject, professional corporate editorial photography, cinematic warm-neutral colour grade, any text only as natural in-scene signage, no graphic text overlay, no caption banner, no watermark"
-- 2–3 sentences per prompt. Structure each prompt as: (1) the specific scene and subject in detail, including any natural in-scene signage, book, document or nameplate text, (2) lighting quality, atmosphere, and mood, (3) the camera and style suffix above
-
-Return as a single valid JSON object. No markdown, no code fences:
-
+Return ONE valid JSON object and nothing else (no markdown, no code fences):
 {
-  "keypoint_one_img_prompt": "string",
-  "keypoint_one_img_alt": "string",
-  "keypoint_two_img_prompt": "string",
-  "keypoint_two_img_alt": "string",
-  "post_split_img_prompt": "string",
-  "post_split_img_alt": "string",
-  "featured_img_prompt": "string",
-  "featured_img_alt": "string"
+  "images": [
+    { "slot": "featured", "concept": "one sentence", "approach": "A", "setting": "3 to 6 word label of the location and subject", "prompt": "the brief", "alt": "SEO alt text" },
+    { "slot": "keypoint_one", "concept": "...", "approach": "...", "setting": "...", "prompt": "...", "alt": "..." },
+    { "slot": "post_split", "concept": "...", "approach": "...", "setting": "...", "prompt": "...", "alt": "..." },
+    { "slot": "keypoint_two", "concept": "...", "approach": "...", "setting": "...", "prompt": "...", "alt": "..." }
+  ]
 }
 
-Alt text rules (SEO-optimised — all must be met):
-1. Alt text is NOT a description of the image — it is a short SEO phrase about the article topic and focus keyword. Write it as a search-engine-friendly label, not a visual caption.
-2. At least 2 of the 4 alt texts MUST include the exact focus keyword "${content.focus_keyword}"; the other 2 should use a close natural variation of it — this keeps the primary SEO signal strong without forcing identical phrasing across all four
-3. Each alt text should also weave in a different secondary or related keyword from the article topic (jurisdiction, service type, regulator name, etc.) to build topical relevance and keep the four distinct
-4. 8–12 words per alt text — concise, keyword-rich, reads like a natural phrase a user might search
-5. All 4 alt texts must be distinct — vary the keyword combinations and phrasing across the four images so they cover different aspects of the topic
-6. No full stops, no quotes, no HTML
-7. Never start with "image of", "photo of", or "picture of" — start directly with the keyword phrase
-8. Examples of good alt text: "UAE trade license setup for mainland company formation", "DIFC financial services license requirements for fund managers", "Dubai crypto license VARA regulatory framework guide"
-9. Examples of bad alt text: "glass office tower at sunset", "businesspeople shaking hands in lobby", "documents on a desk with calculator"`;
+ALT TEXT RULES (SEO, all mandatory):
+1. Alt text is not a description of the picture. It is a short search phrase about the article topic and focus keyword.
+2. At least 2 of the 4 alt texts must contain the exact focus keyword "${focus}"; the other 2 use a close natural variation of it.
+3. Each alt text also works in a different secondary or related term (jurisdiction, service, regulator) so the four stay distinct.
+4. 8 to 12 words each, no full stops, no quotes, no HTML, and never starting with "image of", "photo of" or "picture of".`;
 
-  // 120s, not 60s: gpt-5.5 reasoning is slower than the gpt-4o this was tuned for.
-  const response = await chatWithRetry(openai, {
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-  }, { label: "imagePrompts", timeoutMs: 120_000 });
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: IMAGE_SYSTEM_PROMPT },
+    { role: "user", content: userPrompt },
+  ];
 
-  const raw = assertCompleted(response, "imagePrompts");
-  return extractJson<ImagePrompts>(raw, "imagePrompts");
+  // 120s: gpt-5.5 reasons before it answers, and this is a four-part creative brief.
+  const first = await chatWithRetry(openai, { messages }, { label: "imagePrompts", timeoutMs: 120_000 });
+  const firstRaw = assertCompleted(first, "imagePrompts");
+  let draft  = parseImagePromptDraft(firstRaw, "imagePrompts");
+  const labels = IMAGE_SLOTS.map((s) => SLOT_LABEL[s]);
+  let report = assessPromptDiversity(IMAGE_SLOTS.map((s) => draft[s].prompt), labels);
+
+  if (!report.ok) {
+    console.warn(`[imagePrompts] draft flagged, asking for a revision: ${report.issues.join(" | ")}`);
+    const revision = await chatWithRetry(openai, {
+      messages: [
+        ...messages,
+        { role: "assistant", content: firstRaw },
+        { role: "user", content: `Revise the set. An automated check found these problems:\n- ${report.issues.join("\n- ")}\n\nKeep every picture anchored to the text beside its slot, change only what is needed to fix the problems above (different subject, setting or approach for the flagged images), and return the complete JSON object again with all four images.` },
+      ],
+    }, { label: "imagePrompts:revise", timeoutMs: 120_000 });
+    try {
+      const revised = parseImagePromptDraft(assertCompleted(revision, "imagePrompts:revise"), "imagePrompts:revise");
+      const again = assessPromptDiversity(IMAGE_SLOTS.map((s) => revised[s].prompt), labels);
+      if (again.issues.length <= report.issues.length) {
+        draft = revised;
+        report = again;
+      }
+    } catch (err) {
+      console.warn(`[imagePrompts] revision unusable, keeping the first draft: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (!report.ok) console.warn(`[imagePrompts] still flagged after revision (publishing anyway): ${report.issues.join(" | ")}`);
+  }
+
+  for (const slot of IMAGE_SLOTS) {
+    console.log(`[imagePrompts] ${SLOT_LABEL[slot]} (${draft[slot].approach || "?"}) ${draft[slot].setting || ""} — ${draft[slot].concept}`);
+  }
+
+  if (opts.remember !== false) {
+    try {
+      const { rememberImageConcepts } = await import("./storage");
+      const at = new Date().toISOString();
+      await rememberImageConcepts(IMAGE_SLOTS.map((slot) => ({
+        post: title, slot, at,
+        concept: draft[slot].concept || draft[slot].prompt.slice(0, 120),
+        setting: draft[slot].setting || draft[slot].approach || "unlabelled",
+      })));
+    } catch (err) {
+      console.warn(`[imagePrompts] could not store image concepts (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return toImagePrompts(draft);
 }
 
 // ── Step 2b: Fix only the fields that failed QA ───────────────

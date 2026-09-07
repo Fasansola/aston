@@ -12,6 +12,7 @@
  */
 
 import { GenerationMode } from "./source";
+import type { ImageSlot, RecentImageConcept } from "./imageBrief";
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -218,6 +219,7 @@ const KEYS = {
   topics:       "aston:topics",
   publishQueue: "aston:publish_queue",
   postHistory:  "aston:post_history",
+  imageConcepts: "aston:image_concepts",
 } as const;
 
 const DEFAULT_SETTINGS: SchedulerSettings = {
@@ -572,6 +574,9 @@ export interface PostHistoryEntry {
   // What media was requested at generation time (scheduler only). Purely
   // informational — the history's "Add media" link works regardless.
   mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
+  // What each of the four article images was briefed to show, so the
+  // dashboard can explain a picture without opening WordPress.
+  imageConcepts?: Partial<Record<ImageSlot, string>>;
 }
 
 const POST_HISTORY_LIMIT = 20;
@@ -594,6 +599,37 @@ export async function addPostHistory(
   };
   const next = [record, ...withoutDup].slice(0, POST_HISTORY_LIMIT);
   return kset(KEYS.postHistory, next);
+}
+
+/** Patch one history row by WordPress post id. Returns false when the post is not in history. */
+export async function updatePostHistory(
+  wpPostId: number,
+  patch: Partial<Pick<PostHistoryEntry, "imageConcepts" | "needsReview" | "wpPostUrl">>
+): Promise<boolean> {
+  const all = await kget<PostHistoryEntry[]>(KEYS.postHistory, []);
+  const idx = all.findIndex((e) => e.wpPostId === wpPostId);
+  if (idx < 0) return false;
+  all[idx] = { ...all[idx], ...patch };
+  await kset(KEYS.postHistory, all);
+  return true;
+}
+
+// ── Image concept memory ──────────────────────────────────────
+// The last dozen articles' image briefs (four per article). generateImagePrompts
+// passes them to the model as "already used on the site" so consecutive posts
+// on the same theme stop converging on the same photograph.
+
+const IMAGE_CONCEPT_LIMIT = 48;
+
+export async function getRecentImageConcepts(): Promise<RecentImageConcept[]> {
+  const list = await kget<RecentImageConcept[]>(KEYS.imageConcepts, []);
+  return Array.isArray(list) ? list : [];
+}
+
+export async function rememberImageConcepts(entries: RecentImageConcept[]): Promise<void> {
+  if (!entries.length) return;
+  const all = await getRecentImageConcepts();
+  await kset(KEYS.imageConcepts, [...entries, ...all].slice(0, IMAGE_CONCEPT_LIMIT));
 }
 
 export async function updateRunLog(

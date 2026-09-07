@@ -81,6 +81,12 @@ async function loadPost(opts: { id?: string | number; url?: string }) {
     more_content_5: str(acf.more_content_5),
     more_content_6: str(acf.more_content_6),
     final_points:   str(acf.Final_Points),
+    // Text that sits beside each article image — feeds the image briefs.
+    keypoint_one:   str(acf.Keypoint_One),
+    keypoint_two:   str(acf.Keypoint_Two),
+    quote_1:        str(acf.quote_1),
+    quote_2:        str(acf.quote_2),
+    key_takeaways:  str(acf.Key_takeaways),
   };
 
   return {

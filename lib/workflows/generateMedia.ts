@@ -27,6 +27,7 @@
 
 import { sleep, getWritable, FatalError } from "workflow";
 import { isNonRetryableMessage, humaniseError } from "@/lib/errors";
+import type { ImagePrompts } from "@/lib/wordpress";
 // Type-only imports (erased at compile time) — the concrete modules pull in
 // Node built-ins (ffmpeg-static, child_process, fs…) which the workflow bundle
 // forbids, so the actual functions are dynamically imported INSIDE each step,
@@ -62,6 +63,14 @@ export interface MediaContentFields {
   more_content_5: string;
   more_content_6: string;
   final_points:   string;
+  // The text that sits beside each article image on the page (pull-out
+  // sentences, closing quote, key takeaways). Optional: older callers omit
+  // them and the image briefs fall back to the surrounding sections.
+  keypoint_one?:  string;
+  keypoint_two?:  string;
+  quote_1?:       string;
+  quote_2?:       string;
+  key_takeaways?: string;
 }
 
 export interface GenerateMediaInput {
@@ -77,6 +86,11 @@ export interface GenerateMediaInput {
   // phase failed) — scheduled posts generate images in their own pipeline.
   outputs: { audio: boolean; video: boolean; podcast: boolean; images?: boolean };
   podcastLength: number;      // minutes: 3 | 15 | 30 | 45 | 60
+  // Image briefs already written (and QA'd) by the generation run. When
+  // present, imagesStep renders exactly these instead of briefing again, so
+  // the pictures match the alt text the article was checked with and the
+  // concepts recorded in history are the ones on the page.
+  imagePrompts?: ImagePrompts;
 }
 
 // ── HTTP plumbing ─────────────────────────────────────────────
@@ -311,38 +325,59 @@ async function uploadVideoStep(input: GenerateMediaInput, videoUrl: string, subm
   return youtubeUrl;
 }
 
-// Regenerate the four article images (kp1, kp2, split, featured) for an
-// existing post: derive fresh prompts from the post's own content, then drive
-// the production /api/generate-images route (generation + WP upload + attach).
+// Generate the four article images (kp1, kp2, split, featured) for a post and
+// drive the production /api/generate-images route (generation + WP upload +
+// attach). Uses the briefs the generation run already wrote when they were
+// passed in; otherwise (Add media page) briefs afresh from the post's own
+// text, including the pull-out sentences and quote that sit beside each image.
 async function imagesStep(input: GenerateMediaInput): Promise<void> {
   "use step";
   console.log(`[generateMedia] Generating article images for post ${input.postId}…`);
-  const { generateImagePrompts } = await import("@/lib/openai");
-  const { getSettings } = await import("@/lib/storage");
+  const { getSettings, updatePostHistory } = await import("@/lib/storage");
+  const { conceptsFromPrompts } = await import("@/lib/imageBrief");
 
-  const c = input.content;
-  const promptContent = {
-    focus_keyword:      input.focusKeyword || input.title,
-    secondary_keywords: input.secondaryKeywords,
-    main_content:       c.main_content,
-    more_content_1:     c.more_content_1,
-    more_content_2:     c.more_content_2,
-    more_content_3:     c.more_content_3,
-    more_content_4:     c.more_content_4,
-    more_content_5:     c.more_content_5,
-    more_content_6:     c.more_content_6,
-    final_points:       c.final_points,
-  } as unknown as Parameters<typeof generateImagePrompts>[1];
-
-  const { withUsageContext } = await import("@/lib/usage");
-  const { isNonRetryableLlmError } = await import("@/lib/llm");
-  let imagePrompts: Awaited<ReturnType<typeof generateImagePrompts>>;
-  try {
-    imagePrompts = await withUsageContext({ step: "media:imagePrompts" }, () => generateImagePrompts(input.title, promptContent));
-  } catch (err) {
-    if (isNonRetryableLlmError(err)) throw new FatalError(err.message);
-    throw err;
+  let imagePrompts: ImagePrompts;
+  if (input.imagePrompts?.featured_img_prompt) {
+    imagePrompts = input.imagePrompts;
+    console.log(`[generateMedia] Using the ${Object.keys(imagePrompts).length}-field image brief from the generation run`);
+  } else {
+    const { generateImagePrompts } = await import("@/lib/openai");
+    const { withUsageContext } = await import("@/lib/usage");
+    const { isNonRetryableLlmError } = await import("@/lib/llm");
+    const c = input.content;
+    try {
+      imagePrompts = await withUsageContext({ step: "media:imagePrompts" }, () => generateImagePrompts(input.title, {
+        focus_keyword:      input.focusKeyword || input.title,
+        secondary_keywords: input.secondaryKeywords,
+        key_takeaways:      c.key_takeaways,
+        main_content:       c.main_content,
+        keypoint_one:       c.keypoint_one,
+        more_content_1:     c.more_content_1,
+        more_content_2:     c.more_content_2,
+        quote_1:            c.quote_1,
+        more_content_3:     c.more_content_3,
+        keypoint_two:       c.keypoint_two,
+        more_content_4:     c.more_content_4,
+        quote_2:            c.quote_2,
+        more_content_5:     c.more_content_5,
+        more_content_6:     c.more_content_6,
+        final_points:       c.final_points,
+      }));
+    } catch (err) {
+      if (isNonRetryableLlmError(err)) throw new FatalError(err.message);
+      throw err;
+    }
   }
+
+  // Record what each picture was briefed to show on the Recent posts row.
+  // Best-effort: the post may not be in history (older posts, manual URLs).
+  try {
+    const imageConcepts = conceptsFromPrompts(imagePrompts);
+    if (imageConcepts) await updatePostHistory(input.postId, { imageConcepts });
+  } catch (err) {
+    console.warn(`[generateMedia] could not record image concepts for post ${input.postId}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   const settings = await getSettings();
 
   const event = await callSseRoute("/api/generate-images", {

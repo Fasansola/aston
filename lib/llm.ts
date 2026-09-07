@@ -27,19 +27,48 @@
 
 import OpenAI from "openai";
 
-export const PRIMARY_MODEL = "gpt-5.5";
-// gpt-5.3 returns 404 on this account; gpt-5.5 is the only ≥5.3 model available,
-// so the fallback retries the same model on transient errors (not a downgrade).
-export const FALLBACK_MODEL = "gpt-5.5";
+// Primary chat model for the article pipeline. gpt-6-astra was requested on
+// 2026-09-07; override without a deploy with OPENAI_MODEL in Vercel.
+export const PRIMARY_MODEL = process.env.OPENAI_MODEL?.trim() || "gpt-6-astra";
+// Fallback: the last model proven to work on this account (gpt-5.3 404'd).
+// If the primary is not enabled for the account, chatWithRetry notices the
+// 404 on the first call, switches to this model for the next ten minutes and
+// the status card shows a warning — a wrong model name degrades to a working
+// run, never to a failed one. Override with OPENAI_FALLBACK_MODEL.
+export const FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL?.trim() || "gpt-5.5";
 // Media pipeline copy (video/HeyGen scripts, YouTube SEO, podcast dialogue).
 // gpt-4o by default for latency (those routes have tight budgets); switch the
 // whole media line to a reasoning model with MEDIA_LLM_MODEL=gpt-5.5 — the
 // helper strips temperature for gpt-5.x automatically.
 export const MEDIA_MODEL = process.env.MEDIA_LLM_MODEL?.trim() || "gpt-4o";
 
-/** gpt-5.x / o-series reject custom temperature and top_p. */
+/** gpt-5.x and later / o-series reject custom temperature and top_p. */
 export function isReasoningModel(model: string): boolean {
-  return /^(gpt-5|o[1-9])/i.test(model.trim());
+  return /^(gpt-[5-9]|o[1-9])/i.test(model.trim());
+}
+
+// ── Model availability memo ───────────────────────────────────
+// A model that returned 404 (not enabled for this account, or a typo in
+// OPENAI_MODEL) is remembered per process for a short while so every call in
+// a run does not pay for the same doomed request before falling back.
+
+const MODEL_UNAVAILABLE_TTL_MS = 10 * 60_000;
+const unavailableUntil = new Map<string, number>();
+
+export function markModelUnavailable(model: string, now = Date.now()): void {
+  unavailableUntil.set(model, now + MODEL_UNAVAILABLE_TTL_MS);
+}
+
+export function isModelUnavailable(model: string, now = Date.now()): boolean {
+  const until = unavailableUntil.get(model);
+  if (until === undefined) return false;
+  if (until <= now) { unavailableUntil.delete(model); return false; }
+  return true;
+}
+
+/** Test hook. */
+export function resetModelAvailability(): void {
+  unavailableUntil.clear();
 }
 
 // ── Non-retryable error classification ───────────────────────
@@ -243,25 +272,39 @@ export async function chatWithRetry(
   };
 
   let lastErr: unknown;
-  try {
-    return await attempt(primaryModel, timeoutMs);
-  } catch (primaryErr) {
-    const fatal = classifyLlmError(primaryErr);
-    if (fatal) {
-      console.error(`[llm] ${label}: non-retryable ${fatal.kind} error — ${fatal.message}`);
-      throw fatal;
-    }
-    lastErr = primaryErr;
-    const wait = retryAfterMs(primaryErr);
-    if (wait !== null) {
-      console.warn(`[llm] ${label}: ${primaryModel} rate-limited/5xx (${errMsg(primaryErr)}) — waiting ${Math.round(wait / 1000)}s before retrying`);
-      await sleep(wait);
-      try {
-        return await attempt(primaryModel, timeoutMs);
-      } catch (retryErr) {
-        const fatalRetry = classifyLlmError(retryErr);
-        if (fatalRetry) throw fatalRetry;
-        lastErr = retryErr;
+  const canFallBack = fallbackModel !== primaryModel;
+  if (canFallBack && isModelUnavailable(primaryModel)) {
+    console.warn(`[llm] ${label}: ${primaryModel} was reported unavailable recently — using ${fallbackModel} directly`);
+    lastErr = new Error(`${primaryModel} unavailable (memoised)`);
+  } else {
+    try {
+      return await attempt(primaryModel, timeoutMs);
+    } catch (primaryErr) {
+      const fatal = classifyLlmError(primaryErr);
+      if (fatal && fatal.kind === "model" && canFallBack) {
+        // Not enabled for this account (or a typo in OPENAI_MODEL): degrade to
+        // the proven model rather than failing the run. The status card
+        // reports the same condition as a warning.
+        markModelUnavailable(primaryModel);
+        console.warn(`[llm] ${label}: ${primaryModel} is not available on this account — falling back to ${fallbackModel}. ${fatal.message}`);
+        lastErr = primaryErr;
+      } else if (fatal) {
+        console.error(`[llm] ${label}: non-retryable ${fatal.kind} error — ${fatal.message}`);
+        throw fatal;
+      } else {
+        lastErr = primaryErr;
+        const wait = retryAfterMs(primaryErr);
+        if (wait !== null) {
+          console.warn(`[llm] ${label}: ${primaryModel} rate-limited/5xx (${errMsg(primaryErr)}) — waiting ${Math.round(wait / 1000)}s before retrying`);
+          await sleep(wait);
+          try {
+            return await attempt(primaryModel, timeoutMs);
+          } catch (retryErr) {
+            const fatalRetry = classifyLlmError(retryErr);
+            if (fatalRetry) throw fatalRetry;
+            lastErr = retryErr;
+          }
+        }
       }
     }
   }

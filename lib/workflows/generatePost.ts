@@ -314,13 +314,17 @@ async function publishStep(
 async function recordHistoryStep(
   postId: number, link: string | null, content: BlogContent, needsReview: boolean,
   source: "manual" | "scheduler" = "manual",
-  mediaOutputs?: { audio?: boolean; video?: boolean; podcast?: boolean }
+  mediaOutputs?: { audio?: boolean; video?: boolean; podcast?: boolean },
+  imagePrompts?: ImagePrompts
 ): Promise<void> {
   "use step";
   if (!postId) return;
   try {
     const { addPostHistory } = await import("@/lib/storage");
+    const { conceptsFromPrompts } = await import("@/lib/imageBrief");
+    const imageConcepts = conceptsFromPrompts(imagePrompts);
     await addPostHistory({
+      ...(imageConcepts ? { imageConcepts } : {}),
       wpPostId: postId,
       title: content.seo_title || content.focus_keyword || `Post ${postId}`,
       slug: content.slug,
@@ -419,7 +423,8 @@ async function startMediaStep(
   input: GeneratePostInput,
   published: Awaited<ReturnType<typeof publishStep>>,
   content: BlogContent,
-  needsReview: boolean
+  needsReview: boolean,
+  imagePrompts: ImagePrompts
 ): Promise<void> {
   "use step";
   try {
@@ -450,9 +455,16 @@ async function startMediaStep(
         more_content_5: content.more_content_5 ?? "",
         more_content_6: content.more_content_6 ?? "",
         final_points:   content.final_points ?? "",
+        keypoint_one:   content.keypoint_one ?? "",
+        keypoint_two:   content.keypoint_two ?? "",
+        quote_1:        content.quote_1 ?? "",
+        quote_2:        content.quote_2 ?? "",
+        key_takeaways:  content.key_takeaways ?? "",
       },
       outputs,
       podcastLength: input.podcastLength ?? 30,
+      // Render the briefs this run wrote and QA'd, rather than briefing again.
+      imagePrompts,
     }]);
     console.log(`[wf] media workflow started for post ${published.postId} (run ${run.runId}) — images:true audio:${outputs.audio} video:${outputs.video} podcast:${outputs.podcast}`);
   } catch (err) {
@@ -608,10 +620,10 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
       if (input.queueItemId) await itemProgressStep(input.queueItemId, 5, "Saving draft to WordPress (needs review)…");
       const published = await publishStep(title, content, imagePrompts, input.language, "draft");
       await recordHistoryStep(published.postId, published.link, content, true,
-        input.queueItemId ? "scheduler" : "manual", input.mediaOutputs);
+        input.queueItemId ? "scheduler" : "manual", input.mediaOutputs, imagePrompts);
       if (input.queueItemId) {
         await completeItemStep(input.queueItemId, input.runLogId, published.postId, published.link, qa.score, qa.blocking_issues);
-        await startMediaStep(input, published, content, true);
+        await startMediaStep(input, published, content, true, imagePrompts);
       }
       await emit(buildDoneEvent({
         published, content, imagePrompts, fileSlug, imageModel: input.imageModel,
@@ -637,10 +649,10 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
     if (input.queueItemId) await itemProgressStep(input.queueItemId, 5, "Publishing draft to WordPress…");
     const published = await publishStep(title, content, imagePrompts, input.language);
     await recordHistoryStep(published.postId, published.link, content, false,
-      input.queueItemId ? "scheduler" : "manual", input.mediaOutputs);
+      input.queueItemId ? "scheduler" : "manual", input.mediaOutputs, imagePrompts);
     if (input.queueItemId) {
       await completeItemStep(input.queueItemId, input.runLogId, published.postId, published.link, qa.score, qa.warnings);
-      await startMediaStep(input, published, content, false);
+      await startMediaStep(input, published, content, false, imagePrompts);
     }
     await emit(buildDoneEvent({
       published, content, imagePrompts, fileSlug, imageModel: input.imageModel,

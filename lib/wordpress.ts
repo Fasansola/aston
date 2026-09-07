@@ -951,6 +951,14 @@ export interface ImagePrompts {
   post_split_img_alt: string;
   featured_img_prompt: string;
   featured_img_alt: string;
+  // One-sentence statement of what each picture was briefed to show (the idea
+  // from the adjacent text). Informational: shown on the Recent posts tab and
+  // kept as "already used" context for later articles. Optional so older
+  // payloads (browser runs started before this field existed) still parse.
+  keypoint_one_img_concept?: string;
+  keypoint_two_img_concept?: string;
+  post_split_img_concept?: string;
+  featured_img_concept?: string;
 }
 
 export interface Blueprint {
