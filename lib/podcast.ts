@@ -12,8 +12,10 @@
  */
 
 import { fetchWithSgRetry } from "./wordpress";
+import { kget, kset } from "./storage";
+import { WP_API_BASE } from "./wpApi";
 
-const WP_URL = process.env.WP_URL!;
+const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
 const WP_AUTH = Buffer.from(
   `${process.env.WP_USERNAME}:${process.env.WP_APP_PASSWORD}`
 ).toString("base64");
@@ -87,7 +89,7 @@ function rfc822(dateIso: string): string {
 async function probeAudio(url: string): Promise<{ bytes: number; type: string }> {
   const fallbackType = url.toLowerCase().endsWith(".wav") ? "audio/wav" : "audio/mpeg";
   try {
-    const res = await fetch(url, { method: "HEAD", redirect: "follow", signal: AbortSignal.timeout(10_000) });
+    const res = await fetch(url, { method: "HEAD", redirect: "follow", signal: AbortSignal.timeout(6_000) });
     const len = parseInt(res.headers.get("content-length") ?? "0", 10);
     const type = res.headers.get("content-type")?.split(";")[0]?.trim() || fallbackType;
     return { bytes: Number.isFinite(len) ? len : 0, type };
@@ -96,76 +98,123 @@ async function probeAudio(url: string): Promise<{ bytes: number; type: string }>
   }
 }
 
-/**
- * Fetch curated episodes: posts in the configured category that have an
- * audio_url, newest first. Non-fatal — returns [] on failure so the feed still
- * renders a valid (empty) channel rather than erroring out for Spotify.
- */
-export async function getPodcastEpisodes(config: PodcastConfig): Promise<PodcastEpisode[]> {
+// ── Resilient episode list ────────────────────────────────────
+// The public feed is hit by podcast directories' crawlers around the clock,
+// and every hit used to reach WordPress live — through SiteGround's anti-bot,
+// which challenges Vercel's shared IPs intermittently. When blocked, the
+// route either timed out (5-attempt ladder inside a 60s function) or served an
+// EMPTY channel, which directories can read as "all episodes removed".
+//
+// Now: ONE bounded live fetch (2 attempts, 15s each). Success refreshes a
+// Redis copy of the episode list; any failure — and an empty result after a
+// previously non-empty one — serves that copy instead. Audio probes (HEAD for
+// byte length) are reused from the copy so only new episodes are probed.
+
+const RSS_CACHE_KEY = "aston:podcast:rss_cache";
+
+interface RssCache { episodes: PodcastEpisode[]; at: string }
+
+export interface EpisodesResult {
+  episodes: PodcastEpisode[];
+  source: "live" | "cache" | "empty";
+  cachedAt?: string;
+  error?: string;
+}
+
+type Probe = { bytes: number; type: string };
+
+/** One bounded live fetch of the podcast CPT. Throws on any failure. */
+async function fetchLiveEpisodes(config: PodcastConfig, knownProbes: Map<string, Probe>): Promise<PodcastEpisode[]> {
+  // Episodes live in the dedicated podcast custom post type (the CPT itself is
+  // the curation — no category filter needed). Public/view context exposes the
+  // ACF fields without requiring edit rights.
+  const res = await fetchWithSgRetry("getPodcastEpisodes", () => fetch(
+    `${WP_URL}/wp-json/wp/v2/${config.cptRestBase}?per_page=100&_embed=wp:featuredmedia&orderby=date&order=desc`,
+    { headers: { Authorization: `Basic ${WP_AUTH}` }, signal: AbortSignal.timeout(15_000) }
+  ), { maxAttempts: 2 });
+  if (!res.ok) throw new Error(`CPT "${config.cptRestBase}" fetch failed: HTTP ${res.status}`);
+
+  // Guard against a captcha page that slipped through as HTTP 200.
+  const rawText = await res.text();
+  let posts: Array<Record<string, unknown>>;
   try {
-    // Episodes live in the dedicated podcast custom post type (the CPT itself is
-    // the curation — no category filter needed). Public/view context exposes the
-    // ACF fields without requiring edit rights.
-    // SiteGround's anti-bot intermittently returns HTTP 200 with an HTML
-    // captcha page instead of JSON (common from cloud IPs). fetchWithSgRetry
-    // detects that page and retries with backoff, so res.json() below never
-    // chokes on "<html>…".
-    const res = await fetchWithSgRetry("getPodcastEpisodes", () => fetch(
-      `${WP_URL}/wp-json/wp/v2/${config.cptRestBase}?per_page=100&_embed=wp:featuredmedia&orderby=date&order=desc`,
-      { headers: { Authorization: `Basic ${WP_AUTH}` }, signal: AbortSignal.timeout(20_000) }
-    ));
-    if (!res.ok) {
-      console.warn(`[podcast] CPT "${config.cptRestBase}" fetch failed: ${res.status}`);
-      return [];
+    posts = JSON.parse(rawText) as Array<Record<string, unknown>>;
+  } catch {
+    throw new Error(`CPT "${config.cptRestBase}" returned non-JSON (likely a SiteGround captcha page)`);
+  }
+  if (!Array.isArray(posts)) throw new Error(`CPT "${config.cptRestBase}" returned an unexpected payload`);
+
+  const episodes = await Promise.all(
+    posts.map(async (p): Promise<PodcastEpisode | null> => {
+      const acf = (p.acf as Record<string, unknown>) ?? {};
+      const audioUrl = typeof acf[config.audioField] === "string" ? (acf[config.audioField] as string).trim() : "";
+      if (!audioUrl) return null; // no episode audio → not published
+
+      const title = stripHtml(((p.title as { rendered?: string })?.rendered) ?? "");
+      // CPT may not support excerpt — fall back to the content body.
+      const excerpt = stripHtml(((p.excerpt as { rendered?: string })?.rendered) ?? "")
+        || stripHtml(((p.content as { rendered?: string })?.rendered) ?? "").slice(0, 500);
+      const link = (p.link as string) ?? config.siteLink;
+      const guid = ((p.guid as { rendered?: string })?.rendered) || link;
+      const dateGmt = (p.date_gmt as string) || (p.date as string) || "";
+      const featured = (p._embedded as { "wp:featuredmedia"?: Array<{ source_url?: string }> } | undefined)
+        ?.["wp:featuredmedia"]?.[0]?.source_url;
+
+      const { bytes, type } = knownProbes.get(audioUrl) ?? await probeAudio(audioUrl);
+
+      return {
+        id: (p.id as number) ?? 0,
+        title,
+        description: excerpt,
+        link,
+        guid,
+        pubDate: rfc822(dateGmt),
+        audioUrl,
+        audioBytes: bytes,
+        audioType: type,
+        imageUrl: featured,
+      };
+    })
+  );
+
+  return episodes.filter((e): e is PodcastEpisode => e !== null);
+}
+
+/**
+ * Curated episodes for the feed: live when WordPress answers, otherwise the
+ * last good copy. Never throws — the feed must always render a valid channel.
+ */
+export async function getPodcastEpisodes(config: PodcastConfig): Promise<EpisodesResult> {
+  const cached = await kget<RssCache | null>(RSS_CACHE_KEY, null).catch(() => null);
+  const known = new Map<string, Probe>(
+    (cached?.episodes ?? [])
+      .filter((e) => e.audioBytes > 0)
+      .map((e) => [e.audioUrl, { bytes: e.audioBytes, type: e.audioType }])
+  );
+
+  try {
+    const live = await fetchLiveEpisodes(config, known);
+    if (live.length === 0 && cached && cached.episodes.length > 0) {
+      // A sudden empty list after a non-empty one is far more likely a
+      // WordPress hiccup than a deliberate removal of every episode. Serve the
+      // copy and log it; clear the aston:podcast:rss_cache key if the removal
+      // was real.
+      console.warn(`[podcast] live feed returned no episodes but ${cached.episodes.length} were cached — serving the cached copy`);
+      return { episodes: cached.episodes, source: "cache", cachedAt: cached.at, error: "live feed returned no episodes" };
     }
-    // Guard against a captcha page that slipped through as HTTP 200: parse the
-    // text and bail cleanly rather than throwing an "Unexpected token '<'".
-    const rawText = await res.text();
-    let posts: Array<Record<string, unknown>>;
-    try {
-      posts = JSON.parse(rawText) as Array<Record<string, unknown>>;
-    } catch {
-      console.warn(`[podcast] CPT "${config.cptRestBase}" returned non-JSON (likely a SiteGround captcha page) — skipping feed refresh`);
-      return [];
+    if (live.length > 0) {
+      await kset(RSS_CACHE_KEY, { episodes: live, at: new Date().toISOString() } satisfies RssCache)
+        .catch((err) => console.warn(`[podcast] could not cache episodes (non-fatal): ${err instanceof Error ? err.message : String(err)}`));
     }
-
-    const episodes = await Promise.all(
-      posts.map(async (p): Promise<PodcastEpisode | null> => {
-        const acf = (p.acf as Record<string, unknown>) ?? {};
-        const audioUrl = typeof acf[config.audioField] === "string" ? (acf[config.audioField] as string).trim() : "";
-        if (!audioUrl) return null; // no episode audio → not published
-
-        const title = stripHtml(((p.title as { rendered?: string })?.rendered) ?? "");
-        // CPT may not support excerpt — fall back to the content body.
-        const excerpt = stripHtml(((p.excerpt as { rendered?: string })?.rendered) ?? "")
-          || stripHtml(((p.content as { rendered?: string })?.rendered) ?? "").slice(0, 500);
-        const link = (p.link as string) ?? config.siteLink;
-        const guid = ((p.guid as { rendered?: string })?.rendered) || link;
-        const dateGmt = (p.date_gmt as string) || (p.date as string) || "";
-        const featured = (p._embedded as { "wp:featuredmedia"?: Array<{ source_url?: string }> } | undefined)
-          ?.["wp:featuredmedia"]?.[0]?.source_url;
-
-        const { bytes, type } = await probeAudio(audioUrl);
-
-        return {
-          id: (p.id as number) ?? 0,
-          title,
-          description: excerpt,
-          link,
-          guid,
-          pubDate: rfc822(dateGmt),
-          audioUrl,
-          audioBytes: bytes,
-          audioType: type,
-          imageUrl: featured,
-        };
-      })
-    );
-
-    return episodes.filter((e): e is PodcastEpisode => e !== null);
+    return { episodes: live, source: live.length > 0 ? "live" : "empty" };
   } catch (err) {
-    console.error(`[podcast] getPodcastEpisodes failed: ${err instanceof Error ? err.message : String(err)}`);
-    return [];
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[podcast] live episode fetch failed: ${msg}`);
+    if (cached && cached.episodes.length > 0) {
+      console.warn(`[podcast] serving ${cached.episodes.length} cached episodes from ${cached.at}`);
+      return { episodes: cached.episodes, source: "cache", cachedAt: cached.at, error: msg };
+    }
+    return { episodes: [], source: "empty", error: msg };
   }
 }
 

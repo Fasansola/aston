@@ -14,6 +14,7 @@
  */
 
 import OpenAI from "openai";
+import { chatWithRetry, MEDIA_MODEL } from "./llm";
 
 const HEYGEN_BASE = "https://api.heygen.com";
 
@@ -41,8 +42,7 @@ export async function generateVideoScript(
     ? `The article targets a ${language}-speaking audience. Write the script in ${language}.`
     : "";
 
-  const { choices } = await openai.chat.completions.create({
-    model: "gpt-4o",
+  const { choices } = await chatWithRetry(openai, {
     temperature: 0.8,
     messages: [
       {
@@ -159,7 +159,7 @@ ${langNote}`,
         content: `Write a 3–4 minute script for Jim on: "${title}"\nKeyword: "${keyword}"\n\nMatch the formatting of the example EXACTLY — every sentence on its own line, blank lines between each. Short. Punchy. Human.`,
       },
     ],
-  }, { signal: AbortSignal.timeout(30_000) });
+  }, { label: "heygenScript", timeoutMs: 30_000, model: MEDIA_MODEL, json: false });
 
   const script = choices[0].message.content?.trim() ?? "";
   if (!script) throw new Error("GPT returned an empty script.");
@@ -195,10 +195,8 @@ export async function generateSegmentedScript(
     ? `The article targets a ${language}-speaking audience. Write the script in ${language}.`
     : "";
 
-  const { choices } = await openai.chat.completions.create({
-    model: "gpt-4o",
+  const { choices } = await chatWithRetry(openai, {
     temperature: 0.75,
-    response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
@@ -298,7 +296,7 @@ ${langNote}`,
         content: `Generate a 7-segment production script for Jim on: "${title}"\nKeyword: "${keyword}"\n\nMATCH THE FORMAT EXACTLY — every sentence on its own line in the script field, blank lines between each. Short. Punchy. Human. Not a presentation.`,
       },
     ],
-  }, { signal: AbortSignal.timeout(45_000) });
+  }, { label: "heygenSegments", timeoutMs: 45_000, model: MEDIA_MODEL });
 
   const raw = choices[0].message.content?.trim() ?? "";
   if (!raw) throw new Error("GPT returned empty segmented script.");

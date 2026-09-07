@@ -20,8 +20,9 @@ import { NextRequest, NextResponse } from "next/server";
 import axios from "axios";
 import { start } from "workflow/api";
 import { generateMediaWorkflow, type MediaContentFields } from "@/lib/workflows/generateMedia";
+import { WP_API_BASE } from "@/lib/wpApi";
 
-const WP_URL = process.env.WP_URL!;
+const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
 const AUTH = { auth: { username: process.env.WP_USERNAME!, password: process.env.WP_APP_PASSWORD! } };
 const PODCAST_CPT = process.env.PODCAST_CPT_REST_BASE || "podcast";
 

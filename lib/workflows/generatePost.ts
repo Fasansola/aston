@@ -30,8 +30,9 @@ import { getWritable, FatalError } from "workflow";
 
 import {
   generateBlueprint, generateBlogContent, fixBlogContent,
-  generateImagePrompts, IMAGE_QA_CHECKS, type ImageModel,
+  generateImagePrompts, type ImageModel,
 } from "@/lib/openai";
+import { IMAGE_QA_CHECKS } from "@/lib/qaChecks";
 import { createWordPressPost, embedFlowchartHtml, SiteGroundBlockedError, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 import { runQA, RETRYABLE_WARNING_CHECKS } from "@/lib/qa";
@@ -44,6 +45,26 @@ import type { Blueprint } from "@/lib/wordpress";
 import type { SelectedLinks } from "@/lib/links";
 
 const MAX_QA = 3;
+
+// ── LLM step guard ─────────────────────────────────────────────
+// Wraps every model-calling step so that (1) token usage is attributed to the
+// run (lib/usage.ts → run log + monthly totals) and (2) a NON-retryable OpenAI
+// failure — no credits, bad key, unknown model, rejected request — becomes a
+// FatalError. That stops WDK's three automatic retries and fails the run in
+// seconds with the operator-facing message, instead of minutes later with a
+// stack trace that starts with an internal step name.
+interface StepCtx { runLogId?: string }
+
+async function guarded<T>(step: string, ctx: StepCtx, fn: () => Promise<T>): Promise<T> {
+  const { withUsageContext } = await import("@/lib/usage");
+  const { isNonRetryableLlmError } = await import("@/lib/llm");
+  try {
+    return await withUsageContext({ runLogId: ctx.runLogId, step }, fn);
+  } catch (err) {
+    if (isNonRetryableLlmError(err)) throw new FatalError(err.message);
+    throw err;
+  }
+}
 
 // ── Serializable workflow input ───────────────────────────────
 export interface GeneratePostInput {
@@ -89,16 +110,18 @@ async function closeStream(): Promise<void> {
 
 // ── Setup steps ───────────────────────────────────────────────
 
-async function deriveTitleStep(customInstruction: string, primaryCountry: string): Promise<{ title: string; topic: string }> {
+async function deriveTitleStep(customInstruction: string, primaryCountry: string, ctx: StepCtx): Promise<{ title: string; topic: string }> {
   "use step";
-  return deriveTitle(customInstruction, primaryCountry || undefined);
+  return guarded("deriveTitle", ctx, () => deriveTitle(customInstruction, primaryCountry || undefined));
 }
 
-async function researchStep(title: string, primaryCountry: string, customInstruction?: string): Promise<ResearchBrief | null> {
+async function researchStep(title: string, primaryCountry: string, customInstruction: string | undefined, ctx: StepCtx): Promise<ResearchBrief | null> {
   "use step";
   // Research is best-effort — never let a SERP hiccup fail the whole run.
   try {
-    return await researchTopic(title, primaryCountry || undefined, customInstruction);
+    const { withUsageContext } = await import("@/lib/usage");
+    return await withUsageContext({ runLogId: ctx.runLogId, step: "research" }, () =>
+      researchTopic(title, primaryCountry || undefined, customInstruction));
   } catch (err) {
     console.warn("[wf] research failed, continuing without SERP data:", err instanceof Error ? err.message : err);
     return null;
@@ -110,15 +133,16 @@ async function selectLinksStep(title: string, language: string): Promise<Selecte
   return selectLinks(title, language || undefined);
 }
 
-async function sourceBriefStep(mode: GenerationMode, title: string, sourceText: string): Promise<SourceBrief> {
+async function sourceBriefStep(mode: GenerationMode, title: string, sourceText: string, ctx: StepCtx): Promise<SourceBrief> {
   "use step";
   if (mode === "topic_only") return emptyBrief();
-  return processSourceInput(mode as Parameters<typeof processSourceInput>[0], title, sourceText);
+  return guarded("sourceBrief", ctx, () =>
+    processSourceInput(mode as Parameters<typeof processSourceInput>[0], title, sourceText));
 }
 
 async function strategyStep(input: GeneratePostInput, strategyTopic: string, research: ResearchBrief | null): Promise<StrategyBrief> {
   "use step";
-  return generateStrategy({
+  return guarded("strategy", { runLogId: input.runLogId }, () => generateStrategy({
     topic:               strategyTopic,
     audience:            input.audience || undefined,
     primary_country:     input.primary_country || undefined,
@@ -127,26 +151,29 @@ async function strategyStep(input: GeneratePostInput, strategyTopic: string, res
     language:            input.language || undefined,
     customPrompt:        input.customInstruction,
     research:            research ?? undefined,
-  });
+  }));
 }
 
 async function blueprintStep(
   title: string, selectedLinks: SelectedLinks, sourceBrief: SourceBrief,
-  strategy: StrategyBrief, customInstruction: string | undefined, language: string
+  strategy: StrategyBrief, customInstruction: string | undefined, language: string, ctx: StepCtx
 ): Promise<Blueprint> {
   "use step";
-  return generateBlueprint(title, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined);
+  return guarded("blueprint", ctx, () =>
+    generateBlueprint(title, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined));
 }
 
 async function authorityLinksStep(
-  title: string, strategy: StrategyBrief
+  title: string, strategy: StrategyBrief, ctx: StepCtx
 ): Promise<AuthorityLink[]> {
   "use step";
   const jurisdictions = (strategy?.jurisdiction_map ?? []).map((j) => j.jurisdiction);
   const curated = selectAuthorityLinks(`${title} ${strategy?.keyword_model.primary_keyword ?? ""}`, jurisdictions);
   let discovered: Awaited<ReturnType<typeof findExternalAuthorityLinks>> = [];
   try {
-    discovered = await findExternalAuthorityLinks(title, strategy?.keyword_model.primary_keyword ?? title, jurisdictions);
+    const { withUsageContext } = await import("@/lib/usage");
+    discovered = await withUsageContext({ runLogId: ctx.runLogId, step: "authorityLinks" }, () =>
+      findExternalAuthorityLinks(title, strategy?.keyword_model.primary_keyword ?? title, jurisdictions));
   } catch (err) {
     console.warn("[wf] authority link discovery failed, using curated list only:", err instanceof Error ? err.message : err);
   }
@@ -158,18 +185,20 @@ async function authorityLinksStep(
 async function contentStep(
   title: string, blueprint: Blueprint, selectedLinks: SelectedLinks,
   sourceBrief: SourceBrief, strategy: StrategyBrief,
-  customInstruction: string | undefined, language: string, authorityLinks: AuthorityLink[]
+  customInstruction: string | undefined, language: string, authorityLinks: AuthorityLink[], ctx: StepCtx
 ): Promise<BlogContent> {
   "use step";
-  return generateBlogContent(title, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined, authorityLinks);
+  return guarded("content", ctx, () =>
+    generateBlogContent(title, blueprint, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined, authorityLinks));
 }
 
 async function fixStep(
   title: string, prevContent: BlogContent, blueprint: Blueprint, selectedLinks: SelectedLinks,
-  failingChecks: Record<string, boolean>, language: string, brokenUrls: string[], authorityLinks: AuthorityLink[]
+  failingChecks: Record<string, boolean>, language: string, brokenUrls: string[], authorityLinks: AuthorityLink[], ctx: StepCtx
 ): Promise<BlogContent> {
   "use step";
-  return fixBlogContent(title, prevContent, blueprint, selectedLinks, failingChecks, language || undefined, brokenUrls.length > 0 ? brokenUrls : undefined, authorityLinks);
+  return guarded("fix", ctx, () =>
+    fixBlogContent(title, prevContent, blueprint, selectedLinks, failingChecks, language || undefined, brokenUrls.length > 0 ? brokenUrls : undefined, authorityLinks));
 }
 
 // ── Link enforcement + house-style normalisation (one step) ────
@@ -217,9 +246,9 @@ async function scrubStep(
 
 // ── Image prompts + QA ────────────────────────────────────────
 
-async function imagePromptsStep(title: string, content: BlogContent): Promise<ImagePrompts> {
+async function imagePromptsStep(title: string, content: BlogContent, ctx: StepCtx): Promise<ImagePrompts> {
   "use step";
-  return generateImagePrompts(title, content);
+  return guarded("imagePrompts", ctx, () => generateImagePrompts(title, content));
 }
 
 const PLACEHOLDER_IMAGE_IDS = { keypointOneImg: 0, keypointTwoImg: 0, postSplitImg: 0, featuredImg: 0 };
@@ -343,7 +372,9 @@ async function completeItemStep(
     lastError: null,
   });
   if (runLogId) {
-    await updateRunLog(runLogId, { completedAt: new Date().toISOString(), topicsCompleted: 1, status: "completed" });
+    const { getRunUsage } = await import("@/lib/usage");
+    const usage = await getRunUsage(runLogId).catch(() => null);
+    await updateRunLog(runLogId, { completedAt: new Date().toISOString(), topicsCompleted: 1, status: "completed", usage });
   }
   console.log(`[wf] queue item ${itemId} completed — WP post ${postId}, QA ${qaScore}/100`);
 }
@@ -353,19 +384,27 @@ async function failItemStep(itemId: string, runLogId: string | undefined, topic:
   try {
     const { getQueueItem, updateQueueItem, updateRunLog } = await import("@/lib/storage");
     const { notify } = await import("@/lib/notify");
+    const { humaniseError, formatQueueError } = await import("@/lib/errors");
+    const { getRunUsage } = await import("@/lib/usage");
+    // Plain-English summary + next action for the queue row; the raw text is
+    // kept in lastErrorDetail for the "details" view and the alert.
+    const human = humaniseError(message);
+    const summary = formatQueueError(human);
     const item = await getQueueItem(itemId);
     await updateQueueItem(itemId, {
       status: "failed",
       retryCount: (item?.retryCount ?? 0) + 1,
-      lastError: message,
+      lastError: summary,
+      lastErrorDetail: message,
       progress: null,
     });
     if (runLogId) {
-      await updateRunLog(runLogId, { completedAt: new Date().toISOString(), topicsFailed: 1, status: "failed" });
+      const usage = await getRunUsage(runLogId).catch(() => null);
+      await updateRunLog(runLogId, { completedAt: new Date().toISOString(), topicsFailed: 1, status: "failed", error: summary, usage });
     }
     await notify(
       `❌ Post generation failed: "${topic}"`,
-      `${message}\n\nRetry from the dashboard queue (Retry now).`
+      `${human.title}\n→ ${human.action}\n\nDetails: ${message.slice(0, 700)}`
     );
   } catch (err) {
     console.warn(`[wf] fail-item bookkeeping failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -483,6 +522,9 @@ function buildDoneEvent(args: {
 export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ postId: number; needsReview: boolean }> {
   "use workflow";
 
+  // Serializable step context: which run log the LLM usage belongs to.
+  const ctx: StepCtx = { runLogId: input.runLogId };
+
   try {
   console.log("[wf] start — hasTopic:", input.hasTopic, "mode:", input.mode, "lang:", input.language, "queueItem:", input.queueItemId ?? "none");
   await emit({ type: "progress", message: "Researching and planning…" });
@@ -493,7 +535,7 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
   let strategyTopic = input.title;
   if (!input.hasTopic) {
     console.log("[wf] step: deriveTitle");
-    const derived = await deriveTitleStep(input.customInstruction ?? "", input.primary_country);
+    const derived = await deriveTitleStep(input.customInstruction ?? "", input.primary_country, ctx);
     title = derived.title;
     strategyTopic = derived.topic;
     console.log("[wf] deriveTitle done — title:", title);
@@ -503,7 +545,7 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
 
   // Setup (steps auto-retry transient errors; research/authority degrade gracefully)
   console.log("[wf] step: research");
-  const research = await researchStep(title, input.primary_country, input.customInstruction);
+  const research = await researchStep(title, input.primary_country, input.customInstruction, ctx);
   if (!research) {
     console.warn("[wf] research returned null — article will be written without live SERP data");
     await emit({ type: "progress", message: "Live research unavailable — writing from domain knowledge only" });
@@ -511,15 +553,15 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
   console.log("[wf] step: selectLinks");
   const selectedLinks = await selectLinksStep(title, input.language);
   console.log("[wf] step: sourceBrief");
-  const sourceBrief = await sourceBriefStep(input.mode, title, input.sourceText);
+  const sourceBrief = await sourceBriefStep(input.mode, title, input.sourceText, ctx);
   console.log("[wf] step: strategy");
   const strategy = await strategyStep(input, strategyTopic, research);
   await emit({ type: "progress", message: `Strategy ready — keyword "${strategy.keyword_model.primary_keyword}"` });
   if (input.queueItemId) await itemProgressStep(input.queueItemId, 2, "Planning the article blueprint…");
   console.log("[wf] step: blueprint");
-  const blueprint = await blueprintStep(title, selectedLinks, sourceBrief, strategy, input.customInstruction, input.language);
+  const blueprint = await blueprintStep(title, selectedLinks, sourceBrief, strategy, input.customInstruction, input.language, ctx);
   console.log("[wf] step: authorityLinks");
-  const authorityLinks = await authorityLinksStep(title, strategy);
+  const authorityLinks = await authorityLinksStep(title, strategy, ctx);
   await emit({ type: "progress", message: "Writing the article…" });
   if (input.queueItemId) await itemProgressStep(input.queueItemId, 3, "Writing the article…");
 
@@ -532,8 +574,8 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
   for (let attempt = 1; attempt <= MAX_QA; attempt++) {
     console.log("[wf] step: content attempt", attempt);
     let content: BlogContent = attempt === 1
-      ? await contentStep(title, blueprint, selectedLinks, sourceBrief, strategy, input.customInstruction, input.language, authorityLinks)
-      : await fixStep(title, prevContent!, blueprint, selectedLinks, prevChecks!, input.language, prevBrokenUrls, authorityLinks);
+      ? await contentStep(title, blueprint, selectedLinks, sourceBrief, strategy, input.customInstruction, input.language, authorityLinks, ctx)
+      : await fixStep(title, prevContent!, blueprint, selectedLinks, prevChecks!, input.language, prevBrokenUrls, authorityLinks, ctx);
     console.log("[wf] step: scrub attempt", attempt);
     const scrubbed = await scrubStep(content, authorityLinks, prevBrokenUrls);
     content = scrubbed.content;
@@ -545,7 +587,7 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
 
     const needNewImagePrompts = attempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevChecks![k]);
     console.log("[wf] step: imagePrompts attempt", attempt, "regen:", needNewImagePrompts);
-    const imagePrompts: ImagePrompts = needNewImagePrompts ? await imagePromptsStep(title, content) : prevImagePrompts!;
+    const imagePrompts: ImagePrompts = needNewImagePrompts ? await imagePromptsStep(title, content, ctx) : prevImagePrompts!;
     console.log("[wf] step: qa attempt", attempt);
     if (input.queueItemId) await itemProgressStep(input.queueItemId, 4, attempt === 1 ? "Running quality checks…" : `Quality checks (attempt ${attempt} of ${MAX_QA})…`);
     const { qa, readMins } = await qaStep(content, imagePrompts, title);

@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
 
     // Reset so the targeted cron accepts it and the old failure isn't shown
     // against the new attempt.
-    await updateQueueItem(id, { status: "queued", retryCount: 0, lastError: null });
+    await updateQueueItem(id, { status: "queued", retryCount: 0, lastError: null, lastErrorDetail: null, workflowRunId: null, processingStartedAt: null });
 
     const scheduledFor = new Date().toISOString();
     const run = await start(scheduleGenerationWorkflow, [

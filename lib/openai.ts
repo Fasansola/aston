@@ -21,7 +21,8 @@ import { SourceBrief, formatBriefForPrompt } from "./source";
 import { StrategyBrief } from "./strategy";
 import { AuthorityLink, formatAuthorityLinksForPrompt } from "./authorityLinks";
 import { selectOptimalTitle } from "./titleEngine";
-import { chatWithRetry, assertCompleted, extractJson } from "./llm";
+import { chatWithRetry, assertCompleted, extractJson, recordUsage } from "./llm";
+import { IMAGE_QA_CHECKS } from "./qaChecks";
 
 // ── Model configuration ───────────────────────────────────────
 // Model constants and the retry/fallback/JSON helpers live in lib/llm.ts,
@@ -1187,8 +1188,10 @@ Alt text rules (SEO-optimised — all must be met):
 
 // ── Step 2b: Fix only the fields that failed QA ───────────────
 
-// QA checks that relate to images — if only these fail, content doesn't need fixing
-export const IMAGE_QA_CHECKS = ["featured_image_exists", "section_images_exist", "image_alt_text_exists"];
+// QA checks that relate to images — if only these fail, content doesn't need fixing.
+// Defined in lib/qaChecks.ts (so the workflow bundle can read it without
+// pulling in the OpenAI SDK); re-exported here for existing importers.
+export { IMAGE_QA_CHECKS };
 
 // Maps each QA check key → the BlogContent field(s) responsible
 const CHECK_TO_FIELDS: Record<string, string[]> = {
@@ -1443,6 +1446,7 @@ export async function generateImage(prompt: string, model: ImageModel = "gpt-ima
       // image — a 60s cap timed out every request. The four images run in
       // parallel under the route's 300s maxDuration, so 240s each fits.
     }, { signal: AbortSignal.timeout(240_000) });
+    recordUsage({ kind: "image", label: "generateImage", model: "gpt-image-2", usage: response.usage });
 
     const b64 = response.data?.[0]?.b64_json;
     if (b64) return Buffer.from(b64, "base64");
@@ -1473,6 +1477,7 @@ export async function generateImage(prompt: string, model: ImageModel = "gpt-ima
     setTimeout(() => reject(new Error(`Imagen 4 timed out after ${timeoutMs / 1000}s`)), timeoutMs)
   );
   const response = await Promise.race([imagenPromise, timeoutPromise]);
+  recordUsage({ kind: "image", label: "generateImage", model: "imagen-4", usage: null });
 
   const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
   if (!imageBytes) throw new Error("Imagen 4 returned no image data");

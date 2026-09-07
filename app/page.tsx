@@ -39,6 +39,7 @@ interface QueueItem {
   id: string; topic: string; mode: GenerationMode; priority: number;
   status: QueueStatus; createdAt: string; completedAt: string | null;
   retryCount: number; lastError: string | null;
+  lastErrorDetail?: string | null; workflowRunId?: string | null;
   wpPostId: number | null; wpEditUrl: string | null; wpPostUrl: string | null;
   qaScore: number | null; qaWarnings: string[];
   scheduledFor?: string | null;
@@ -57,10 +58,21 @@ interface SchedulerSettings {
   mediaOutputs: { audio: boolean; video: boolean; podcast: boolean };
   podcastLength: number;
 }
+interface UsageTotals {
+  calls: number; images: number; promptTokens: number; completionTokens: number;
+  reasoningTokens: number; totalTokens: number; estimatedCostUsd: number | null;
+}
+interface HealthCheck { status: "ok" | "warn" | "fail"; message: string; hint?: string; ms?: number; blocking?: boolean }
+interface HealthReport {
+  checkedAt: string; canGenerate: boolean; blockers: string[];
+  openai: HealthCheck; wordpress: HealthCheck; storage: HealthCheck; alerts: HealthCheck; budget: HealthCheck;
+  usage: UsageTotals | null; usageMonth: string; wpApiViaRelay: boolean;
+}
 interface RunLog {
   runId: string; startedAt: string; completedAt: string | null;
   topicsAttempted: number; topicsCompleted: number; topicsFailed: number;
   status: "running" | "completed" | "completed_with_errors" | "failed";
+  usage?: UsageTotals | null; error?: string | null;
 }
 interface LinkEntry {
   id: string; url: string; title: string; type: "internal" | "external";
@@ -270,6 +282,13 @@ function fmt(iso: string | null) {
   return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+function fmtTokens(n: number | null | undefined) {
+  if (!n) return "0";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
 function Spinner({ size = "sm" }: { size?: "sm" | "md" }) {
   const s = size === "sm" ? "h-4 w-4" : "h-5 w-5";
   return (
@@ -327,6 +346,10 @@ export default function AdminPage() {
   const [stats, setStats]         = useState<QueueStats | null>(null);
   const [settings, setSettings]   = useState<SchedulerSettings | null>(null);
   const [runs, setRuns]           = useState<RunLog[]>([]);
+  const [health, setHealth]               = useState<HealthReport | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [healthError, setHealthError]     = useState("");
+  const [testAlertMsg, setTestAlertMsg]   = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
   const [spotifySyncing, setSpotifySyncing] = useState(false);
   const [spotifyResult, setSpotifyResult]   = useState<{ ok: boolean; msg: string; synced?: number } | null>(null);
@@ -406,6 +429,29 @@ export default function AdminPage() {
     }
   }, []);
 
+  // System status: a real (tiny) OpenAI call, one WordPress request, a Redis
+  // write, plus env checks. Runs on load and on "Re-check" only.
+  const fetchHealth = useCallback(async () => {
+    setHealthLoading(true);
+    setHealthError("");
+    try {
+      const res = await fetch("/api/health");
+      if (!res.ok) { setHealthError(`Health check failed (HTTP ${res.status})`); return; }
+      setHealth(await res.json());
+    } catch (err) {
+      setHealthError(err instanceof Error ? err.message : "Health check failed");
+    } finally { setHealthLoading(false); }
+  }, []);
+
+  async function sendTestAlert() {
+    setTestAlertMsg("Sending…");
+    try {
+      const res  = await fetch("/api/health", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "test-alert" }) });
+      const data = await res.json();
+      setTestAlertMsg(data.sent ? "Test alert sent — check your channel." : (data.message ?? "Alerts are not configured."));
+    } catch { setTestAlertMsg("Could not send the test alert."); }
+  }
+
   const fetchLinks = useCallback(async () => {
     const res  = await fetch("/api/links");
     const data = await res.json();
@@ -468,6 +514,7 @@ export default function AdminPage() {
   }
 
   useEffect(() => { if (isAuthed) fetchAll(); }, [isAuthed, fetchAll]);
+  useEffect(() => { if (isAuthed) fetchHealth(); }, [isAuthed, fetchHealth]);
 
   useEffect(() => {
     if (tab === "publish_queue" && isAuthed) fetchPublishQueue();
@@ -938,6 +985,58 @@ export default function AdminPage() {
                 );
               })()}
 
+              {/* ── System status: can a generation succeed right now? ── */}
+              <Card className={health && !health.canGenerate ? "!border-red-500/40" : ""}>
+                <CardHeader
+                  title="System status"
+                  subtitle={health
+                    ? `Checked ${fmt(health.checkedAt)}${health.canGenerate ? " · ready to generate" : " · generation is blocked"}`
+                    : healthLoading ? "Checking OpenAI, WordPress, storage and alerts…" : "Not checked yet"}
+                  action={<Btn variant="secondary" size="sm" onClick={fetchHealth} disabled={healthLoading}>{healthLoading ? "Checking…" : "Re-check"}</Btn>}
+                />
+                <div className="px-5 py-4">
+                  {healthError && <p className="text-xs text-red-400 mb-3">{healthError}</p>}
+                  {health && !health.canGenerate && (
+                    <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+                      <p className="text-sm font-semibold text-red-300">Generation is blocked until this is fixed</p>
+                      {health.blockers.map((b) => <p key={b} className="text-xs text-red-200/90 mt-1 leading-relaxed">{b}</p>)}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+                    {([
+                      ["OpenAI", health?.openai],
+                      ["WordPress", health?.wordpress],
+                      ["Storage", health?.storage],
+                      ["Alerts", health?.alerts],
+                      ["Usage & budget", health?.budget],
+                    ] as [string, HealthCheck | undefined][]).map(([label, c]) => (
+                      <div key={label} className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-4 py-3 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${!c ? "bg-white/20" : c.status === "ok" ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" : c.status === "warn" ? "bg-amber-400" : "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]"}`} />
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-white/50">{label}</p>
+                          {c?.ms != null && <span className="ml-auto text-[10px] text-white/30 tabular-nums">{c.ms} ms</span>}
+                        </div>
+                        <p className="text-xs text-white/80 mt-2 leading-relaxed break-words">{c ? c.message : healthLoading ? "Checking…" : "—"}</p>
+                        {c?.hint && <p className="text-[11px] text-white/40 mt-1.5 leading-relaxed break-words">{c.hint}</p>}
+                        {label === "Alerts" && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <Btn variant="ghost" size="sm" onClick={sendTestAlert}>Send test alert</Btn>
+                            {testAlertMsg && <span className="text-[11px] text-white/50">{testAlertMsg}</span>}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {health?.usage && (
+                    <p className="text-[11px] text-white/35 mt-3 leading-relaxed">
+                      OpenAI usage {health.usageMonth}: {fmtTokens(health.usage.promptTokens)} in · {fmtTokens(health.usage.completionTokens)} out ({fmtTokens(health.usage.reasoningTokens)} reasoning) · {health.usage.calls} calls · {health.usage.images} images
+                      {health.usage.estimatedCostUsd != null && <> · ≈ ${health.usage.estimatedCostUsd.toFixed(2)}</>}
+                      {health.wpApiViaRelay && <> · WordPress API via relay</>}
+                    </p>
+                  )}
+                </div>
+              </Card>
+
               {/* ── The content pipeline, made visible ── */}
               {stats && (
                 <Card>
@@ -980,8 +1079,8 @@ export default function AdminPage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-white/[0.03]/80 text-[11px] font-bold text-white/35 uppercase tracking-wide border-b border-white/[0.06]">
-                          {["Run ID","Started","Completed","Tried","Done","Failed","Status"].map(h => (
-                            <th key={h} className={`px-5 py-3 ${["Tried","Done","Failed","Status"].includes(h) ? "text-center" : "text-left"}`}>{h}</th>
+                          {["Run ID","Started","Completed","Tried","Done","Failed","Tokens","Status"].map(h => (
+                            <th key={h} className={`px-5 py-3 ${["Tried","Done","Failed","Tokens","Status"].includes(h) ? "text-center" : "text-left"}`}>{h}</th>
                           ))}
                         </tr>
                       </thead>
@@ -994,7 +1093,13 @@ export default function AdminPage() {
                             <td className="px-5 py-3.5 text-center text-sm tabular-nums">{r.topicsAttempted}</td>
                             <td className="px-5 py-3.5 text-center text-sm font-semibold text-emerald-300 tabular-nums">{r.topicsCompleted}</td>
                             <td className="px-5 py-3.5 text-center text-sm font-semibold text-red-400 tabular-nums">{r.topicsFailed}</td>
-                            <td className="px-5 py-3.5 text-center"><Badge className={RUN_STATUS[r.status]}>{r.status.replace(/_/g, " ")}</Badge></td>
+                            <td className="px-5 py-3.5 text-center text-xs text-white/60 tabular-nums" title={r.usage ? `${fmtTokens(r.usage.promptTokens)} in · ${fmtTokens(r.usage.completionTokens)} out · ${r.usage.calls} calls · ${r.usage.images} images${r.usage.estimatedCostUsd != null ? ` · ≈ $${r.usage.estimatedCostUsd.toFixed(2)}` : ""}` : "No usage recorded"}>
+                              {r.usage ? fmtTokens(r.usage.totalTokens) : "—"}
+                            </td>
+                            <td className="px-5 py-3.5 text-center">
+                              <Badge className={RUN_STATUS[r.status]}>{r.status.replace(/_/g, " ")}</Badge>
+                              {r.error && <p className="text-[10px] text-red-300/80 mt-1 max-w-[240px] mx-auto truncate" title={r.error}>{r.error}</p>}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1373,9 +1478,19 @@ export default function AdminPage() {
                       <tbody className="divide-y divide-white/[0.05]">
                         {items.map((item) => (
                           <tr key={item.id} className="hover:bg-white/[0.03]/60 transition-colors">
-                            <td className="px-5 py-4 max-w-[240px]">
+                            <td className="px-5 py-4 max-w-[340px]">
                               <p className="font-semibold text-white/90 truncate text-sm" title={item.topic}>{item.topic}</p>
-                              {item.lastError && <p className="text-xs text-red-400 mt-0.5 truncate" title={item.lastError}>{item.lastError}</p>}
+                              {item.lastError && (
+                                <div className="mt-1">
+                                  <p className="text-xs text-red-300 leading-relaxed whitespace-normal break-words">{item.lastError}</p>
+                                  {item.lastErrorDetail && item.lastErrorDetail !== item.lastError && (
+                                    <details className="mt-1">
+                                      <summary className="text-[11px] text-white/35 cursor-pointer hover:text-white/60">Details</summary>
+                                      <pre className="mt-1 text-[10px] text-white/45 whitespace-pre-wrap break-words font-mono max-h-40 overflow-auto rounded bg-black/30 p-2">{item.lastErrorDetail}</pre>
+                                    </details>
+                                  )}
+                                </div>
+                              )}
                               {item.status === "completed" && item.completedAt && <p className="text-xs text-white/35 mt-0.5">Done {fmt(item.completedAt)}</p>}
                               {item.status === "processing" && item.progress && (
                                 <div className="mt-1.5 max-w-[220px]">

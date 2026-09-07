@@ -12,9 +12,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getLinks, saveLinks, LinkEntry } from "@/lib/storage";
+import { axiosWithSgRetry } from "@/lib/wordpress";
+import { WP_API_BASE } from "@/lib/wpApi";
 import axios from "axios";
 
-export const maxDuration = 60;
+// Several 100-post pages, each of which SiteGround's anti-bot may challenge
+// and back off on. 60s guaranteed a timeout on a bad day; this is a daily
+// cron, so give it room.
+export const maxDuration = 300;
 
 function authOk(req: NextRequest): boolean {
   return req.cookies.get("__aston_session")?.value === process.env.API_SECRET;
@@ -96,15 +101,18 @@ async function fetchWpPage(
   page: number
 ): Promise<{ posts: WpPost[]; totalPages: number }> {
   const url = `${baseUrl}/wp-json/wp/v2/posts?per_page=100&status=publish&context=edit&page=${page}`;
-  const res = await axios.get(url, {
+  // axiosWithSgRetry also catches the captcha page served as HTTP 200, which
+  // previously reached `res.data as WpPost[]` as a plain HTML string.
+  const res = await axiosWithSgRetry(`sync-wp page ${page}`, () => axios.get(url, {
     headers: {
       Authorization: `Basic ${auth}`,
       "User-Agent": "AstonBlogTool/1.0 (Vercel; +https://aston.ae)",
     },
     timeout: 30_000,
-  });
+  }), { maxAttempts: 3 });
   const totalPages = parseInt(res.headers["x-wp-totalpages"] ?? "1", 10);
-  return { posts: res.data as WpPost[], totalPages };
+  const posts = Array.isArray(res.data) ? (res.data as WpPost[]) : [];
+  return { posts, totalPages };
 }
 
 interface WpPost {
@@ -143,7 +151,7 @@ function detectLanguage(post: WpPost): string | undefined {
 }
 
 async function runLinkSync(): Promise<NextResponse> {
-  const WP_URL      = process.env.WP_URL!;
+  const WP_URL      = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
   const WP_USERNAME = process.env.WP_USERNAME!;
   const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD!;
   const auth = Buffer.from(`${WP_USERNAME}:${WP_APP_PASSWORD}`).toString("base64");

@@ -5,17 +5,22 @@
  * GET /api/cron?itemId=…   — targeted generation for one due queue item
  *                            (invoked by the scheduleGeneration workflow)
  *
- * This route no longer runs the generation pipeline inline. It only:
+ * This route does not run the generation pipeline inline. It only:
  *  1. Recovers items stuck in "processing" (watchdog)
- *  2. Picks eligible queue item(s)
- *  3. STARTS the durable generatePostWorkflow for each and returns
+ *  2. Runs a PRE-FLIGHT check (OpenAI credits/key, storage, token budget) so
+ *     a generation that cannot possibly succeed fails in seconds with a
+ *     plain-English reason instead of after minutes of doomed retries —
+ *     the 2026-08-26 → 09-07 "no credits" incident went unnoticed for twelve
+ *     days because every run looked like a flaky retry storm
+ *  3. Picks eligible queue item(s)
+ *  4. STARTS the durable generatePostWorkflow for each and returns, storing
+ *     the workflow run id on the item so the watchdog can verify liveness
  *
  * The workflow owns everything else — pipeline steps (checkpointed and
  * auto-retried, resumable after a function kill), queue-item progress and
  * completion/failure bookkeeping, run-log updates, failure notifications,
  * and starting the post-publish media workflow (which always includes
- * images). A killed function therefore no longer loses work: the run
- * resumes from its last completed step instead of restarting from zero.
+ * images).
  *
  * Vercel Cron passes the CRON_SECRET header automatically.
  */
@@ -35,10 +40,12 @@ import {
 import { start } from "workflow/api";
 import { generatePostWorkflow, type GeneratePostInput } from "@/lib/workflows/generatePost";
 import { notify } from "@/lib/notify";
+import { preflight } from "@/lib/health";
+import { humaniseError, formatQueueError } from "@/lib/errors";
 import type { ImageModel } from "@/lib/openai";
 
-// Starting workflows + Redis bookkeeping only — the heavy pipeline runs in
-// the durable workflow, so this function needs none of its old 800s budget.
+// Starting workflows + Redis bookkeeping + a ~20s pre-flight — the heavy
+// pipeline runs in the durable workflow, so this function needs no more.
 export const maxDuration = 60;
 
 function authOk(req: NextRequest): boolean {
@@ -85,25 +92,60 @@ async function launchItem(
     topicsFailed: 0,
     status: "running",
   });
-  await updateQueueItem(item.id, { status: "processing", processingStartedAt: new Date().toISOString(), progress: null });
+  await updateQueueItem(item.id, {
+    status: "processing",
+    processingStartedAt: new Date().toISOString(),
+    progress: null,
+    lastError: null,
+    lastErrorDetail: null,
+    workflowRunId: null,
+  });
 
   try {
     const run = await start(generatePostWorkflow, [buildWorkflowInput(item, imageModel, runLogId)]);
     console.log(`[cron:${label}] Item ${item.id} ("${item.topic}") → workflow ${run.runId} (log ${runLogId})`);
+    // Record the run id so the watchdog can ask the Workflow runtime whether a
+    // long-running item is genuinely dead before re-queueing it. Best-effort:
+    // a lost write only degrades the watchdog to its time-based heuristic.
+    try {
+      await updateQueueItem(item.id, { workflowRunId: run.runId });
+    } catch (err) {
+      console.warn(`[cron:${label}] Could not record workflow run id on item ${item.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
     return { ok: true, workflowRunId: run.runId, runLogId };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[cron:${label}] Could not start workflow for item ${item.id}: ${msg}`);
+    const raw = err instanceof Error ? err.message : String(err);
+    const human = humaniseError(`Could not start generation workflow: ${raw}`);
+    console.error(`[cron:${label}] Could not start workflow for item ${item.id}: ${raw}`);
     await updateQueueItem(item.id, {
       status: "failed",
       retryCount: (item.retryCount ?? 0) + 1,
-      lastError: `Could not start generation workflow: ${msg}`,
+      lastError: formatQueueError(human),
+      lastErrorDetail: raw,
       progress: null,
+      processingStartedAt: null,
     });
-    await updateRunLog(runLogId, { completedAt: new Date().toISOString(), topicsFailed: 1, status: "failed" });
-    await notify(`❌ Could not start generation for "${item.topic}"`, msg);
-    return { ok: false, error: msg };
+    await updateRunLog(runLogId, { completedAt: new Date().toISOString(), topicsFailed: 1, status: "failed", error: formatQueueError(human) });
+    await notify(`❌ Could not start generation for "${item.topic}"`, `${human.title}\n→ ${human.action}\n\nDetails: ${raw}`);
+    return { ok: false, error: raw };
   }
+}
+
+/**
+ * Pre-flight said generation cannot work right now (no OpenAI credits, bad
+ * key, storage down, budget reached). Fail the item WITHOUT starting anything
+ * so the dashboard shows the real reason immediately. retryCount is not
+ * incremented — the item did nothing wrong.
+ */
+async function failItemPreflight(item: QueueItem, blockers: string): Promise<void> {
+  const human = humaniseError(blockers);
+  await updateQueueItem(item.id, {
+    status: "failed",
+    lastError: formatQueueError(human),
+    lastErrorDetail: `Pre-flight check failed: ${blockers}`,
+    progress: null,
+    processingStartedAt: null,
+  });
 }
 
 /**
@@ -120,6 +162,14 @@ async function processTargetedItem(itemId: string) {
   if (item.status !== "queued") {
     console.log(`[cron:targeted] Item ${itemId} is "${item.status}" — nothing to do`);
     return NextResponse.json({ skipped: true, reason: `item_${item.status}` }, { status: 409 });
+  }
+
+  const pre = await preflight();
+  if (!pre.ok) {
+    await failItemPreflight(item, pre.message);
+    await notify(`⛔ Generation blocked for "${item.topic}"`, `${pre.message}\n\nFix the cause, then press Retry now on the dashboard.`);
+    // 200, not 5xx: the scheduling workflow must not retry a deliberate stop.
+    return NextResponse.json({ started: false, blocked: true, itemId: item.id, reason: pre.message });
   }
 
   const settings = await getSettings();
@@ -169,6 +219,21 @@ export async function GET(req: NextRequest) {
     }
 
     const limit = Math.min(settings.maxPerRun ?? 1, settings.blogsPerDay - doneToday);
+    if (!(await getNextEligibleItem())) {
+      console.log("[cron] No queued items due — nothing to do");
+      return NextResponse.json({ skipped: true, reason: "no_items" });
+    }
+
+    // Pre-flight once per daily run. If blocked, leave the queue untouched
+    // (the items did nothing wrong) and raise ONE alert; they run at the next
+    // daily cron once the cause is fixed.
+    const pre = await preflight();
+    if (!pre.ok) {
+      console.error(`[cron] Daily run blocked by pre-flight: ${pre.message}`);
+      await notify("⛔ Daily generation skipped", `${pre.message}\n\nQueued topics were left untouched and will run at the next daily cron once this is fixed.`);
+      return NextResponse.json({ skipped: true, reason: "preflight_failed", blockers: pre.report.blockers });
+    }
+
     console.log(`[cron] Starting up to ${limit} workflow(s) (${doneToday}/${settings.blogsPerDay} done today)`);
 
     const started: string[] = [];

@@ -15,6 +15,7 @@
  */
 
 import OpenAI from "openai";
+import { chatWithRetry, MEDIA_MODEL } from "./llm";
 
 export const CHAPTERS_PLACEHOLDER = "{{CHAPTERS}}";
 export const CONTACT_URL = "https://aston.ae/contact-us/";
@@ -107,15 +108,13 @@ TAGS RULES:
 - Real phrases a user would search — no single generic words like "business" or "video".`;
 
   try {
-    const res = await openai.chat.completions.create({
-      model: "gpt-4o",
+    const res = await chatWithRetry(openai, {
       temperature: 0.6,
-      response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-    }, { signal: AbortSignal.timeout(45_000) });
+    }, { label: "youtubeSeo", timeoutMs: 45_000, model: MEDIA_MODEL });
 
     const raw = res.choices[0]?.message?.content?.trim() ?? "";
     const parsed = JSON.parse(raw) as Partial<YouTubeSeoPackage>;

@@ -25,7 +25,8 @@
  * logic is reused without refactoring.
  */
 
-import { sleep, getWritable } from "workflow";
+import { sleep, getWritable, FatalError } from "workflow";
+import { isNonRetryableMessage, humaniseError } from "@/lib/errors";
 // Type-only imports (erased at compile time) — the concrete modules pull in
 // Node built-ins (ffmpeg-static, child_process, fs…) which the workflow bundle
 // forbids, so the actual functions are dynamically imported INSIDE each step,
@@ -113,7 +114,7 @@ async function callSseRoute(
   });
   if (!res.ok || !res.body) {
     const err = await res.text().catch(() => res.statusText);
-    throw new Error(`${label}: route returned ${res.status} — ${err.slice(0, 300)}`);
+    throw routeError(label, `route returned ${res.status} — ${err.slice(0, 300)}`);
   }
 
   const reader = res.body.getReader();
@@ -137,7 +138,7 @@ async function callSseRoute(
         continue;
       }
       if (event.type === "error") {
-        throw new Error(`${label}: ${String(event.message ?? "generation failed")}`);
+        throw routeError(label, String(event.message ?? "generation failed"));
       }
       if (event.type && terminalTypes.includes(event.type)) {
         return event;
@@ -145,6 +146,15 @@ async function callSseRoute(
     }
   }
   throw new Error(`${label}: stream ended without a terminal event (last progress: "${lastProgress}")`);
+}
+
+// A route relays the underlying failure text. When that text describes a
+// permanent OpenAI problem (no credits, bad key, unknown model…) retrying the
+// step three more times is pointless, so surface it as a FatalError and let
+// the workflow record the failure and move to the next output.
+function routeError(label: string, message: string): Error {
+  const full = `${label}: ${message}`;
+  return isNonRetryableMessage(message) ? new FatalError(full) : new Error(full);
 }
 
 // ── Durable steps ─────────────────────────────────────────────
@@ -324,7 +334,15 @@ async function imagesStep(input: GenerateMediaInput): Promise<void> {
     final_points:       c.final_points,
   } as unknown as Parameters<typeof generateImagePrompts>[1];
 
-  const imagePrompts = await generateImagePrompts(input.title, promptContent);
+  const { withUsageContext } = await import("@/lib/usage");
+  const { isNonRetryableLlmError } = await import("@/lib/llm");
+  let imagePrompts: Awaited<ReturnType<typeof generateImagePrompts>>;
+  try {
+    imagePrompts = await withUsageContext({ step: "media:imagePrompts" }, () => generateImagePrompts(input.title, promptContent));
+  } catch (err) {
+    if (isNonRetryableLlmError(err)) throw new FatalError(err.message);
+    throw err;
+  }
   const settings = await getSettings();
 
   const event = await callSseRoute("/api/generate-images", {
@@ -374,13 +392,16 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
 
   const result: GenerateMediaResult = { audioUrl: null, youtubeUrl: null, podcastUrl: null, errors: [] };
   const fail = async (label: string, err: unknown) => {
-    const msg = `${label}: ${err instanceof Error ? err.message : String(err)}`;
+    const raw = err instanceof Error ? err.message : String(err);
+    const msg = `${label}: ${raw}`;
     console.error(`[generateMedia] ${msg}`);
     result.errors.push(msg);
-    await emit({ type: "media_failed", output: label, message: err instanceof Error ? err.message : String(err) });
+    await emit({ type: "media_failed", output: label, message: raw });
+    // humaniseError is a pure function, so it is safe to call in the workflow body.
+    const human = humaniseError(raw);
     await notifyStep(
       `⚠️ ${label} generation failed for post ${input.postId}`,
-      `"${input.title}"\n${err instanceof Error ? err.message : String(err)}\nRetry from /media?postId=${input.postId}.`
+      `"${input.title}"\n${human.title}\n→ ${human.action}\n\nDetails: ${raw.slice(0, 500)}\nRetry from /media?postId=${input.postId}.`
     );
   };
 

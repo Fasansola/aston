@@ -18,6 +18,7 @@ import { generatePodcastDialogue, type PodcastLengthMins } from "@/lib/podcastDi
 import { buildPodcastEpisode } from "@/lib/podcastAudio";
 import { uploadMediaToWordPress, fetchWithSgRetry } from "@/lib/wordpress";
 import { getPodcastConfig } from "@/lib/podcast";
+import { WP_API_BASE } from "@/lib/wpApi";
 
 export const maxDuration = 800;
 
@@ -49,7 +50,7 @@ async function createPodcastEpisode(
     },
   });
   const res = await fetchWithSgRetry("createPodcastEpisode", () =>
-    fetch(`${process.env.WP_URL}/wp-json/wp/v2/${cptRestBase}`, {
+    fetch(`${WP_API_BASE}/wp-json/wp/v2/${cptRestBase}`, {
       method: "POST",
       headers: { Authorization: `Basic ${WP_AUTH}`, "Content-Type": "application/json" },
       body,
@@ -72,7 +73,7 @@ async function createPodcastEpisode(
  * it can read draft posts (the pipeline saves posts as drafts for review). */
 async function fetchSourceText(postId: number): Promise<{ title: string; text: string }> {
   const res = await fetch(
-    `${process.env.WP_URL}/wp-json/wp/v2/posts/${postId}?_fields=title,content,acf`,
+    `${WP_API_BASE}/wp-json/wp/v2/posts/${postId}?_fields=title,content,acf`,
     { headers: { Authorization: `Basic ${WP_AUTH}` }, signal: AbortSignal.timeout(20_000) }
   );
   if (!res.ok) throw new Error(`Could not load post ${postId} from WordPress (${res.status})`);

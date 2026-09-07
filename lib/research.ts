@@ -8,7 +8,7 @@
  */
 
 import OpenAI from "openai";
-import { chatWithRetry, assertCompleted, extractJson } from "./llm";
+import { chatWithRetry, assertCompleted, extractJson, recordUsage } from "./llm";
 
 export interface ResearchBrief {
   serp_summary: string;
@@ -116,6 +116,7 @@ Return a JSON array. No markdown, no code fences:
       },
     ],
   }, { signal: AbortSignal.timeout(60_000) });
+  recordUsage({ kind: "chat", label: "authorityLinks", model: "gpt-4o-search-preview", usage: response?.usage });
 
   const raw = response.choices[0].message.content?.trim() ?? "";
   const jsonMatch = raw.match(/\[[\s\S]*\]/);
@@ -185,6 +186,7 @@ You are an SEO researcher for a high-end corporate advisory blog. Research the c
       },
     ],
   }, { signal: AbortSignal.timeout(90_000) });
+  recordUsage({ kind: "chat", label: "research", model: "gpt-4o-search-preview", usage: response?.usage });
 
   const raw = response.choices[0].message.content?.trim() ?? "";
   const jsonMatch = raw.match(/\{[\s\S]*\}/);

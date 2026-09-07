@@ -64,6 +64,13 @@ export interface QueueItem {
   // selection fall back to the scheduler-settings defaults.
   mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
   podcastLength?: number; // minutes: 3 | 15 | 30 | 45 | 60
+  // Durable Workflow run id of the generation this item is/was processed by.
+  // Lets the watchdog ask the Workflow runtime whether a long "processing"
+  // item is genuinely dead before re-queueing it (a slow-but-healthy run must
+  // never be duplicated), and ties the item to its run in the logs.
+  workflowRunId?: string | null;
+  // Raw error text behind the plain-English `lastError` (shown under "details").
+  lastErrorDetail?: string | null;
 }
 
 export type ImageModel = "imagen-4" | "gpt-image-2";
@@ -83,6 +90,19 @@ export interface SchedulerSettings {
   podcastLength: number; // minutes: 3 | 15 | 30 | 45 | 60
 }
 
+/** Token totals for a run or a month — written by lib/usage.ts. */
+export interface UsageTotals {
+  calls: number;
+  images: number;
+  promptTokens: number;
+  completionTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+  byModel: Record<string, { calls: number; images: number; promptTokens: number; completionTokens: number }>;
+  /** Only when OPENAI_PRICING is configured; otherwise null. */
+  estimatedCostUsd: number | null;
+}
+
 export interface RunLog {
   runId: string;
   startedAt: string;
@@ -91,6 +111,10 @@ export interface RunLog {
   topicsCompleted: number;
   topicsFailed: number;
   status: "running" | "completed" | "completed_with_errors" | "failed";
+  /** OpenAI usage attributed to this run (scheduled/instant runs). */
+  usage?: UsageTotals | null;
+  /** Plain-English failure summary, when the run failed. */
+  error?: string | null;
 }
 
 // ── Link Manager types ────────────────────────────────────────
@@ -278,6 +302,55 @@ export async function kset<T>(key: string, value: T): Promise<void> {
   return fileSet(key, value);
 }
 
+// ── Hash counters (usage accounting) ──────────────────────────
+// Atomic increments on Redis (HINCRBY) so concurrent runs never lose updates;
+// the file adapter does a plain read-modify-write, which is fine for local dev.
+
+export async function khincrby(key: string, field: string, by: number): Promise<void> {
+  if (!Number.isFinite(by) || by === 0) return;
+  const redis = await getAdapter();
+  if (redis) {
+    try {
+      await redis.hincrby(key, field, Math.round(by));
+    } catch (err) {
+      console.error(`[storage:khincrby] Redis error for "${key}.${field}":`, err);
+    }
+    return;
+  }
+  const current = await fileGet<Record<string, number>>(key, {});
+  current[field] = (Number(current[field]) || 0) + by;
+  await fileSet(key, current);
+}
+
+export async function khgetall(key: string): Promise<Record<string, number> | null> {
+  const redis = await getAdapter();
+  if (redis) {
+    try {
+      const raw = await redis.hgetall<Record<string, string | number>>(key);
+      if (!raw) return null;
+      const out: Record<string, number> = {};
+      for (const [k, v] of Object.entries(raw)) out[k] = Number(v) || 0;
+      return out;
+    } catch (err) {
+      console.error(`[storage:khgetall] Redis error for "${key}":`, err);
+      return null;
+    }
+  }
+  const current = await fileGet<Record<string, number> | null>(key, null);
+  return current;
+}
+
+/** Best-effort TTL (Redis only; the file adapter never expires). */
+export async function kexpire(key: string, seconds: number): Promise<void> {
+  const redis = await getAdapter();
+  if (!redis) return;
+  try {
+    await redis.expire(key, Math.max(1, Math.round(seconds)));
+  } catch (err) {
+    console.warn(`[storage:kexpire] Redis error for "${key}":`, err);
+  }
+}
+
 // ── Queue ─────────────────────────────────────────────────────
 
 export async function getQueue(): Promise<QueueItem[]> {
@@ -299,6 +372,22 @@ export async function saveQueue(items: QueueItem[]): Promise<void> {
 // on a run that is legitimately still working.
 const STUCK_PROCESSING_MS = 20 * 60_000;
 
+/**
+ * Asks the Workflow runtime whether a run is still pending/running. Returns
+ * null when the answer is unknown (runtime unreachable, run not found), in
+ * which case the caller falls back to the time-based heuristic.
+ */
+async function isWorkflowRunAlive(runId: string): Promise<boolean | null> {
+  try {
+    const { getRun } = await import("workflow/api");
+    const status = await getRun(runId).status;
+    return status === "pending" || status === "running";
+  } catch (err) {
+    console.warn(`[storage] Could not read workflow run ${runId} status: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
 export async function recoverStuckProcessingItems(maxRetries = 2): Promise<number> {
   const queue = await getQueue();
   const now = Date.now();
@@ -318,12 +407,31 @@ export async function recoverStuckProcessingItems(maxRetries = 2): Promise<numbe
     const freshest = stamps.length > 0 ? Math.max(...stamps) : 0;
     if (freshest > 0 && now - freshest < STUCK_PROCESSING_MS) continue;
 
+    // Past the threshold. If we know the workflow run, ask the runtime before
+    // declaring it dead: the content step alone can legitimately outlive the
+    // threshold (300s primary + 300s fallback budgets, then WDK retries)
+    // without touching progress.updatedAt, and re-queueing a live run lets the
+    // daily cron start a second generation of the same topic.
+    let knownDead = false;
+    if (item.workflowRunId) {
+      const alive = await isWorkflowRunAlive(item.workflowRunId);
+      if (alive === true) {
+        console.log(`[storage] Item ${item.id} has been processing ${Math.round((now - freshest) / 60_000)} min but run ${item.workflowRunId} is still alive — leaving it`);
+        continue;
+      }
+      knownDead = alive === false;
+    }
+
     const nextRetry = (item.retryCount ?? 0) + 1;
     item.status = nextRetry <= maxRetries ? "queued" : "failed";
     item.retryCount = nextRetry;
-    item.lastError = "Generation was interrupted (timed out or the function stopped). Auto-recovered by the watchdog.";
+    item.lastError = knownDead
+      ? "The generation run ended without recording a result (crashed or was cancelled). Auto-recovered by the watchdog: press Retry now."
+      : "Generation was interrupted (timed out or the function stopped). Auto-recovered by the watchdog: press Retry now.";
+    item.lastErrorDetail = item.workflowRunId ? `workflow run ${item.workflowRunId}` : null;
     item.progress = null;
     item.processingStartedAt = null;
+    item.workflowRunId = null;
     changed++;
   }
 

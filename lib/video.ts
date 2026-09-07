@@ -21,8 +21,10 @@ import { google } from "googleapis";
 import { Readable } from "stream";
 import axios from "axios";
 import { axiosWithSgRetry } from "./wordpress";
+import { WP_API_BASE } from "./wpApi";
+import { chatWithRetry, MEDIA_MODEL } from "./llm";
 
-const WP_URL      = process.env.WP_URL!;
+const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
 const WP_USERNAME = process.env.WP_USERNAME!;
 const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD!;
 const WP_AUTH = Buffer.from(`${WP_USERNAME}:${WP_APP_PASSWORD}`).toString("base64");
@@ -49,10 +51,10 @@ export async function generateVideoPrompt(
     ? `The article targets a ${language}-speaking audience.`
     : "";
 
-  // gpt-4o: short, fast Veo prompt with a 30s timeout — gpt-5.5 reasoning latency
-  // overran it. Mechanical media task, not blog-post content.
-  const { choices } = await openai.chat.completions.create({
-    model: "gpt-4o",
+  // MEDIA_MODEL (gpt-4o by default): a short, fast Veo prompt on a 30s budget —
+  // gpt-5.5 reasoning latency overran it. Goes through chatWithRetry for the
+  // rate-limit handling and the fail-fast on billing/auth errors.
+  const { choices } = await chatWithRetry(openai, {
     temperature: 0.7,
     messages: [
       {
@@ -72,7 +74,7 @@ ${langNote}`,
         content: `Write a Veo 2 video prompt for a blog article titled: "${title}"\nFocus keyword: "${keyword}"\n\nRemember: absolutely no people, hands, or silhouettes.`,
       },
     ],
-  }, { signal: AbortSignal.timeout(30_000) });
+  }, { label: "videoPrompt", timeoutMs: 30_000, model: MEDIA_MODEL, json: false });
 
   const prompt = choices[0].message.content?.trim()
     ?? `Cinematic slow aerial drift over a gleaming modern business district at golden hour, glass towers reflecting warm amber light, no people visible, professional and aspirational atmosphere.`;

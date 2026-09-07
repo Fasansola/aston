@@ -19,8 +19,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import axios from "axios";
 import { generateChartBlock, type ChartSourceContent } from "@/lib/chart";
+import { WP_API_BASE } from "@/lib/wpApi";
 
-const WP_URL = process.env.WP_URL!;
+const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
 const AUTH = { auth: { username: process.env.WP_USERNAME!, password: process.env.WP_APP_PASSWORD! } };
 
 // ACF body sections a fresh chart may be inserted into. main_content is scanned

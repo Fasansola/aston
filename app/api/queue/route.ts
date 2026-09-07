@@ -197,9 +197,11 @@ export async function PATCH(req: NextRequest) {
 
     // Only allow safe client-facing fields
     const allowed = ["status", "priority", "topic", "retryCount", "lastError"];
-    const safeUpdates = Object.fromEntries(
+    const safeUpdates: Record<string, unknown> = Object.fromEntries(
       Object.entries(updates).filter(([k]) => allowed.includes(k))
     );
+    // Clearing the summary must also clear the raw detail behind it.
+    if ("lastError" in safeUpdates && safeUpdates.lastError == null) safeUpdates.lastErrorDetail = null;
 
     const item = await updateQueueItem(id, safeUpdates);
     if (!item) {

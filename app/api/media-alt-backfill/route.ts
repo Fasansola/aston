@@ -17,10 +17,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { WP_API_BASE } from "@/lib/wpApi";
 
 export const maxDuration = 300;
 
-const WP_URL      = process.env.WP_URL!;
+const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
 const WP_USERNAME = process.env.WP_USERNAME!;
 const WP_APP_PASS = process.env.WP_APP_PASSWORD!;
 const WP_AUTH     = Buffer.from(`${WP_USERNAME}:${WP_APP_PASS}`).toString("base64");

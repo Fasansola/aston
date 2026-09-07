@@ -22,6 +22,7 @@
  */
 
 import OpenAI from "openai";
+import { chatWithRetry, MEDIA_MODEL } from "./llm";
 
 export type Speaker = "host" | "expert";
 
@@ -51,7 +52,8 @@ const LENGTH_CONFIG: Record<PodcastLengthMins, { segments: number; wordsPerSegme
 };
 
 const SHOW_NAME = process.env.PODCAST_TITLE || "Aston VIP Insights";
-const MODEL = "gpt-4o";
+// MEDIA_MODEL: gpt-4o by default (fast, long dialogue); MEDIA_LLM_MODEL=gpt-5.5 switches it.
+const MODEL = MEDIA_MODEL;
 // Only add ElevenLabs audio tags ([laughs], [sighs]) when the podcast voice
 // model is v3 (which renders them). On v2 they'd be read aloud literally.
 const EMOTION_TAGS = (process.env.ELEVENLABS_PODCAST_MODEL || "eleven_v3").includes("v3");
@@ -110,12 +112,10 @@ Return ONE valid JSON object, no markdown:
   "subtopics": ["sub-topic 1 as a short phrase", "... exactly ${segments} items ..."]
 }`;
 
-  const res = await openai.chat.completions.create({
-    model: MODEL,
+  const res = await chatWithRetry(openai, {
     temperature: 0.7,
-    response_format: { type: "json_object" },
     messages: [{ role: "system", content: STYLE }, { role: "user", content: user }],
-  }, { signal: AbortSignal.timeout(60_000) });
+  }, { label: "podcastOutline", timeoutMs: 60_000, model: MODEL });
 
   const raw = res.choices[0]?.message?.content?.trim() ?? "";
   const parsed = JSON.parse(raw) as Partial<OutlinePlan>;
@@ -162,12 +162,10 @@ LENGTH — write ${Math.round(wordsTarget * 0.9)} to ${Math.round(wordsTarget * 
 Return ONE valid JSON object, no markdown:
 { "turns": [ { "speaker": "host", "text": "..." }, { "speaker": "expert", "text": "..." } ] }`;
 
-  const res = await openai.chat.completions.create({
-    model: MODEL,
+  const res = await chatWithRetry(openai, {
     temperature: 0.9,
-    response_format: { type: "json_object" },
     messages: [{ role: "system", content: STYLE }, { role: "user", content: user }],
-  }, { signal: AbortSignal.timeout(90_000) });
+  }, { label: "podcastSegment", timeoutMs: 90_000, model: MODEL });
 
   const raw = res.choices[0]?.message?.content?.trim() ?? "";
   const parsed = JSON.parse(raw) as { turns?: DialogueTurn[] };

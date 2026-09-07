@@ -15,7 +15,7 @@
 
 import OpenAI from "openai";
 import { articleToAudioScript } from "./replicate";
-import { extractJson } from "./llm";
+import { extractJson, chatWithRetry, MEDIA_MODEL } from "./llm";
 
 export interface RawVideoSegment {
   sectionTitle: string;
@@ -136,23 +136,22 @@ Return a JSON object with a "scenes" array only — no markdown, no code fences:
 
 { "scenes": [ { "sectionTitle": "Introduction", "narration": "...", "displayText": "...", "bullets": ["...", "...", "..."], "imagePrompt": "..." } ] }`;
 
-  // gpt-4o with response_format json_object (guarantees valid JSON) + one retry.
-  // Kept on gpt-4o (not the gpt-5.5 lib/llm helper) because segmentation is a
-  // fast mechanical task and gpt-5.5's reasoning latency overran the timeout.
+  // MEDIA_MODEL (gpt-4o by default) with response_format json_object + one
+  // retry. Kept off gpt-5.5 because segmentation is a fast mechanical task and
+  // reasoning latency overran the timeout; chatWithRetry adds rate-limit
+  // handling and fail-fast on billing/auth errors.
   const MAX_ATTEMPTS = 2;
   let segments: RawVideoSegment[] | null = null;
   let lastErr = "";
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const { choices } = await openai.chat.completions.create({
-        model: "gpt-4o",
+      const { choices } = await chatWithRetry(openai, {
         temperature: 0.3,
-        response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-      }, { signal: AbortSignal.timeout(60_000) });
+      }, { label: "videoScript", timeoutMs: 60_000, model: MEDIA_MODEL });
 
       const raw = choices[0].message.content?.trim() ?? "";
       const parsed = extractJson<{ scenes?: RawVideoSegment[] } | RawVideoSegment[]>(raw, "videoScript");

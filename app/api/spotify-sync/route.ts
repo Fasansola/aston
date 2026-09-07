@@ -27,10 +27,11 @@
 
 import { NextResponse } from "next/server";
 import { getShowEpisodes, spotifyEpisodeUrl } from "@/lib/spotify";
+import { WP_API_BASE } from "@/lib/wpApi";
 
 export const maxDuration = 60;
 
-const WP_URL   = process.env.WP_URL!;
+const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
 const WP_AUTH  = Buffer.from(`${process.env.WP_USERNAME}:${process.env.WP_APP_PASSWORD}`).toString("base64");
 const CPT_BASE = process.env.PODCAST_CPT_REST_BASE || "podcast";
 

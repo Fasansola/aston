@@ -11,8 +11,12 @@
 
 import axios from "axios";
 import FormData from "form-data";
+import { WP_API_BASE, WP_SITE_URL } from "./wpApi";
 
-const WP_URL = process.env.WP_URL!;
+// REST calls go to WP_API_BASE — the site itself, or a fixed-IP relay when
+// WP_API_URL is set (see lib/wpApi.ts and README → SiteGround). Public-facing
+// URLs must always use the site, never the relay.
+const WP_URL = WP_API_BASE;
 const WP_USERNAME = process.env.WP_USERNAME!;
 const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD!;
 
@@ -38,11 +42,22 @@ const BASE_HEADERS = {
 // hit on ANY write — media upload, post creation, image attach, field patch —
 // is handled consistently rather than throwing and wasting expensive
 // upstream AI work (image generation, ElevenLabs synthesis, Remotion renders).
-function isSgCaptcha(data: unknown): boolean {
+export function isSgCaptcha(data: unknown): boolean {
   return typeof data === "string" && data.includes("sgcaptcha");
 }
 
-const MAX_SG_RETRIES = 5;
+const DEFAULT_SG_RETRIES = 5;
+
+export interface SgRetryOpts {
+  /**
+   * Attempts before the ladder counts as exhausted (default 5, ~50s of
+   * backoff). Time-boxed routes (the public RSS feed, the 60s link sync)
+   * pass 1–2 so they answer inside their budget instead of timing out.
+   * A shortened ladder never trips the shared breaker — only a full one
+   * proves the block is persistent.
+   */
+  maxAttempts?: number;
+}
 
 // ── Persistent-block circuit breaker ─────────────────────────
 // A retry ladder that runs to exhaustion means the block is NOT the transient
@@ -89,8 +104,11 @@ function closeSgBreaker(): void {
 
 export async function axiosWithSgRetry<T>(
   label: string,
-  attempt: () => Promise<import("axios").AxiosResponse<T>>
+  attempt: () => Promise<import("axios").AxiosResponse<T>>,
+  opts: SgRetryOpts = {}
 ): Promise<import("axios").AxiosResponse<T>> {
+  const MAX_SG_RETRIES = Math.max(1, opts.maxAttempts ?? DEFAULT_SG_RETRIES);
+  const fullLadder = opts.maxAttempts === undefined;
   assertSgNotBlocked(label);
   for (let i = 1; i <= MAX_SG_RETRIES; i++) {
     let res: import("axios").AxiosResponse<T>;
@@ -123,15 +141,18 @@ export async function axiosWithSgRetry<T>(
     closeSgBreaker();
     return res;
   }
-  openSgBreaker(label);
+  if (fullLadder) openSgBreaker(label);
   throw new SiteGroundBlockedError(label);
 }
 
 // fetch-based variant for routes that use raw fetch instead of axios
 export async function fetchWithSgRetry(
   label: string,
-  attempt: () => Promise<Response>
+  attempt: () => Promise<Response>,
+  opts: SgRetryOpts = {}
 ): Promise<Response> {
+  const MAX_SG_RETRIES = Math.max(1, opts.maxAttempts ?? DEFAULT_SG_RETRIES);
+  const fullLadder = opts.maxAttempts === undefined;
   assertSgNotBlocked(label);
   for (let i = 1; i <= MAX_SG_RETRIES; i++) {
     let res: Response;
@@ -160,7 +181,7 @@ export async function fetchWithSgRetry(
     closeSgBreaker();
     return res;
   }
-  openSgBreaker(label);
+  if (fullLadder) openSgBreaker(label);
   throw new SiteGroundBlockedError(label);
 }
 
@@ -631,7 +652,7 @@ export async function publishWordPressPost(postId: number): Promise<{ link: stri
   closeSgBreaker();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data: any = response!.data;
-  const link: string = typeof data?.link === "string" ? data.link : `${WP_URL}/?p=${postId}`;
+  const link: string = typeof data?.link === "string" ? data.link : `${WP_SITE_URL}/?p=${postId}`;
   console.log(`[wordpress] Post ${postId} published — ${link}`);
   return { link };
 }
