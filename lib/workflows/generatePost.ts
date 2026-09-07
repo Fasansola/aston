@@ -28,6 +28,8 @@
 
 import { getWritable, FatalError, sleep } from "workflow";
 import { humaniseError } from "@/lib/errors";
+import { draftKeyFor, inputSignature, DRAFT_STAGE_LABELS } from "@/lib/draftCore";
+import type { GenerationDraft, DraftQa } from "@/lib/drafts";
 
 import {
   generateBlueprint, generateBlogContent, fixBlogContent,
@@ -264,25 +266,38 @@ async function qaStep(
 
 // ── Publish ────────────────────────────────────────────────────
 
-async function publishStep(
-  title: string, content: BlogContent, imagePrompts: ImagePrompts, language: string,
-  wpStatus: "draft" | "publish" = "publish"
-): Promise<{
+type PublishResult = {
   postId: number; link: string | null; articleHtml: string;
   assembled: { main_content: string; more_content_1: string; more_content_3: string; more_content_4: string };
-}> {
-  "use step";
+};
+
+/** Embed the flowchart and strip the IMGSLOT markers — what WordPress receives. */
+function assembleForPublish(content: BlogContent) {
   // Embed the flowchart HTML now, so it is part of the post regardless of how
   // image generation goes. IMGSLOT_* markers are placeholders the image step
   // replaces later.
   const embedded = embedFlowchartHtml(content);
-  console.log(`[wf] flowchart steps: ${embedded.flowchart_steps?.length ?? 0}`);
   const assembled = {
     main_content:   embedded.main_content.replace("IMGSLOT_MAIN", ""),
     more_content_1: embedded.more_content_1.replace("IMGSLOT_ONE", ""),
     more_content_3: embedded.more_content_3.replace("IMGSLOT_TWO", ""),
     more_content_4: embedded.more_content_4.replace("IMGSLOT_SPLIT", ""),
   };
+  const articleHtml = [
+    embedded.key_takeaways, assembled.main_content, embedded.keypoint_one, assembled.more_content_1,
+    embedded.more_content_2, embedded.quote_1, assembled.more_content_3, embedded.keypoint_two,
+    assembled.more_content_4, embedded.quote_2, embedded.more_content_5, embedded.more_content_6, embedded.final_points,
+  ].filter(Boolean).join("\n");
+  return { embedded, assembled, articleHtml };
+}
+
+async function publishStep(
+  title: string, content: BlogContent, imagePrompts: ImagePrompts, language: string,
+  wpStatus: "draft" | "publish" = "publish"
+): Promise<PublishResult> {
+  "use step";
+  const { embedded, assembled, articleHtml } = assembleForPublish(content);
+  console.log(`[wf] flowchart steps: ${embedded.flowchart_steps?.length ?? 0}`);
   // A persistent SiteGround block is not something a retry can fix — the next
   // two attempts hit the same wall and cost ~50s of backoff each. Convert it to
   // FatalError so WDK stops immediately and the operator sees the real cause.
@@ -293,11 +308,6 @@ async function publishStep(
     if (err instanceof SiteGroundBlockedError) throw new FatalError(err.message);
     throw err;
   }
-  const articleHtml = [
-    embedded.key_takeaways, assembled.main_content, embedded.keypoint_one, assembled.more_content_1,
-    embedded.more_content_2, embedded.quote_1, assembled.more_content_3, embedded.keypoint_two,
-    assembled.more_content_4, embedded.quote_2, embedded.more_content_5, embedded.more_content_6, embedded.final_points,
-  ].filter(Boolean).join("\n");
   // Extract only JSON-serializable scalars — WDK rejects step return values
   // that contain functions or prototype-inherited methods.
   return {
@@ -306,6 +316,43 @@ async function publishStep(
     articleHtml,
     assembled,
   };
+}
+
+/** An earlier run already created the WordPress post: rebuild the publish result without a second post. */
+async function reusePublishedStep(published: { postId: number; link: string | null }, content: BlogContent): Promise<PublishResult> {
+  "use step";
+  const { assembled, articleHtml } = assembleForPublish(content);
+  return { postId: published.postId, link: published.link, articleHtml, assembled };
+}
+
+// ── Saved progress (lib/drafts.ts) ─────────────────────────────
+// Every stage writes its output to the draft store as it completes; a new
+// run for the same item resumes from it. Both steps are best-effort: the
+// store must never be the reason a generation fails.
+
+async function loadDraftStep(key: string, signature: string): Promise<GenerationDraft | null> {
+  "use step";
+  try {
+    const { loadDraft } = await import("@/lib/drafts");
+    return await loadDraft(key, signature);
+  } catch (err) {
+    console.warn(`[wf] could not load saved draft (starting clean): ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+async function saveDraftStep(key: string, signature: string, patch: Partial<GenerationDraft>, queueItemId?: string): Promise<void> {
+  "use step";
+  try {
+    const { saveDraft, mirrorDraftOnItem } = await import("@/lib/drafts");
+    const { getWorkflowMetadata } = await import("workflow");
+    let runId: string | undefined;
+    try { runId = getWorkflowMetadata().workflowRunId; } catch { /* not available outside a run */ }
+    const draft = await saveDraft(key, { ...patch, signature, ...(queueItemId ? { queueItemId } : {}) }, runId);
+    if (queueItemId) await mirrorDraftOnItem(queueItemId, draft);
+  } catch (err) {
+    console.warn(`[wf] draft save failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 // Record the published post in the unified post history (shared with the
@@ -579,147 +626,213 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
   // Serializable step context: which run log the LLM usage belongs to.
   const ctx: StepCtx = { runLogId: input.runLogId };
 
+  // Saved progress: keyed by queue item, valid only while the item's inputs
+  // are unchanged (signature). Every stage below saves as it completes, and a
+  // new run for the same item picks up from whatever is stored instead of
+  // paying for the model calls again.
+  const draftKey = draftKeyFor({ queueItemId: input.queueItemId, title: input.title, customInstruction: input.customInstruction, mode: input.mode, sourceText: input.sourceText });
+  const signature = inputSignature(input);
+  const save = (patch: Partial<GenerationDraft>) => saveDraftStep(draftKey, signature, patch, input.queueItemId);
+
   try {
   console.log("[wf] start — hasTopic:", input.hasTopic, "mode:", input.mode, "lang:", input.language, "queueItem:", input.queueItemId ?? "none");
+  const draft = await loadDraftStep(draftKey, signature);
+  if (draft) {
+    console.log(`[wf] resuming from saved draft — stage: ${draft.stage} (saved ${draft.updatedAt}, runs so far: ${draft.runIds.length})`);
+    await emit({ type: "progress", message: `Resuming from the saved draft (${DRAFT_STAGE_LABELS[draft.stage] ?? draft.stage}) — nothing already generated is redone` });
+  }
   await emit({ type: "progress", message: "Researching and planning…" });
-  if (input.queueItemId) await itemProgressStep(input.queueItemId, 1, "Researching the search landscape…");
+  if (input.queueItemId) await itemProgressStep(input.queueItemId, 1, draft ? "Resuming from the saved draft…" : "Researching the search landscape…");
 
   // Title / topic
   let title = input.title;
   let strategyTopic = input.title;
   if (!input.hasTopic) {
-    console.log("[wf] step: deriveTitle");
-    const derived = await deriveTitleStep(input.customInstruction ?? "", input.primary_country, ctx);
-    title = derived.title;
-    strategyTopic = derived.topic;
-    console.log("[wf] deriveTitle done — title:", title);
+    if (draft?.title) {
+      title = draft.title;
+      strategyTopic = draft.strategyTopic ?? draft.title;
+      console.log("[wf] title from saved draft:", title);
+    } else {
+      console.log("[wf] step: deriveTitle");
+      const derived = await deriveTitleStep(input.customInstruction ?? "", input.primary_country, ctx);
+      title = derived.title;
+      strategyTopic = derived.topic;
+      console.log("[wf] deriveTitle done — title:", title);
+    }
   }
 
   const fileSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
+  if (!draft) await save({ title, strategyTopic, fileSlug, stage: "started" });
 
   // Setup (steps auto-retry transient errors; research/authority degrade gracefully)
-  console.log("[wf] step: research");
-  const research = await researchStep(title, input.primary_country, input.customInstruction, ctx);
+  let research: ResearchBrief | null;
+  if (draft && draft.research !== undefined) {
+    research = draft.research;
+  } else {
+    console.log("[wf] step: research");
+    research = await researchStep(title, input.primary_country, input.customInstruction, ctx);
+  }
   if (!research) {
     console.warn("[wf] research returned null — article will be written without live SERP data");
     await emit({ type: "progress", message: "Live research unavailable — writing from domain knowledge only" });
   }
   console.log("[wf] step: selectLinks");
-  const selectedLinks = await selectLinksStep(title, input.language);
+  const selectedLinks = draft?.selectedLinks ?? await selectLinksStep(title, input.language);
   console.log("[wf] step: sourceBrief");
-  const sourceBrief = await sourceBriefStep(input.mode, title, input.sourceText, ctx);
-  console.log("[wf] step: strategy");
-  const strategy = await strategyStep(input, strategyTopic, research);
+  const sourceBrief = draft?.sourceBrief ?? await sourceBriefStep(input.mode, title, input.sourceText, ctx);
+  if (!draft?.sourceBrief) await save({ research, selectedLinks, sourceBrief });
+
+  let strategy = draft?.strategy;
+  if (!strategy) {
+    console.log("[wf] step: strategy");
+    strategy = await strategyStep(input, strategyTopic, research);
+    await save({ strategy });
+  }
   await emit({ type: "progress", message: `Strategy ready — keyword "${strategy.keyword_model.primary_keyword}"` });
   if (input.queueItemId) await itemProgressStep(input.queueItemId, 2, "Planning the article blueprint…");
-  console.log("[wf] step: blueprint");
-  const blueprint = await blueprintStep(title, selectedLinks, sourceBrief, strategy, input.customInstruction, input.language, ctx);
-  console.log("[wf] step: authorityLinks");
-  const authorityLinks = await authorityLinksStep(title, strategy, ctx);
+
+  let blueprint = draft?.blueprint;
+  if (!blueprint) {
+    console.log("[wf] step: blueprint");
+    blueprint = await blueprintStep(title, selectedLinks, sourceBrief, strategy, input.customInstruction, input.language, ctx);
+  }
+  let authorityLinks = draft?.authorityLinks;
+  if (!authorityLinks) {
+    console.log("[wf] step: authorityLinks");
+    authorityLinks = await authorityLinksStep(title, strategy, ctx);
+    await save({ blueprint, authorityLinks, stage: "planned" });
+  }
   await emit({ type: "progress", message: "Writing the article…" });
   if (input.queueItemId) await itemProgressStep(input.queueItemId, 3, "Writing the article…");
 
-  // QA loop
-  let prevContent: BlogContent | null = null;
-  let prevImagePrompts: ImagePrompts | null = null;
-  let prevChecks: Record<string, boolean> | null = null;
-  let prevBrokenUrls: string[] = [];
+  // ── Article + QA (or resume straight to publish) ──────────────
+  type Outcome = { content: BlogContent; imagePrompts: ImagePrompts; qa: DraftQa; needsReview: boolean };
+  let outcome: Outcome | null = null;
 
-  for (let attempt = 1; attempt <= MAX_QA; attempt++) {
-    console.log("[wf] step: content attempt", attempt);
-    let content: BlogContent = attempt === 1
-      ? await contentStep(title, blueprint, selectedLinks, sourceBrief, strategy, input.customInstruction, input.language, authorityLinks, ctx)
-      : await fixStep(title, prevContent!, blueprint, selectedLinks, prevChecks!, input.language, prevBrokenUrls, authorityLinks, ctx);
-    console.log("[wf] step: scrub attempt", attempt);
-    const scrubbed = await scrubStep(content, authorityLinks, prevBrokenUrls);
-    content = scrubbed.content;
-    prevBrokenUrls = scrubbed.brokenUrls;
-    if (scrubbed.linkWarnings.length > 0) {
-      console.warn("[wf] links returned 403 (kept with warning):", scrubbed.linkWarnings.join(", "));
-      await emit({ type: "progress", message: `${scrubbed.linkWarnings.length} link(s) returned 403 and were kept with a warning` });
-    }
+  if (draft?.content && draft.imagePrompts && draft.qa && draft.qa.decision !== "retry") {
+    console.log(`[wf] article and QA from saved draft (decision: ${draft.qa.decision}) — going straight to publish`);
+    outcome = { content: draft.content, imagePrompts: draft.imagePrompts, qa: draft.qa, needsReview: draft.qa.decision === "publish_draft" };
+  } else {
+    let prevContent: BlogContent | null = null;
+    let prevImagePrompts: ImagePrompts | null = draft?.imagePrompts ?? null;
+    let prevChecks: Record<string, boolean> | null = null;
+    let prevBrokenUrls: string[] = draft?.prevBrokenUrls ?? [];
+    const resumeContent: BlogContent | null = draft?.content ?? null;
 
-    // Re-brief the images only when the alt text failed QA or the fix pass
-    // changed the text the briefs are anchored to. (The other two image
-    // checks are always false before images exist, so testing every
-    // IMAGE_QA_CHECK re-briefed on every attempt: two extra model calls and
-    // ~2 minutes per QA retry for nothing.)
-    const needNewImagePrompts = attempt === 1
-      || prevChecks!.image_alt_text_exists === false
-      || imageBriefInputsChanged(prevContent!, content);
-    console.log("[wf] step: imagePrompts attempt", attempt, "regen:", needNewImagePrompts);
-    const imagePrompts: ImagePrompts = needNewImagePrompts ? await imagePromptsStep(title, content, ctx) : prevImagePrompts!;
-    console.log("[wf] step: qa attempt", attempt);
-    if (input.queueItemId) await itemProgressStep(input.queueItemId, 4, attempt === 1 ? "Running quality checks…" : `Quality checks (attempt ${attempt} of ${MAX_QA})…`);
-    const { qa, readMins } = await qaStep(content, imagePrompts, title);
-    content = { ...content, read_mins: readMins };
-    console.log("[wf] qa result — status:", qa.status, "score:", qa.score);
-
-    prevContent = content;
-    prevImagePrompts = imagePrompts;
-    prevChecks = qa.checks;
-
-    if (qa.status === "fail") {
-      if (attempt < MAX_QA) {
-        await emit({ type: "qa_retry", attempt: attempt + 1, max: MAX_QA });
-        continue;
+    for (let attempt = 1; attempt <= MAX_QA; attempt++) {
+      let content: BlogContent;
+      if (attempt === 1 && resumeContent) {
+        console.log("[wf] article from saved draft — re-running QA on it");
+        content = resumeContent;
+      } else if (attempt === 1) {
+        console.log("[wf] step: content attempt", attempt);
+        content = await contentStep(title, blueprint, selectedLinks, sourceBrief, strategy, input.customInstruction, input.language, authorityLinks, ctx);
+      } else {
+        console.log("[wf] step: fix attempt", attempt);
+        content = await fixStep(title, prevContent!, blueprint, selectedLinks, prevChecks!, input.language, prevBrokenUrls, authorityLinks, ctx);
       }
-      // EXHAUSTED — save as draft (failed QA should not go live) + notify.
-      console.log("[wf] step: publish (qa-exhausted)");
-      if (input.queueItemId) await itemProgressStep(input.queueItemId, 5, "Saving draft to WordPress (needs review)…");
-      const published = await publishWithPatience(input, title, content, imagePrompts, "draft");
-      await recordHistoryStep(published.postId, published.link, content, true,
-        input.queueItemId ? "scheduler" : "manual", input.mediaOutputs, imagePrompts);
-      if (input.queueItemId) {
-        await completeItemStep(input.queueItemId, input.runLogId, published.postId, published.link, qa.score, qa.blocking_issues);
-        await startMediaStep(input, published, content, true, imagePrompts);
+      console.log("[wf] step: scrub attempt", attempt);
+      const scrubbed = await scrubStep(content, authorityLinks, prevBrokenUrls);
+      content = scrubbed.content;
+      prevBrokenUrls = scrubbed.brokenUrls;
+      if (scrubbed.linkWarnings.length > 0) {
+        console.warn("[wf] links returned 403 (kept with warning):", scrubbed.linkWarnings.join(", "));
+        await emit({ type: "progress", message: `${scrubbed.linkWarnings.length} link(s) returned 403 and were kept with a warning` });
       }
-      await emit(buildDoneEvent({
-        published, content, imagePrompts, fileSlug, imageModel: input.imageModel,
-        readMins, wordCount: qa.wordCount, language: input.language,
-        needsReview: true, failingChecks: qa.blocking_issues,
-      }));
-      await closeStream();
-      console.log("[wf] done (needs review), postId:", published.postId);
-      return { postId: published.postId, needsReview: true };
-    }
 
-    // First pass with retryable warnings → one targeted fix pass
-    if (attempt === 1) {
-      const retryable = RETRYABLE_WARNING_CHECKS.filter((k) => qa.checks[k] === false);
-      if (retryable.length > 0) {
-        await emit({ type: "qa_retry", attempt: attempt + 1, max: MAX_QA });
-        continue;
+      // Re-brief the images only when there are none yet, the alt text failed
+      // QA, or the fix pass changed the text the briefs are anchored to.
+      const needNewImagePrompts = !prevImagePrompts
+        || prevChecks?.image_alt_text_exists === false
+        || (prevContent !== null && imageBriefInputsChanged(prevContent, content));
+      console.log("[wf] step: imagePrompts attempt", attempt, "regen:", needNewImagePrompts);
+      const imagePrompts: ImagePrompts = needNewImagePrompts ? await imagePromptsStep(title, content, ctx) : prevImagePrompts!;
+      console.log("[wf] step: qa attempt", attempt);
+      if (input.queueItemId) await itemProgressStep(input.queueItemId, 4, attempt === 1 ? "Running quality checks…" : `Quality checks (attempt ${attempt} of ${MAX_QA})…`);
+      const { qa, readMins } = await qaStep(content, imagePrompts, title);
+      content = { ...content, read_mins: readMins };
+      console.log("[wf] qa result — status:", qa.status, "score:", qa.score);
+
+      prevContent = content;
+      prevImagePrompts = imagePrompts;
+      prevChecks = qa.checks;
+
+      const summary: DraftQa = {
+        status: qa.status, score: qa.score, warnings: qa.warnings, blocking_issues: qa.blocking_issues,
+        wordCount: qa.wordCount, readMins, attempt, decision: "retry",
+      };
+
+      if (qa.status === "fail") {
+        if (attempt < MAX_QA) {
+          await save({ content, imagePrompts, prevBrokenUrls, qa: summary, stage: "written" });
+          await emit({ type: "qa_retry", attempt: attempt + 1, max: MAX_QA });
+          continue;
+        }
+        // EXHAUSTED — save as a WordPress draft (failed QA should not go live).
+        summary.decision = "publish_draft";
+        await save({ content, imagePrompts, prevBrokenUrls, qa: summary, stage: "qa_exhausted" });
+        outcome = { content, imagePrompts, qa: summary, needsReview: true };
+        break;
       }
-    }
 
-    // PASS → publish draft
-    console.log("[wf] step: publish (pass)");
-    if (input.queueItemId) await itemProgressStep(input.queueItemId, 5, "Publishing draft to WordPress…");
-    const published = await publishWithPatience(input, title, content, imagePrompts, "publish");
-    await recordHistoryStep(published.postId, published.link, content, false,
-      input.queueItemId ? "scheduler" : "manual", input.mediaOutputs, imagePrompts);
-    if (input.queueItemId) {
-      await completeItemStep(input.queueItemId, input.runLogId, published.postId, published.link, qa.score, qa.warnings);
-      await startMediaStep(input, published, content, false, imagePrompts);
+      // First pass with retryable warnings → one targeted fix pass
+      if (attempt === 1) {
+        const retryable = RETRYABLE_WARNING_CHECKS.filter((k) => qa.checks[k] === false);
+        if (retryable.length > 0) {
+          await save({ content, imagePrompts, prevBrokenUrls, qa: summary, stage: "written" });
+          await emit({ type: "qa_retry", attempt: attempt + 1, max: MAX_QA });
+          continue;
+        }
+      }
+
+      summary.decision = "publish";
+      await save({ content, imagePrompts, prevBrokenUrls, qa: summary, stage: "qa_passed" });
+      outcome = { content, imagePrompts, qa: summary, needsReview: false };
+      break;
     }
-    await emit(buildDoneEvent({
-      published, content, imagePrompts, fileSlug, imageModel: input.imageModel,
-      readMins, wordCount: qa.wordCount, language: input.language,
-      needsReview: false, qa: { status: qa.status, score: qa.score, warnings: qa.warnings },
-    }));
-    await closeStream();
-    console.log("[wf] done, postId:", published.postId);
-    return { postId: published.postId, needsReview: false };
+    // Unreachable — the loop always sets an outcome. Fatal so it surfaces if logic changes.
+    if (!outcome) throw new FatalError("QA loop exited without an outcome");
   }
 
-  // Unreachable — the loop always returns. Fatal so it surfaces if logic changes.
-  throw new FatalError("QA loop exited without publishing");
+  const { content, imagePrompts, qa, needsReview } = outcome;
+
+  // ── Publish ────────────────────────────────────────────────────
+  const wpStatus: "draft" | "publish" = needsReview ? "draft" : "publish";
+  console.log(`[wf] step: publish (${needsReview ? "qa-exhausted" : "pass"})`);
+  if (input.queueItemId) await itemProgressStep(input.queueItemId, 5, needsReview ? "Saving draft to WordPress (needs review)…" : "Publishing draft to WordPress…");
+  let published: PublishResult;
+  if (draft?.published?.postId) {
+    console.log(`[wf] WordPress post ${draft.published.postId} was already created by an earlier run — reusing it`);
+    published = await reusePublishedStep(draft.published, content);
+  } else {
+    published = await publishWithPatience(input, title, content, imagePrompts, wpStatus);
+    await save({ published: { postId: published.postId, link: published.link, status: wpStatus, needsReview }, stage: "published" });
+  }
+
+  await recordHistoryStep(published.postId, published.link, content, needsReview,
+    input.queueItemId ? "scheduler" : "manual", input.mediaOutputs, imagePrompts);
+  if (input.queueItemId) {
+    await completeItemStep(input.queueItemId, input.runLogId, published.postId, published.link, qa.score, needsReview ? qa.blocking_issues : qa.warnings);
+    await startMediaStep(input, published, content, needsReview, imagePrompts);
+  }
+  await save({ stage: "completed" });
+  await emit(buildDoneEvent({
+    published, content, imagePrompts, fileSlug, imageModel: input.imageModel,
+    readMins: qa.readMins, wordCount: qa.wordCount, language: input.language,
+    needsReview,
+    ...(needsReview
+      ? { failingChecks: qa.blocking_issues }
+      : { qa: { status: qa.status, score: qa.score, warnings: qa.warnings } }),
+  }));
+  await closeStream();
+  console.log(`[wf] done${needsReview ? " (needs review)" : ""}, postId:`, published.postId);
+  return { postId: published.postId, needsReview };
   } catch (err) {
     // A step failed after exhausting WDK's retries (or a fatal error like a bad
     // API key). Log the real cause (visible in Vercel function logs), tell the
     // client, close the stream so it never hangs, then re-throw so the run is
-    // marked failed in observability.
+    // marked failed in observability. Whatever was generated is in the draft
+    // store — the next run resumes from it.
     const errName = err instanceof Error ? err.constructor.name : typeof err;
     const errMsg  = err instanceof Error
       ? err.message
@@ -728,6 +841,7 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
       : (() => { try { return JSON.stringify(err); } catch { return String(err); } })();
     console.error(`[generatePost] Workflow failed — ${errName}: ${errMsg}`, err);
     const message = errMsg || "Generation failed unexpectedly. Please try again.";
+    await save({ lastError: message });
     if (input.queueItemId) {
       await failItemStep(input.queueItemId, input.runLogId, input.title || input.customInstruction?.slice(0, 60) || "untitled", message);
     }

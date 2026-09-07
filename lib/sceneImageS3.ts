@@ -12,7 +12,7 @@
  * during the render without requiring public bucket access.
  */
 
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl }               from "@aws-sdk/s3-request-presigner";
 import { GetObjectCommand }           from "@aws-sdk/client-s3";
 
@@ -79,4 +79,41 @@ export async function uploadSceneImageToS3(
   filename: string
 ): Promise<string> {
   return uploadAssetToS3(buffer, filename, "image/png", "scene-images");
+}
+
+// ── Durable staging (article images) ─────────────────────────
+// The four article images are generated in one request together with their
+// WordPress upload; when SiteGround blocked the upload the images were simply
+// lost and a retry paid for four more. They are now written here first, keyed
+// by post, and a retry re-uploads the stored files instead of regenerating.
+
+/** True when the bucket and credentials are configured (video pipeline env). */
+export function s3Available(): boolean {
+  try {
+    getBucketName();
+    return !!(process.env.REMOTION_AWS_ACCESS_KEY_ID && process.env.REMOTION_AWS_SECRET_ACCESS_KEY);
+  } catch {
+    return false;
+  }
+}
+
+export async function s3ObjectExists(key: string): Promise<boolean> {
+  try {
+    await getS3Client().send(new HeadObjectCommand({ Bucket: getBucketName(), Key: key }));
+    return true;
+  } catch (err) {
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+    if (e?.name === "NotFound" || e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404) return false;
+    throw err;
+  }
+}
+
+export async function getS3ObjectBuffer(key: string): Promise<Buffer> {
+  const res = await getS3Client().send(new GetObjectCommand({ Bucket: getBucketName(), Key: key }));
+  if (!res.Body) throw new Error(`S3 object ${key} has no body`);
+  return Buffer.from(await res.Body.transformToByteArray());
+}
+
+export async function putS3Object(key: string, buffer: Buffer, contentType: string): Promise<void> {
+  await getS3Client().send(new PutObjectCommand({ Bucket: getBucketName(), Key: key, Body: buffer, ContentType: contentType }));
 }

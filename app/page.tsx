@@ -40,6 +40,7 @@ interface QueueItem {
   status: QueueStatus; createdAt: string; completedAt: string | null;
   retryCount: number; lastError: string | null;
   lastErrorDetail?: string | null; workflowRunId?: string | null;
+  draftKey?: string | null; draftStage?: string | null; draftUpdatedAt?: string | null;
   wpPostId: number | null; wpEditUrl: string | null; wpPostUrl: string | null;
   qaScore: number | null; qaWarnings: string[];
   scheduledFor?: string | null;
@@ -108,6 +109,10 @@ interface PostHistoryEntry {
   mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
   imageConcepts?: Partial<Record<"featured" | "keypoint_one" | "post_split" | "keypoint_two", string>>;
 }
+const DRAFT_STAGE_LABEL: Record<string, string> = {
+  started: "started", planned: "planned", written: "article written", qa_passed: "article written, QA passed",
+  qa_exhausted: "article written, needs review", published: "published to WordPress", completed: "completed",
+};
 const IMAGE_SLOT_ORDER: Array<["featured" | "keypoint_one" | "post_split" | "keypoint_two", string]> = [
   ["featured", "Hero"], ["keypoint_one", "Keypoint 1"], ["post_split", "Split"], ["keypoint_two", "Keypoint 2"],
 ];
@@ -639,6 +644,15 @@ export default function AdminPage() {
     await fetchDashboard();
     showToast("Item removed");
   }
+
+  const discardDraft = async (id: string) => {
+    if (!confirm("Forget the saved progress for this item? The next run will start from scratch.")) return;
+    try {
+      await fetch(`/api/queue/draft?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    } finally {
+      fetchDashboard();
+    }
+  };
 
   async function runQueueItemNow(id: string) {
     setRunningNowId(id);
@@ -1495,6 +1509,15 @@ export default function AdminPage() {
                                     </details>
                                   )}
                                 </div>
+                              )}
+                              {item.draftStage && item.status !== "completed" && (
+                                <p className="text-[11px] text-white/40 mt-1 leading-relaxed">
+                                  Saved progress: {DRAFT_STAGE_LABEL[item.draftStage] ?? item.draftStage}{item.draftUpdatedAt ? ` · ${fmt(item.draftUpdatedAt)}` : ""} ·{" "}
+                                  <a href={`/api/queue/draft?id=${item.id}&format=html`} target="_blank" rel="noopener noreferrer" className="text-gold hover:text-gold-bright">Open ↗</a>
+                                  {item.status !== "processing" && (
+                                    <>{" "}· <button onClick={() => discardDraft(item.id)} className="text-white/35 hover:text-red-300" title="Forget the saved progress so the next run starts from scratch">Discard</button></>
+                                  )}
+                                </p>
                               )}
                               {item.status === "completed" && item.completedAt && <p className="text-xs text-white/35 mt-0.5">Done {fmt(item.completedAt)}</p>}
                               {item.status === "processing" && item.progress && (

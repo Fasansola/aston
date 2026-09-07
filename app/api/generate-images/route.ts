@@ -30,6 +30,7 @@ import {
   uploadImageToWordPress,
   updateWordPressPostImages,
 } from "@/lib/wordpress";
+import { s3Available, s3ObjectExists, getS3ObjectBuffer, putS3Object } from "@/lib/sceneImageS3";
 
 // gpt-image-2 reasoning can take minutes per image; allow headroom for the
 // four parallel generations plus a retry without hitting the wall.
@@ -52,6 +53,38 @@ async function generateImageWithRetry(
     }
   }
   throw new Error(`Image "${label}" failed after ${maxAttempts} attempts: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
+}
+
+/**
+ * Get one article image: from the durable S3 staging copy if an earlier
+ * attempt already generated it, otherwise generate it and stage it. Staging
+ * is best-effort — without S3 the route behaves exactly as before.
+ */
+async function obtainImage(
+  postId: number, slot: string, prompt: string, model: ImageModel, reused: string[]
+): Promise<Buffer> {
+  const key = `article-images/${postId}/${slot}.png`;
+  const staged = s3Available();
+  if (staged) {
+    try {
+      if (await s3ObjectExists(key)) {
+        console.log(`[generate-images] Reusing staged image ${key}`);
+        reused.push(slot);
+        return await getS3ObjectBuffer(key);
+      }
+    } catch (err) {
+      console.warn(`[generate-images] Staging lookup failed for ${key} (generating instead): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  const buf = await generateImageWithRetry(prompt, model, slot);
+  if (staged) {
+    try {
+      await putS3Object(key, buf, "image/png");
+    } catch (err) {
+      console.warn(`[generate-images] Could not stage ${key} (continuing): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return buf;
 }
 
 export async function POST(req: NextRequest) {
@@ -105,16 +138,18 @@ export async function POST(req: NextRequest) {
       // The flowchart is embedded into the post at publish time (styled HTML),
       // independent of this route — so image failures never affect it.
 
-      // ── Generate 4 article images in parallel ───────────────
-      await send({ type: "progress", message: `Generating 4 images with ${imageModel}…` });
+      // ── Obtain 4 article images in parallel (staged copies first) ──
+      await send({ type: "progress", message: `Generating 4 images with ${imageModel}${s3Available() ? " (reusing any saved from an earlier attempt)" : ""}…` });
       console.log(`[generate-images] Generating images for post ${postId} with ${imageModel}`);
 
+      const reused: string[] = [];
       const [kp1Buf, kp2Buf, splitBuf, featBuf] = await Promise.all([
-        generateImageWithRetry(imagePrompts.keypoint_one_img_prompt, imageModel, "kp1"),
-        generateImageWithRetry(imagePrompts.keypoint_two_img_prompt, imageModel, "kp2"),
-        generateImageWithRetry(imagePrompts.post_split_img_prompt,   imageModel, "split"),
-        generateImageWithRetry(imagePrompts.featured_img_prompt,     imageModel, "featured"),
+        obtainImage(postId, "kp1",      imagePrompts.keypoint_one_img_prompt, imageModel, reused),
+        obtainImage(postId, "kp2",      imagePrompts.keypoint_two_img_prompt, imageModel, reused),
+        obtainImage(postId, "split",    imagePrompts.post_split_img_prompt,   imageModel, reused),
+        obtainImage(postId, "featured", imagePrompts.featured_img_prompt,     imageModel, reused),
       ]);
+      if (reused.length) console.log(`[generate-images] ${reused.length} image(s) reused from staging: ${reused.join(", ")}`);
 
       // ── Step 3: Upload article images ───────────────────────
       await send({ type: "progress", message: "Uploading images to WordPress…" });
@@ -153,7 +188,7 @@ export async function POST(req: NextRequest) {
       await updateWordPressPostImages(postId, imageIds);
       console.log(`[generate-images] Images attached to post ${postId}`);
 
-      await send({ type: "done", imageIds });
+      await send({ type: "done", imageIds, reused });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[generate-images] Failed: ${msg}`);

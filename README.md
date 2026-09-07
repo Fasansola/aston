@@ -24,6 +24,14 @@ The scheduled pipeline renders the briefs the generation run wrote (they are pas
 
 **Video scene images** get the same treatment (`briefSceneImages` in `lib/videoScript.ts`, run right after scene segmentation). Each of the seven stills is briefed from the narration heard while it is on screen, with the frame's constraints spelled out: the picture sits in a tall panel on the right, zoomed and tinted, with subtitles along the bottom, so the subject is centred and the photograph carries no readable text at all (the video renders its own). Set-level limits: at most two office interiors, two two-people-at-a-table scenes, one screen-led image with no interface, no binders-on-a-desk-with-skyline, and no approach used twice in a row. The same diversity check runs with those limits and asks for one revision; the last seven videos' scene concepts are kept in Redis (`aston:video_scene_concepts`) as "already used". If the art-direction pass fails, the segmentation's own first-draft prompts are used.
 
+## Saved progress (nothing generated is lost)
+
+Every stage of a generation is written to a draft store as it completes (`lib/drafts.ts`, Redis key `aston:draft:item:<queueItemId>`, kept 14 days): the resolved title, research, links, source brief, strategy, blueprint, authority links, the article after each QA pass with the QA verdict, the image briefs, and the WordPress post id once created. A new run for the same queue item (Retry now, the watchdog, the daily cron) resumes from whatever is there: planning is reused, an article that already passed QA goes straight to publish, and a post that was already created is reused rather than duplicated. The draft is ignored when the item's topic, instructions, source text or settings change (an input signature is stored with it).
+
+The queue row shows "Saved progress: <stage> · Open ↗ · Discard". Open renders the saved article with its image briefs and a **Copy article HTML** button, so a piece can be pasted into WordPress by hand if the site stays unreachable; Discard forgets the progress so the next run starts clean. The same page is `GET /api/queue/draft?id=<itemId>&format=html`; without `format` it returns the draft as JSON.
+
+Article images are staged too: `/api/generate-images` writes each generated image to the Remotion S3 bucket (`article-images/<postId>/<slot>.png`) before uploading it to WordPress, and reuses the staged file on any later attempt. A blocked upload therefore costs a retry, not four more images. Without the S3 env the route behaves as before. Consider an S3 lifecycle rule that expires that prefix after a couple of weeks.
+
 ## Crons (vercel.json)
 
 | Path | Schedule (UTC) | Purpose |

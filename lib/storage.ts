@@ -64,6 +64,11 @@ export interface QueueItem {
   // Per-item media outputs, chosen at enqueue time. Items without their own
   // selection fall back to the scheduler-settings defaults.
   mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
+  // Saved generation progress (lib/drafts.ts): how far the last run got and
+  // when. A new run resumes from it; the dashboard links to the saved article.
+  draftKey?: string | null;
+  draftStage?: string | null;
+  draftUpdatedAt?: string | null;
   podcastLength?: number; // minutes: 3 | 15 | 30 | 45 | 60
   // Durable Workflow run id of the generation this item is/was processed by.
   // Lets the watchdog ask the Workflow runtime whether a long "processing"
