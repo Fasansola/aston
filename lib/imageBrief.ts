@@ -78,7 +78,8 @@ export interface ImageSlotBrief {
  *  does not reach for the same setting or subject again. */
 export interface RecentImageConcept {
   post: string;
-  slot: ImageSlot;
+  /** Article slot ("featured", "keypoint_one", …) or a video scene ("scene_3"). */
+  slot: string;
   concept: string;
   setting: string;
   at: string; // ISO timestamp
@@ -252,6 +253,7 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return inter / (a.size + b.size - inter);
 }
 
+const SCREENS = /\b(laptops?|monitors?|screens?|dashboards?|spreadsheets?|tablets?|smartphones?)\b/i;
 const DESK   = /\b(desk|table|boardroom|conference room|meeting room)\b/i;
 const PAPERS = /\b(binder|binders|folder|folders|dossier|dossiers|document|documents|paperwork|papers|report|reports|files?|certificates?|contracts?|brochures?)\b/i;
 const VIEW   = /\b(skyline|window|windows|towers?|cityscape|city view|floor-to-ceiling|burj)\b/i;
@@ -264,15 +266,43 @@ export interface DiversityReport {
   issues: string[];
 }
 
+/** How many images in a set may share a pattern. Defaults suit the four article images. */
+export interface DiversityLimits {
+  /** Office / boardroom / meeting-room interiors (default 1). */
+  maxOffices?: number;
+  /** "Two people at a table" scenes (default 1). */
+  maxDuos?: number;
+  /** Images relying on legible signage or document titles (default 1). */
+  maxSignage?: number;
+  /** Images whose subject is a laptop, monitor, dashboard or spreadsheet (default: no limit). */
+  maxScreens?: number;
+}
+
+/** Drop negated mentions ("no readable text", "no signs or logos") so a prompt that
+ *  forbids text is not counted as one that shows it. */
+function withoutNegations(prompt: string): string {
+  return prompt.replace(/\b(no|without|never|free of)\s+(readable |legible |visible |any |on-screen )?(text|signs?|signage|lettering|logos?|labels?|captions?|watermarks?|screens?|laptops?)[^.,;]*/gi, " ");
+}
+
 /**
  * Flag drafts that are the same picture wearing different words: near-identical
- * wording, more than one office interior, more than one "two men at a table",
- * legible text in more than one image, and the documents-on-a-desk-with-a-
- * skyline recipe that the site's images collapsed into.
+ * wording, too many office interiors, too many "two people at a table" scenes,
+ * legible text in too many images, screens as the subject too often, and the
+ * documents-on-a-desk-with-a-skyline recipe that the site's images collapsed
+ * into (never allowed).
  */
-export function assessPromptDiversity(prompts: string[], labels: string[] = prompts.map((_, i) => `Image ${i + 1}`)): DiversityReport {
+export function assessPromptDiversity(
+  prompts: string[],
+  labels: string[] = prompts.map((_, i) => `Image ${i + 1}`),
+  limits: DiversityLimits = {}
+): DiversityReport {
+  const maxOffices = limits.maxOffices ?? 1;
+  const maxDuos    = limits.maxDuos ?? 1;
+  const maxSignage = limits.maxSignage ?? 1;
+  const maxScreens = limits.maxScreens ?? Infinity;
   const issues: string[] = [];
   const sets = prompts.map(contentWords);
+  const positive = prompts.map(withoutNegations);
 
   for (let i = 0; i < prompts.length; i++) {
     for (let j = i + 1; j < prompts.length; j++) {
@@ -283,22 +313,46 @@ export function assessPromptDiversity(prompts: string[], labels: string[] = prom
     }
   }
 
-  prompts.forEach((p, i) => {
+  positive.forEach((p, i) => {
     if (DESK.test(p) && PAPERS.test(p) && VIEW.test(p)) {
       issues.push(`${labels[i]} is the documents-on-a-desk-in-front-of-a-skyline-window picture the site already overuses; pick a different subject and setting.`);
     }
   });
 
-  const offices = prompts.map((p, i) => (OFFICE.test(p) ? labels[i] : null)).filter(Boolean) as string[];
-  if (offices.length > 1) issues.push(`${offices.join(", ")} are all office interiors; at most one image per article may be set in an office.`);
+  const most = (n: number) => (n === 0 ? "none may" : n === 1 ? "only one may" : `at most ${n} may`);
 
-  const duos = prompts.map((p, i) => (DUO.test(p) ? labels[i] : null)).filter(Boolean) as string[];
-  if (duos.length > 1) issues.push(`${duos.join(", ")} all show two people at a table; use that at most once.`);
+  const offices = positive.map((p, i) => (OFFICE.test(p) ? labels[i] : null)).filter(Boolean) as string[];
+  if (offices.length > maxOffices) issues.push(`${offices.join(", ")} are all office interiors; ${most(maxOffices)} be set in an office, boardroom or meeting room.`);
 
-  const signs = prompts.map((p, i) => (SIGNAGE.test(p) ? labels[i] : null)).filter(Boolean) as string[];
-  if (signs.length > 1) issues.push(`${signs.join(", ")} all rely on legible in-scene text or signage; only one image may.`);
+  const duos = positive.map((p, i) => (DUO.test(p) ? labels[i] : null)).filter(Boolean) as string[];
+  if (duos.length > maxDuos) issues.push(`${duos.join(", ")} all show two people at a table; ${most(maxDuos)} use that.`);
+
+  const signs = positive.map((p, i) => (SIGNAGE.test(p) ? labels[i] : null)).filter(Boolean) as string[];
+  if (signs.length > maxSignage) issues.push(`${signs.join(", ")} all rely on legible in-scene text or signage; ${most(maxSignage)}.`);
+
+  const screens = positive.map((p, i) => (SCREENS.test(p) ? labels[i] : null)).filter(Boolean) as string[];
+  if (screens.length > maxScreens) issues.push(`${screens.join(", ")} all lean on a laptop, monitor or dashboard; ${most(maxScreens)} — show the real-world subject instead.`);
 
   return { ok: issues.length === 0, issues };
+}
+
+// ── Video scenes ──────────────────────────────────────────────
+
+export interface SceneBriefInput {
+  sectionTitle: string;
+  narration: string;
+  displayText?: string;
+  bullets?: string[];
+}
+
+/** The per-scene block the video art-direction prompt reads. */
+export function formatSceneBriefs(scenes: SceneBriefInput[]): string {
+  return scenes.map((sc, i) => {
+    const lines = [`Scene ${i + 1} — "${sc.sectionTitle}"`, `   Narration heard while this image is on screen: "${sc.narration.trim()}"`];
+    if (sc.displayText?.trim()) lines.push(`   On-screen sentence (left panel): "${sc.displayText.trim()}"`);
+    if (sc.bullets?.length) lines.push(`   On-screen bullets: ${sc.bullets.map((b) => b.trim()).filter(Boolean).join(" / ")}`);
+    return lines.join("\n");
+  }).join("\n\n");
 }
 
 /** Pull the optional per-slot concept fields off an ImagePrompts object. */

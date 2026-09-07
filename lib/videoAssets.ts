@@ -75,8 +75,8 @@ async function generateSceneImageBuffer(prompt: string, sectionTitle?: string): 
     .replace(/,\s*,/g, ",")
     .trim();
   const genericPrompt = sectionTitle
-    ? `A photograph of a modern professional business environment related to ${sectionTitle}, clean office setting in Dubai, natural daylight, warm neutral tones`
-    : "A photograph of a sleek modern glass office building in Dubai financial district, blue sky, warm afternoon light, professional corporate setting";
+    ? `An editorial photograph illustrating "${sectionTitle}" for a corporate advisory video: one real place or one telling object, subject centred, natural light, warm neutral tones, no people at desks, no laptops, no readable text anywhere in the frame`
+    : "An editorial photograph of the Dubai waterfront at first light seen from the water, towers softly lit, subject centred, no people, no readable text anywhere in the frame";
 
   try {
     return await callGptImage2(prompt);

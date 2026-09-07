@@ -22,6 +22,8 @@ Hard limits on the set: at most one office interior, no "binders on a desk in fr
 
 The scheduled pipeline renders the briefs the generation run wrote (they are passed into the media workflow with the article), so the pictures match the alt text the article was checked with. The Recent posts tab shows "What the four images show" for every post. To re-image an existing post, open Add media for it and tick Article images: the briefs are rebuilt from the post's own text, including its pull-out sentences and quotes.
 
+**Video scene images** get the same treatment (`briefSceneImages` in `lib/videoScript.ts`, run right after scene segmentation). Each of the seven stills is briefed from the narration heard while it is on screen, with the frame's constraints spelled out: the picture sits in a tall panel on the right, zoomed and tinted, with subtitles along the bottom, so the subject is centred and the photograph carries no readable text at all (the video renders its own). Set-level limits: at most two office interiors, two two-people-at-a-table scenes, one screen-led image with no interface, no binders-on-a-desk-with-skyline, and no approach used twice in a row. The same diversity check runs with those limits and asks for one revision; the last seven videos' scene concepts are kept in Redis (`aston:video_scene_concepts`) as "already used". If the art-direction pass fails, the segmentation's own first-draft prompts are used.
+
 ## Crons (vercel.json)
 
 | Path | Schedule (UTC) | Purpose |

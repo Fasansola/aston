@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   htmlToText, extractHeadings, sectionOutline, articleOutline, buildImageBriefs,
-  formatImageBriefs, assessPromptDiversity, conceptsFromPrompts,
+  formatImageBriefs, assessPromptDiversity, conceptsFromPrompts, formatSceneBriefs,
 } from "@/lib/imageBrief";
 
 const article = {
@@ -129,5 +129,45 @@ describe("conceptsFromPrompts", () => {
     expect(conceptsFromPrompts({ featured_img_concept: " The perimeter test ", keypoint_two_img_concept: "" })).toEqual({ featured: "The perimeter test" });
     expect(conceptsFromPrompts({})).toBeUndefined();
     expect(conceptsFromPrompts(null)).toBeUndefined();
+  });
+});
+
+describe("assessPromptDiversity for video scenes", () => {
+  const deskScene = (n: number) => `A photograph of an adviser and client at a desk in a Dubai office, laptop open between them, skyline window behind, variant ${n}, 50mm lens`;
+
+  it("applies video limits: two offices allowed, screens once, no signage", () => {
+    const report = assessPromptDiversity([
+      deskScene(1), deskScene(2), deskScene(3),
+      "A photograph of a brass nameplate reading VARA on a marble plinth, morning light",
+      "A photograph of a founder at a registry service counter handing over a folder, candid, 35mm",
+      "A photograph of a customs yard at dawn, containers stacked, wide 24mm",
+      "A photograph of a stamped share certificate on a slate tile, macro",
+    ], undefined, { maxOffices: 2, maxDuos: 2, maxSignage: 0, maxScreens: 1 });
+    expect(report.ok).toBe(false);
+    expect(report.issues.some((i) => /office interiors/.test(i))).toBe(true);
+    expect(report.issues.some((i) => /laptop, monitor or dashboard/.test(i))).toBe(true);
+    expect(report.issues.some((i) => /legible in-scene text/.test(i))).toBe(true);
+  });
+
+  it("ignores negated mentions such as 'no readable text' and 'no laptops'", () => {
+    const report = assessPromptDiversity([
+      "A photograph of a founder walking through a free-zone registry hall, no readable text anywhere in the frame, no signs or logos",
+      "A photograph of a bound ledger on a workbench, no laptops or screens, no readable text anywhere in the frame",
+    ], undefined, { maxSignage: 0, maxScreens: 0 });
+    expect(report.issues).toEqual([]);
+  });
+});
+
+describe("formatSceneBriefs", () => {
+  it("lists each scene with its narration and on-screen text", () => {
+    const text = formatSceneBriefs([
+      { sectionTitle: "Introduction", narration: "Dubai has fifty six licensed crypto firms.", displayText: "Fifty six firms hold a license.", bullets: ["Check the VARA register", "Classify your activity"] },
+      { sectionTitle: "Costs", narration: "Budget for capital and fees." },
+    ]);
+    expect(text).toContain("Scene 1 — \"Introduction\"");
+    expect(text).toContain("Narration heard while this image is on screen: \"Dubai has fifty six licensed crypto firms.\"");
+    expect(text).toContain("On-screen bullets: Check the VARA register / Classify your activity");
+    expect(text).toContain("Scene 2 — \"Costs\"");
+    expect(text).not.toContain("Scene 2 — \"Costs\"\n   On-screen sentence");
   });
 });

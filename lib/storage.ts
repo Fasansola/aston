@@ -220,6 +220,7 @@ const KEYS = {
   publishQueue: "aston:publish_queue",
   postHistory:  "aston:post_history",
   imageConcepts: "aston:image_concepts",
+  videoSceneConcepts: "aston:video_scene_concepts",
 } as const;
 
 const DEFAULT_SETTINGS: SchedulerSettings = {
@@ -619,17 +620,21 @@ export async function updatePostHistory(
 // passes them to the model as "already used on the site" so consecutive posts
 // on the same theme stop converging on the same photograph.
 
-const IMAGE_CONCEPT_LIMIT = 48;
+export type ImageConceptScope = "article" | "video";
 
-export async function getRecentImageConcepts(): Promise<RecentImageConcept[]> {
-  const list = await kget<RecentImageConcept[]>(KEYS.imageConcepts, []);
+// 48 = the last twelve articles (4 images) or the last ~7 videos (7 scenes).
+const IMAGE_CONCEPT_LIMIT = 48;
+const conceptKey = (scope: ImageConceptScope) => (scope === "video" ? KEYS.videoSceneConcepts : KEYS.imageConcepts);
+
+export async function getRecentImageConcepts(scope: ImageConceptScope = "article"): Promise<RecentImageConcept[]> {
+  const list = await kget<RecentImageConcept[]>(conceptKey(scope), []);
   return Array.isArray(list) ? list : [];
 }
 
-export async function rememberImageConcepts(entries: RecentImageConcept[]): Promise<void> {
+export async function rememberImageConcepts(entries: RecentImageConcept[], scope: ImageConceptScope = "article"): Promise<void> {
   if (!entries.length) return;
-  const all = await getRecentImageConcepts();
-  await kset(KEYS.imageConcepts, [...entries, ...all].slice(0, IMAGE_CONCEPT_LIMIT));
+  const all = await getRecentImageConcepts(scope);
+  await kset(conceptKey(scope), [...entries, ...all].slice(0, IMAGE_CONCEPT_LIMIT));
 }
 
 export async function updateRunLog(
