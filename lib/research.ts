@@ -2,13 +2,74 @@
  * lib/research.ts
  * ─────────────────────────────────────────────────────────────
  * SEO research step — runs before the strategy engine.
- * Uses gpt-4o-search-preview to pull real SERP data for the topic:
- * what's ranking, what questions people ask, what content gaps exist.
- * The ResearchBrief feeds into the strategy engine as grounded context.
+ * Uses the Responses API's built-in web_search tool to pull real SERP data
+ * for the topic: what's ranking, what questions people ask, what content
+ * gaps exist. The ResearchBrief feeds into the strategy engine as grounded
+ * context. The same helper discovers live authority URLs for the article.
+ *
+ * History: until 2026-09-07 both calls used the chat-completions model
+ * gpt-4o-search-preview. OpenAI deprecated it (404 "has been deprecated"),
+ * so every run silently wrote without live research and without discovered
+ * authority links — the step is best-effort and only logged a warning.
  */
 
 import OpenAI from "openai";
-import { chatWithRetry, assertCompleted, extractJson, recordUsage } from "./llm";
+import {
+  chatWithRetry, assertCompleted, extractJson, recordUsage, classifyLlmError, errorMessage,
+  isReasoningModel, PRIMARY_MODEL, FALLBACK_MODEL,
+} from "./llm";
+
+// ── Web search via the Responses API ─────────────────────────
+
+type SearchContextSize = "low" | "medium" | "high";
+
+/**
+ * Run one web-search-grounded prompt and return the model's text. Tries the
+ * primary model, then the fallback, each with the current `web_search` tool
+ * and then the older `web_search_preview` name, so a model or tool rename
+ * degrades to the next combination instead of losing research for weeks
+ * again. Billing/auth errors are thrown immediately (nothing else can work);
+ * everything else falls through to the caller, which treats research as
+ * best-effort.
+ */
+async function webSearchText(args: {
+  label: string;
+  prompt: string;
+  contextSize: SearchContextSize;
+  timeoutMs: number;
+}): Promise<string> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const models = [...new Set([PRIMARY_MODEL, FALLBACK_MODEL])];
+  const tools: OpenAI.Responses.Tool[] = [
+    { type: "web_search", search_context_size: args.contextSize },
+    { type: "web_search_preview", search_context_size: args.contextSize },
+  ];
+  let lastErr: unknown;
+  for (const model of models) {
+    for (const tool of tools) {
+      try {
+        const response = await openai.responses.create({
+          model,
+          input: args.prompt,
+          tools: [tool],
+          // The search tool does the heavy lifting; the model only condenses
+          // what it found, so a light reasoning budget keeps this quick.
+          ...(isReasoningModel(model) ? { reasoning: { effort: "low" as const } } : {}),
+        }, { signal: AbortSignal.timeout(args.timeoutMs) });
+        recordUsage({ kind: "chat", label: args.label, model, usage: response.usage });
+        const text = (response.output_text ?? "").trim();
+        if (!text) throw new Error(`${args.label}: empty response from ${model} with ${tool.type}`);
+        return text;
+      } catch (err) {
+        lastErr = err;
+        const fatal = classifyLlmError(err);
+        if (fatal && (fatal.kind === "quota" || fatal.kind === "auth")) throw fatal;
+        console.warn(`[${args.label}] ${model} + ${tool.type} failed (${fatal ? fatal.kind : "transient"}): ${errorMessage(err).slice(0, 200)}`);
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(`${args.label}: web search failed`);
+}
 
 export interface ResearchBrief {
   serp_summary: string;
@@ -71,10 +132,10 @@ export interface DiscoveredLink {
 }
 
 /**
- * Use gpt-4o-search-preview to find real, live, topic-specific authority URLs.
- * Returns specific pages (not just homepages) from official sources relevant to
- * the article topic. Results are merged with the hardcoded authority list so
- * GPT always has unique, contextually accurate external links to draw from.
+ * Use live web search to find real, topic-specific authority URLs. Returns
+ * specific pages (not just homepages) from official sources relevant to the
+ * article topic. Results are merged with the hardcoded authority list so GPT
+ * always has unique, contextually accurate external links to draw from.
  *
  * Non-fatal — callers must catch and fall back to the hardcoded list.
  */
@@ -84,19 +145,15 @@ export async function findExternalAuthorityLinks(
   jurisdictions: string[],
   count = 5
 ): Promise<DiscoveredLink[]> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
   const jurisdictionLine = jurisdictions.length > 0
     ? `Key jurisdictions: ${jurisdictions.slice(0, 5).join(", ")}`
     : "";
 
-  const response = await (openai.chat.completions.create as Function)({
-    model: "gpt-4o-search-preview",
-    web_search_options: { search_context_size: "low" },
-    messages: [
-      {
-        role: "user",
-        content: `Find ${count} real, specific, currently live URLs from authoritative sources for the following topic.
+  const raw = await webSearchText({
+    label: "authorityLinks",
+    contextSize: "low",
+    timeoutMs: 90_000,
+    prompt: `Find ${count} real, specific, currently live URLs from authoritative sources for the following topic.
 
 Topic: ${topic}
 Primary keyword: ${primaryKeyword}
@@ -113,12 +170,8 @@ Return a JSON array. No markdown, no code fences:
 [
   { "url": "https://...", "name": "Authority name", "description": "one sentence on what this page covers and why it is relevant to the topic" }
 ]`,
-      },
-    ],
-  }, { signal: AbortSignal.timeout(60_000) });
-  recordUsage({ kind: "chat", label: "authorityLinks", model: "gpt-4o-search-preview", usage: response?.usage });
+  });
 
-  const raw = response.choices[0].message.content?.trim() ?? "";
   const jsonMatch = raw.match(/\[[\s\S]*\]/);
   if (!jsonMatch) return [];
 
@@ -154,23 +207,19 @@ export async function researchTopic(
   primaryCountry?: string,
   customPrompt?: string
 ): Promise<ResearchBrief> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
   const contextLines = [
     `Topic: ${topic}`,
     primaryCountry ? `Primary jurisdiction: ${primaryCountry}` : "",
     customPrompt ? `Additional context: ${customPrompt}` : "",
   ].filter(Boolean).join("\n");
 
-  const response = await (openai.chat.completions.create as Function)({
-    model: "gpt-4o-search-preview",
+  const raw = await webSearchText({
+    label: "research",
     // "medium" context indexes more pages — important for Aston's niche
     // regulatory topics where the relevant sources are not top-of-SERP.
-    web_search_options: { search_context_size: "medium" },
-    messages: [
-      {
-        role: "user",
-        content: `${contextLines}
+    contextSize: "medium",
+    timeoutMs: 150_000,
+    prompt: `${contextLines}
 
 You are an SEO researcher for a high-end corporate advisory blog. Research the current search landscape for the topic above and return a JSON object. No markdown, no code fences.
 
@@ -183,12 +232,8 @@ You are an SEO researcher for a high-end corporate advisory blog. Research the c
   "ranking_competitors": ["3 to 8 specific firms, brands, or publications that currently rank on page one for this topic — name them (e.g. a Big Four firm, a named law firm, a government portal, a competitor advisory). This shows who Aston VIP must outrank"],
   "seo_recommendations": "paragraph with specific SEO recommendations for this topic — what keyword emphasis, structural depth, authority signals, and content scope would help outrank current results"
 }`,
-      },
-    ],
-  }, { signal: AbortSignal.timeout(90_000) });
-  recordUsage({ kind: "chat", label: "research", model: "gpt-4o-search-preview", usage: response?.usage });
+  });
 
-  const raw = response.choices[0].message.content?.trim() ?? "";
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     throw new Error(`No JSON found in research response. Raw: ${raw.slice(0, 200)}`);
