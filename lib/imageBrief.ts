@@ -257,7 +257,7 @@ const PAPERS = /\b(binder|binders|folder|folders|dossier|dossiers|document|docum
 const VIEW   = /\b(skyline|window|windows|towers?|cityscape|city view|floor-to-ceiling|burj)\b/i;
 const OFFICE = /\b(office|boardroom|meeting room|conference room|reception)\b/i;
 const DUO    = /\b(two|2|pair of) (men|businessmen|women|professionals|executives|advisers|advisors|colleagues|people|consultants|founders|lawyers)\b/i;
-const SIGNAGE = /\b(sign|signage|signboard|nameplate|plaque|lettering|embossed|engraved|titled|labelled|labeled|wordmark|reads ["“])/i;
+const SIGNAGE = /\b(signs?|signage|signboards?|nameplates?|plaques?|lettering|embossed|engraved|titled|labelled|labeled|wordmark|inscription|reads ["“])\b/i;
 
 export interface DiversityReport {
   ok: boolean;

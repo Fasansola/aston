@@ -26,13 +26,13 @@
  *   { type: "done", success, ... }  { type: "error", message }
  */
 
-import { getWritable, FatalError } from "workflow";
+import { getWritable, FatalError, sleep } from "workflow";
+import { humaniseError } from "@/lib/errors";
 
 import {
   generateBlueprint, generateBlogContent, fixBlogContent,
   generateImagePrompts, type ImageModel,
 } from "@/lib/openai";
-import { IMAGE_QA_CHECKS } from "@/lib/qaChecks";
 import { createWordPressPost, embedFlowchartHtml, SiteGroundBlockedError, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
 import { runQA, RETRYABLE_WARNING_CHECKS } from "@/lib/qa";
@@ -475,6 +475,48 @@ async function startMediaStep(
   }
 }
 
+// ── Patient publish ───────────────────────────────────────────
+// SiteGround's Anti-Bot AI challenges Vercel's egress IPs intermittently, and
+// it does so most often on the POST that creates the post — the very last
+// step, after 10–15 minutes of model work. Failing the run there throws that
+// work away and a "Retry now" regenerates the whole article. The block
+// usually clears within minutes (writes succeeded at 14:00 and 16:36 on
+// 2026-09-07; the 16:50 one was challenged four times in a row), so wait it
+// out with DURABLE sleeps and try again — the article is already checkpointed.
+// Runs in the workflow body (sleep is a workflow primitive), so no Node APIs.
+
+const PUBLISH_RETRY_WAITS = ["3m", "5m", "8m", "12m", "15m"] as const; // ≈ 43 minutes in total
+
+/** True when the text the image briefs are anchored to changed in a fix pass. */
+function imageBriefInputsChanged(prev: BlogContent, next: BlogContent): boolean {
+  const keys: Array<keyof BlogContent> = ["keypoint_one", "keypoint_two", "quote_2", "key_takeaways", "seo_title", "focus_keyword"];
+  return keys.some((k) => (prev[k] ?? "") !== (next[k] ?? ""));
+}
+
+function isWordPressBlocked(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return humaniseError(msg).kind === "wordpress_blocked";
+}
+
+async function publishWithPatience(
+  input: GeneratePostInput, title: string, content: BlogContent, imagePrompts: ImagePrompts,
+  wpStatus: "draft" | "publish"
+): Promise<Awaited<ReturnType<typeof publishStep>>> {
+  for (let i = 0; ; i++) {
+    try {
+      return await publishStep(title, content, imagePrompts, input.language, wpStatus);
+    } catch (err) {
+      if (!isWordPressBlocked(err) || i >= PUBLISH_RETRY_WAITS.length) throw err;
+      const wait = PUBLISH_RETRY_WAITS[i];
+      const note = `WordPress is blocking Vercel right now (SiteGround anti-bot). The article is written and saved; publishing again in ${wait.replace("m", " min")} (${i + 1} of ${PUBLISH_RETRY_WAITS.length})`;
+      console.warn(`[wf] publish blocked by SiteGround — waiting ${wait} before retry ${i + 1}/${PUBLISH_RETRY_WAITS.length}`);
+      await emit({ type: "progress", message: note });
+      if (input.queueItemId) await itemProgressStep(input.queueItemId, 5, note);
+      await sleep(wait);
+    }
+  }
+}
+
 // Build the full `done` event payload — matches the old /api/generate contract
 // so the client's downstream (image generation, audio, link validation) works
 // identically. Pure object construction is safe in workflow context.
@@ -597,7 +639,14 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
       await emit({ type: "progress", message: `${scrubbed.linkWarnings.length} link(s) returned 403 and were kept with a warning` });
     }
 
-    const needNewImagePrompts = attempt === 1 || IMAGE_QA_CHECKS.some((k) => !prevChecks![k]);
+    // Re-brief the images only when the alt text failed QA or the fix pass
+    // changed the text the briefs are anchored to. (The other two image
+    // checks are always false before images exist, so testing every
+    // IMAGE_QA_CHECK re-briefed on every attempt: two extra model calls and
+    // ~2 minutes per QA retry for nothing.)
+    const needNewImagePrompts = attempt === 1
+      || prevChecks!.image_alt_text_exists === false
+      || imageBriefInputsChanged(prevContent!, content);
     console.log("[wf] step: imagePrompts attempt", attempt, "regen:", needNewImagePrompts);
     const imagePrompts: ImagePrompts = needNewImagePrompts ? await imagePromptsStep(title, content, ctx) : prevImagePrompts!;
     console.log("[wf] step: qa attempt", attempt);
@@ -618,7 +667,7 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
       // EXHAUSTED — save as draft (failed QA should not go live) + notify.
       console.log("[wf] step: publish (qa-exhausted)");
       if (input.queueItemId) await itemProgressStep(input.queueItemId, 5, "Saving draft to WordPress (needs review)…");
-      const published = await publishStep(title, content, imagePrompts, input.language, "draft");
+      const published = await publishWithPatience(input, title, content, imagePrompts, "draft");
       await recordHistoryStep(published.postId, published.link, content, true,
         input.queueItemId ? "scheduler" : "manual", input.mediaOutputs, imagePrompts);
       if (input.queueItemId) {
@@ -647,7 +696,7 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
     // PASS → publish draft
     console.log("[wf] step: publish (pass)");
     if (input.queueItemId) await itemProgressStep(input.queueItemId, 5, "Publishing draft to WordPress…");
-    const published = await publishStep(title, content, imagePrompts, input.language);
+    const published = await publishWithPatience(input, title, content, imagePrompts, "publish");
     await recordHistoryStep(published.postId, published.link, content, false,
       input.queueItemId ? "scheduler" : "manual", input.mediaOutputs, imagePrompts);
     if (input.queueItemId) {

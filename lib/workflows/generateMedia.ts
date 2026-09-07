@@ -453,14 +453,29 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
     }
   }
 
-  // 1b — Article images (kp1, kp2, split, featured) for posts missing them
+  // 1b — Article images (kp1, kp2, split, featured) for posts missing them.
+  // A SiteGround anti-bot block on the upload/attach usually clears within
+  // minutes: wait it out durably and try again (bounded, since each attempt
+  // regenerates four images) instead of leaving the post without pictures.
   if (input.outputs.images === true) {
     await emit({ type: "progress", output: "images", message: "Writing image prompts and generating 4 article images…" });
-    try {
-      await imagesStep(input);
-      await emit({ type: "media_done", output: "images", url: input.blogUrl ?? "" });
-    } catch (err) {
-      await fail("images", err);
+    const waits = ["5m", "10m"] as const;
+    for (let i = 0; ; i++) {
+      try {
+        await imagesStep(input);
+        await emit({ type: "media_done", output: "images", url: input.blogUrl ?? "" });
+        break;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (humaniseError(msg).kind === "wordpress_blocked" && i < waits.length) {
+          console.warn(`[generateMedia] images blocked by SiteGround — waiting ${waits[i]} before retry ${i + 1}/${waits.length}`);
+          await emit({ type: "progress", output: "images", message: `WordPress is blocking Vercel (SiteGround anti-bot); trying the images again in ${waits[i].replace("m", " min")} (${i + 1} of ${waits.length})` });
+          await sleep(waits[i]);
+          continue;
+        }
+        await fail("images", err);
+        break;
+      }
     }
   }
 

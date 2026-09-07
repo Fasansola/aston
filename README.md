@@ -90,6 +90,9 @@ Token usage is written per run (`aston:usage:run:<runId>`, 90-day TTL) and per m
 
 ## SiteGround anti-bot
 
+**What the pipeline does about it (since 2026-09-07).** The block hits the WordPress write most often, which is the last step after 10–15 minutes of model work. A blocked post creation no longer fails the run: the article is already checkpointed, so the workflow waits with durable sleeps (3, 5, 8, 12, then 15 minutes, about 43 minutes in all) and publishes again; the queue row and the Generate page show "WordPress is blocking Vercel right now… publishing again in N min". The media workflow does the same for the article images (waits of 5 and 10 minutes, bounded because each attempt regenerates four images). Internal aston.ae links are no longer HEAD-checked against the live site during link scrubbing (they come from the approved list), which also removes a burst of bot-looking requests to the site right before the write.
+
+
 SiteGround's *Anti-Bot AI* sits in front of WordPress and intermittently answers requests from cloud IP ranges (Vercel's functions share AWS egress IPs with thousands of other apps) with an HTML captcha page instead of JSON. It cannot be switched off in Site Tools and no WordPress plugin can bypass it, because it acts before WordPress runs.
 
 What the code already does: every WordPress request identifies itself with the user-agent **`AstonPublisher/1.0`** (the string SiteGround support asked for, see below; `WP_USER_AGENT` overrides it); every write detects the captcha page and retries with backoff; a persistent block trips a short circuit-breaker so a run fails fast with a clear message instead of burning its time budget; the public podcast feed serves a cached copy and is CDN-cached; the daily link sync has a bigger time budget.

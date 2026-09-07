@@ -103,6 +103,16 @@ describe("assessPromptDiversity", () => {
     expect(report.ok).toBe(true);
   });
 
+  it("does not mistake signing, signatures or design for signage", () => {
+    const report = assessPromptDiversity([
+      "A hardware signing device in a custody cage, close macro, no readable text anywhere in the frame",
+      "A director rehearsing a dual-authorisation signature procedure with the compliance lead, candid medium shot, no readable text",
+      "A designer's architectural model of stacked floors on a workbench, wide shot, no readable text",
+      "A sunlit harbour town seen from the water, dawn, no readable text",
+    ]);
+    expect(report.issues.filter((i) => /legible in-scene text/.test(i))).toEqual([]);
+  });
+
   it("limits legible in-scene text to one image", () => {
     const report = assessPromptDiversity([
       "A brass nameplate engraved FSRA on a granite plinth outside a registry building, morning light, medium shot",

@@ -37,22 +37,10 @@ const LINK_FIELDS: (keyof BlogContent)[] = [
 
 const EXTERNAL_HREF_RE = /href="(https?:\/\/(?!(?:www\.)?aston\.ae)[^"]+)"/gi;
 // Internal links: site-relative ("/page") or absolute aston.ae URLs.
-const INTERNAL_HREF_RE = /href="(\/[^"#][^"]*|https?:\/\/(?:www\.)?aston\.ae[^"]*)"/gi;
 // Base used to resolve site-relative hrefs into an absolute URL for checking.
 const SITE_BASE = "https://aston.ae";
+const SITE_DOMAIN = extractDomain(SITE_BASE);
 
-// Internal pages that must never be checked or removed — they are known-live
-// and required (e.g. the contact-us CTA that every article ends with).
-const PROTECTED_INTERNAL_PATHS = new Set(["/contact-us", "/contact-us/", "/contact", "/contact/"]);
-
-function isProtectedInternal(rawHref: string): boolean {
-  try {
-    const path = new URL(rawHref, SITE_BASE).pathname.toLowerCase();
-    return PROTECTED_INTERNAL_PATHS.has(path) || PROTECTED_INTERNAL_PATHS.has(path.replace(/\/$/, ""));
-  } catch {
-    return false;
-  }
-}
 
 type LinkVerdict = "keep" | "remove" | "warn";
 
@@ -199,21 +187,18 @@ export async function scrubBrokenExternalLinks(content: BlogContent): Promise<{
 
     EXTERNAL_HREF_RE.lastIndex = 0;
     while ((m = EXTERNAL_HREF_RE.exec(html)) !== null) {
+      // Absolute links to our own site are internal links in disguise — see below.
+      if (extractDomain(m[1]) === SITE_DOMAIN) continue;
       links.set(m[1], m[1]);
     }
 
-    INTERNAL_HREF_RE.lastIndex = 0;
-    while ((m = INTERNAL_HREF_RE.exec(html)) !== null) {
-      const raw = m[1];
-      // Never check or remove protected pages (e.g. the contact-us CTA) — they
-      // are always live and required by the article structure.
-      if (isProtectedInternal(raw)) continue;
-      try {
-        links.set(raw, new URL(raw, SITE_BASE).toString());
-      } catch {
-        // unparseable href — skip
-      }
-    }
+    // Internal links are NOT checked over HTTP. They come from the approved
+    // links list (enforceApprovedLinks), which is synced from WordPress, so
+    // they are live by construction — and checking them was actively harmful:
+    // SiteGround's Anti-Bot AI answered every one with a 403 from Vercel's IP
+    // (a burst of ten bot-looking requests to the site seconds before the
+    // post is created is exactly what an anti-bot system scores), and the
+    // 403s were logged as warnings on every run. Verified 2026-09-07.
   }
 
   if (links.size === 0) return { content, removed: [], warnings: [] };
