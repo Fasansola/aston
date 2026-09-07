@@ -1476,7 +1476,8 @@ export default function AdminPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/[0.05]">
-                        {items.map((item) => (
+                        {/* Newest first: the item you just added is at the top, not below the backlog. */}
+                        {[...items].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).map((item) => (
                           <tr key={item.id} className="hover:bg-white/[0.03]/60 transition-colors">
                             <td className="px-5 py-4 max-w-[340px]">
                               <p className="font-semibold text-white/90 truncate text-sm" title={item.topic}>{item.topic}</p>
