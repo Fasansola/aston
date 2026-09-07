@@ -13,7 +13,7 @@
 
 import { NextResponse } from "next/server";
 import axios from "axios";
-import { WP_API_BASE, WP_USER_AGENT } from "@/lib/wpApi";
+import { WP_API_BASE, WP_HEADERS } from "@/lib/wpApi";
 
 export const revalidate = 3600; // cache for 1 hour at the CDN layer
 
@@ -34,7 +34,7 @@ export async function GET() {
     const res = await axios.get(`${WP_URL}/wp-json/pll/v1/languages`, {
       headers: {
         Authorization: `Basic ${auth}`,
-        "User-Agent": WP_USER_AGENT,
+        ...WP_HEADERS,
       },
       timeout: 10000,
     });

@@ -20,10 +20,10 @@ import { NextRequest, NextResponse } from "next/server";
 import axios from "axios";
 import { start } from "workflow/api";
 import { generateMediaWorkflow, type MediaContentFields } from "@/lib/workflows/generateMedia";
-import { WP_API_BASE, WP_USER_AGENT } from "@/lib/wpApi";
+import { WP_API_BASE, WP_HEADERS } from "@/lib/wpApi";
 
 const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
-const AUTH = { auth: { username: process.env.WP_USERNAME!, password: process.env.WP_APP_PASSWORD! }, headers: { "User-Agent": WP_USER_AGENT } };
+const AUTH = { auth: { username: process.env.WP_USERNAME!, password: process.env.WP_APP_PASSWORD! }, headers: { ...WP_HEADERS } };
 const PODCAST_CPT = process.env.PODCAST_CPT_REST_BASE || "podcast";
 
 function authOk(req: NextRequest): boolean {

@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { WP_API_BASE, WP_USER_AGENT } from "@/lib/wpApi";
+import { WP_API_BASE, WP_HEADERS } from "@/lib/wpApi";
 
 export const maxDuration = 300;
 
@@ -25,9 +25,9 @@ const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when W
 const WP_USERNAME = process.env.WP_USERNAME!;
 const WP_APP_PASS = process.env.WP_APP_PASSWORD!;
 const WP_AUTH     = Buffer.from(`${WP_USERNAME}:${WP_APP_PASS}`).toString("base64");
-const WP_HEADERS  = {
+const WP_REQUEST_HEADERS  = {
   Authorization:  `Basic ${WP_AUTH}`,
-  "User-Agent":   WP_USER_AGENT,
+  ...WP_HEADERS,
   "Content-Type": "application/json",
 };
 
@@ -51,7 +51,7 @@ async function fetchMediaPage(page: number) {
   url.searchParams.set("_fields",    "id,alt_text,source_url,title,slug,mime_type");
 
   const res = await fetch(url.toString(), {
-    headers: WP_HEADERS,
+    headers: WP_REQUEST_HEADERS,
     signal:  AbortSignal.timeout(20_000),
   });
 
@@ -124,7 +124,7 @@ Return ONLY the alt text — nothing else.`,
 async function updateAltText(mediaId: number, altText: string): Promise<void> {
   const res = await fetch(`${WP_URL}/wp-json/wp/v2/media/${mediaId}`, {
     method:  "POST",
-    headers: WP_HEADERS,
+    headers: WP_REQUEST_HEADERS,
     body:    JSON.stringify({ alt_text: altText }),
     signal:  AbortSignal.timeout(15_000),
   });

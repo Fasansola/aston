@@ -17,7 +17,7 @@
 
 import OpenAI from "openai";
 import { PRIMARY_MODEL, FALLBACK_MODEL, classifyLlmError, errorMessage } from "./llm";
-import { WP_API_BASE, WP_API_VIA_RELAY, WP_USER_AGENT } from "./wpApi";
+import { WP_API_BASE, WP_API_VIA_RELAY, WP_HEADERS, WP_RELAY_KEY } from "./wpApi";
 import { isSgCaptcha } from "./wordpress";
 import { getSettings, kset, type UsageTotals } from "./storage";
 import { getMonthlyUsage, monthlyTokenBudget, formatTokens, monthKey } from "./usage";
@@ -49,7 +49,6 @@ export interface HealthReport {
   wpApiViaRelay: boolean;
 }
 
-const UA = WP_USER_AGENT;
 
 /** A real (tiny) completion — model listing succeeds even with zero credits, a completion does not. */
 export async function checkOpenAI(timeoutMs = 30_000): Promise<HealthCheck> {
@@ -105,7 +104,7 @@ export async function checkWordPress(timeoutMs = 12_000): Promise<HealthCheck> {
   const t0 = Date.now();
   try {
     const res = await fetch(`${WP_API_BASE}/wp-json/wp/v2/posts?per_page=1&_fields=id&context=edit`, {
-      headers: { Authorization: `Basic ${auth}`, "User-Agent": UA, Accept: "application/json" },
+      headers: { Authorization: `Basic ${auth}`, ...WP_HEADERS, Accept: "application/json" },
       signal: AbortSignal.timeout(timeoutMs),
       cache: "no-store",
     });
@@ -127,6 +126,9 @@ export async function checkWordPress(timeoutMs = 12_000): Promise<HealthCheck> {
     }
     try { JSON.parse(text); } catch {
       return { status: "warn", message: "WordPress returned a non-JSON response", ms };
+    }
+    if (WP_API_VIA_RELAY && !WP_RELAY_KEY) {
+      return { status: "warn", message: "REST API reachable via relay, but WP_RELAY_KEY is not set", hint: "The relay only accepts requests carrying X-Relay-Key. Add WP_RELAY_KEY in Vercel (same value as RELAY_KEY on the relay) and redeploy.", ms };
     }
     return { status: "ok", message: `REST API reachable${WP_API_VIA_RELAY ? " via relay" : ""}`, ms };
   } catch (err) {

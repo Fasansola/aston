@@ -80,6 +80,8 @@ Reliability and cost (all optional):
 | `OPENAI_MONTHLY_TOKEN_BUDGET` | Total tokens per calendar month. Past it, pre-flight blocks new generations until the next month or a higher budget. |
 | `MEDIA_LLM_MODEL` | Model for the media pipeline copy (video/HeyGen scripts, YouTube SEO, podcast dialogue). Default `gpt-4o` for latency; set `gpt-5.5` to use the reasoning model there too (temperature is stripped automatically). |
 | `OPENAI_MODEL` | Primary chat model for the article pipeline. Default `gpt-6-astra` (requested 2026-09-07). If the account cannot use it, the first call gets a 404, every call for the next ten minutes goes straight to `OPENAI_FALLBACK_MODEL`, and the status card's OpenAI light turns amber with the reason. A wrong model name therefore degrades a run, never fails it. |
+| `WP_API_URL` | Base URL for all WordPress REST calls when they should go through the fixed-IP relay (`ops/wp-relay/`), e.g. `https://wp-relay.aston.ae`. Unset = talk to `WP_URL` directly. |
+| `WP_RELAY_KEY` | Shared secret the relay requires (`X-Relay-Key`); sent only when `WP_API_URL` is set. Same value as `RELAY_KEY` on the relay. Mark Sensitive. |
 | `OPENAI_FALLBACK_MODEL` | Model used when the primary is unavailable or fails twice on transient errors. Default `gpt-5.5`, the last model proven on this account (`gpt-5.3` does not exist here). |
 | `WP_API_URL` | Base URL for WordPress REST calls when they must go through a fixed-IP relay. Public links keep using `WP_URL`. See *SiteGround anti-bot*. |
 
@@ -115,26 +117,7 @@ Permanent options, in order of effort:
 
    > Following up on our ticket of 7 July: all requests from our publishing tool now use the user-agent `AstonPublisher/1.0` as you suggested. On <date, time UTC> a request to `POST /wp-json/wp/v2/posts` (Application Password, from an AWS us-east-1 address used by Vercel) still received the Anti-Bot AI challenge page (`sgcaptcha`) instead of JSON — this is the anti-bot challenge, not the WAF rule 900338 from your earlier reply. Please exempt requests carrying this user-agent to `/wp-json/` from the Anti-Bot AI, or tell us which single IP you can whitelist and we will route through it.
 
-2. **Fixed-IP relay + IP whitelist.** SiteGround will whitelist a *single* IP far more readily than a cloud range, and a dedicated IP that only ever sends these polite, authenticated requests is unlikely to be challenged at all. Run a tiny reverse proxy (any small VPS with a static IP, nginx) in front of the same WordPress and point the app at it with `WP_API_URL` — no other code changes. Minimal nginx config:
-
-   ```nginx
-   server {
-     listen 443 ssl;
-     server_name wp-relay.example.com;
-     # ssl_certificate / ssl_certificate_key from certbot
-     client_max_body_size 64m;              # image and audio uploads
-     location /wp-json/ {
-       proxy_pass https://aston.ae;
-       proxy_set_header Host aston.ae;
-       proxy_ssl_server_name on;
-       proxy_set_header Authorization $http_authorization;
-       proxy_set_header User-Agent $http_user_agent;
-       proxy_read_timeout 120s;
-     }
-     location / { return 404; }
-   }
-   ```
-   Then set `WP_API_URL=https://wp-relay.example.com` in Vercel and ask SiteGround to whitelist the relay's IP. The status card shows "REST API reachable via relay" when it is in use.
+2. **Fixed-IP relay + IP whitelist (chosen on 7 September 2026).** SiteGround will whitelist a *single* IP far more readily than a cloud range, and a dedicated address that only ever sends these authenticated requests is unlikely to be challenged at all. `ops/wp-relay/` contains a complete Caddy reverse proxy with an installer: run it on any small VPS with a static IPv4 (`sudo bash install.sh wp-relay.aston.ae aston.ae ops@aston.ae '<key>'`), point `wp-relay.aston.ae` at the machine, then set `WP_API_URL=https://wp-relay.aston.ae` and `WP_RELAY_KEY=<key>` in Vercel and redeploy. Only `/wp-json/*` requests carrying the key are forwarded (everything else is a 404); the key and the `X-Forwarded-*` headers are stripped so WordPress sees plain requests from the relay's address. The status card reads "REST API reachable via relay" when it is in use, and warns if the key is missing. Full steps in `ops/wp-relay/README.md`.
 
 3. **Pull model.** Turn the integration around: a small WordPress plugin polls an authenticated "outbox" on the app every minute and applies posts, media and field updates locally. Outbound requests from SiteGround are never challenged. This removes the dependency entirely but is a larger change (every WordPress write becomes a queued job) and adds up to a minute of latency per publish. Worth it only if options 1 and 2 are refused.
 

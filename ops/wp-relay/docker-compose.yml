@@ -1,0 +1,16 @@
+# Alternative to install.sh for a machine that already runs Docker:
+#   cp .env.example .env && edit .env, then: docker compose up -d
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    env_file: .env
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./logs:/var/log/caddy
+volumes:
+  caddy_data:
+  caddy_config:

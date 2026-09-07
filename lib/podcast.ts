@@ -13,7 +13,7 @@
 
 import { fetchWithSgRetry } from "./wordpress";
 import { kget, kset } from "./storage";
-import { WP_API_BASE, WP_USER_AGENT } from "./wpApi";
+import { WP_API_BASE, WP_HEADERS } from "./wpApi";
 
 const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
 const WP_AUTH = Buffer.from(
@@ -130,7 +130,7 @@ async function fetchLiveEpisodes(config: PodcastConfig, knownProbes: Map<string,
   // ACF fields without requiring edit rights.
   const res = await fetchWithSgRetry("getPodcastEpisodes", () => fetch(
     `${WP_URL}/wp-json/wp/v2/${config.cptRestBase}?per_page=100&_embed=wp:featuredmedia&orderby=date&order=desc`,
-    { headers: { Authorization: `Basic ${WP_AUTH}`, "User-Agent": WP_USER_AGENT }, signal: AbortSignal.timeout(15_000) }
+    { headers: { Authorization: `Basic ${WP_AUTH}`, ...WP_HEADERS }, signal: AbortSignal.timeout(15_000) }
   ), { maxAttempts: 2 });
   if (!res.ok) throw new Error(`CPT "${config.cptRestBase}" fetch failed: HTTP ${res.status}`);
 

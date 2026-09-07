@@ -11,7 +11,7 @@
 
 import axios from "axios";
 import FormData from "form-data";
-import { WP_API_BASE, WP_SITE_URL, WP_USER_AGENT } from "./wpApi";
+import { WP_API_BASE, WP_SITE_URL, WP_HEADERS } from "./wpApi";
 
 // REST calls go to WP_API_BASE — the site itself, or a fixed-IP relay when
 // WP_API_URL is set (see lib/wpApi.ts and README → SiteGround). Public-facing
@@ -29,7 +29,7 @@ const WP_AUTH = Buffer.from(`${WP_USERNAME}:${WP_APP_PASSWORD}`).toString(
 const BASE_HEADERS = {
   Authorization: `Basic ${WP_AUTH}`,
   "Content-Type": "application/json",
-  "User-Agent": WP_USER_AGENT,
+  ...WP_HEADERS,
 };
 
 // ── SiteGround captcha retry helper ──────────────────────────
@@ -258,7 +258,7 @@ export async function uploadImageToWordPress(
     return axios.post(`${WP_URL}/wp-json/wp/v2/media`, form, {
       headers: {
         Authorization: `Basic ${WP_AUTH}`,
-        "User-Agent": WP_USER_AGENT,
+        ...WP_HEADERS,
         ...form.getHeaders(),
       },
       timeout: 60_000,
@@ -305,7 +305,7 @@ export async function uploadMediaToWordPress(
     return axios.post(`${WP_URL}/wp-json/wp/v2/media`, form, {
       headers: {
         Authorization: `Basic ${WP_AUTH}`,
-        "User-Agent": WP_USER_AGENT,
+        ...WP_HEADERS,
         ...form.getHeaders(),
       },
       timeout: 60_000,

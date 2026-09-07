@@ -1,0 +1,62 @@
+# ops/wp-relay/Caddyfile
+# ─────────────────────────────────────────────────────────────
+# Fixed-IP relay for the Aston blog tool's WordPress REST calls.
+#
+# Vercel functions have no stable egress address, and SiteGround's Anti-Bot
+# AI intermittently challenges them. This tiny reverse proxy runs on one
+# machine with one static IP: the app sends its /wp-json/ traffic here (env
+# WP_API_URL) and SiteGround only ever sees this address, which support can
+# whitelist. Only requests carrying the shared key are forwarded; everything
+# else gets a 404, so the relay can never be used as an open proxy.
+#
+# Environment (loaded by systemd from /etc/caddy/wp-relay.env, or by docker
+# compose from .env):
+#   RELAY_HOST      public hostname of this relay, e.g. wp-relay.aston.ae
+#   WP_ORIGIN_HOST  the WordPress host, e.g. aston.ae
+#   ACME_EMAIL      address Let's Encrypt notifies about certificate issues
+#   RELAY_KEY       shared secret; the app sends it as X-Relay-Key
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$RELAY_HOST} {
+	# Uploads: article images (~2 MB each), read-aloud and podcast audio (tens of MB).
+	request_body {
+		max_size 200MB
+	}
+
+	@authorised {
+		path /wp-json/*
+		header X-Relay-Key {$RELAY_KEY}
+	}
+
+	handle @authorised {
+		reverse_proxy https://{$WP_ORIGIN_HOST} {
+			header_up Host {$WP_ORIGIN_HOST}
+			# Never reveal the caller or the key to the origin: SiteGround must
+			# see plain requests from this machine's address only.
+			header_up -X-Relay-Key
+			header_up -X-Forwarded-For
+			header_up -X-Forwarded-Proto
+			header_up -X-Forwarded-Host
+			header_up -X-Real-IP
+			transport http {
+				tls_server_name {$WP_ORIGIN_HOST}
+				dial_timeout 15s
+				response_header_timeout 300s
+			}
+		}
+	}
+
+	handle {
+		respond "Not found" 404
+	}
+
+	log {
+		output file /var/log/caddy/wp-relay.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+	}
+}

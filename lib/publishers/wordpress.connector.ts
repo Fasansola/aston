@@ -6,7 +6,7 @@
  */
 
 import type { PublisherConnector, PublishRequest, PublishResult } from "@/lib/publishers/types";
-import { WP_USER_AGENT } from "@/lib/wpApi";
+import { WP_HEADERS } from "@/lib/wpApi";
 
 export default class WordPressConnector implements PublisherConnector {
   async validateConfig(config: Record<string, string>): Promise<{ ok: boolean; errors: string[] }> {
@@ -23,7 +23,7 @@ export default class WordPressConnector implements PublisherConnector {
 
     try {
       const res = await fetch(`${url}/wp-json/wp/v2/users/me`, {
-        headers: { Authorization: `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`, "User-Agent": WP_USER_AGENT },
+        headers: { Authorization: `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`, ...WP_HEADERS },
       });
       if (!res.ok) errors.push(`Could not authenticate with WordPress (${res.status})`);
     } catch {
@@ -65,7 +65,7 @@ export default class WordPressConnector implements PublisherConnector {
 
       const res = await fetch(`${siteUrl}/wp-json/wp/v2/posts`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: authHeader, "User-Agent": WP_USER_AGENT },
+        headers: { "Content-Type": "application/json", Authorization: authHeader, ...WP_HEADERS },
         body: JSON.stringify(body),
       });
 

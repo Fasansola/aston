@@ -18,7 +18,7 @@ import { generatePodcastDialogue, type PodcastLengthMins } from "@/lib/podcastDi
 import { buildPodcastEpisode } from "@/lib/podcastAudio";
 import { uploadMediaToWordPress, fetchWithSgRetry } from "@/lib/wordpress";
 import { getPodcastConfig } from "@/lib/podcast";
-import { WP_API_BASE, WP_USER_AGENT } from "@/lib/wpApi";
+import { WP_API_BASE, WP_HEADERS } from "@/lib/wpApi";
 
 export const maxDuration = 800;
 
@@ -52,7 +52,7 @@ async function createPodcastEpisode(
   const res = await fetchWithSgRetry("createPodcastEpisode", () =>
     fetch(`${WP_API_BASE}/wp-json/wp/v2/${cptRestBase}`, {
       method: "POST",
-      headers: { Authorization: `Basic ${WP_AUTH}`, "Content-Type": "application/json", "User-Agent": WP_USER_AGENT },
+      headers: { Authorization: `Basic ${WP_AUTH}`, "Content-Type": "application/json", ...WP_HEADERS },
       body,
       signal: AbortSignal.timeout(20_000),
     })
@@ -74,7 +74,7 @@ async function createPodcastEpisode(
 async function fetchSourceText(postId: number): Promise<{ title: string; text: string }> {
   const res = await fetch(
     `${WP_API_BASE}/wp-json/wp/v2/posts/${postId}?_fields=title,content,acf`,
-    { headers: { Authorization: `Basic ${WP_AUTH}`, "User-Agent": WP_USER_AGENT }, signal: AbortSignal.timeout(20_000) }
+    { headers: { Authorization: `Basic ${WP_AUTH}`, ...WP_HEADERS }, signal: AbortSignal.timeout(20_000) }
   );
   if (!res.ok) throw new Error(`Could not load post ${postId} from WordPress (${res.status})`);
   const ct = res.headers.get("content-type") ?? "";

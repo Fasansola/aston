@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getLinks, saveLinks, LinkEntry } from "@/lib/storage";
 import { axiosWithSgRetry } from "@/lib/wordpress";
-import { WP_API_BASE, WP_USER_AGENT } from "@/lib/wpApi";
+import { WP_API_BASE, WP_HEADERS } from "@/lib/wpApi";
 import axios from "axios";
 
 // Several 100-post pages, each of which SiteGround's anti-bot may challenge
@@ -106,7 +106,7 @@ async function fetchWpPage(
   const res = await axiosWithSgRetry(`sync-wp page ${page}`, () => axios.get(url, {
     headers: {
       Authorization: `Basic ${auth}`,
-      "User-Agent": WP_USER_AGENT,
+      ...WP_HEADERS,
     },
     timeout: 30_000,
   }), { maxAttempts: 3 });

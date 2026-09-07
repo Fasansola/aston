@@ -31,3 +31,20 @@ export const WP_API_VIA_RELAY = !!strip(process.env.WP_API_URL) && strip(process
  * Override with WP_USER_AGENT only if support asks for a different string.
  */
 export const WP_USER_AGENT = process.env.WP_USER_AGENT?.trim() || "AstonPublisher/1.0";
+
+/**
+ * Shared secret the fixed-IP relay requires on every request (header
+ * X-Relay-Key). Sent ONLY when REST traffic actually goes through the relay,
+ * so the key is never shown to the WordPress host itself. Generate with
+ * `openssl rand -hex 32`; the same value goes into the relay's environment.
+ */
+export const WP_RELAY_KEY = process.env.WP_RELAY_KEY?.trim() || "";
+
+/**
+ * Headers every WordPress REST request must carry: the agreed user-agent and,
+ * when routed via the relay, its key. Spread it into each call's headers.
+ */
+export const WP_HEADERS: Readonly<Record<string, string>> = Object.freeze({
+  "User-Agent": WP_USER_AGENT,
+  ...(WP_API_VIA_RELAY && WP_RELAY_KEY ? { "X-Relay-Key": WP_RELAY_KEY } : {}),
+});

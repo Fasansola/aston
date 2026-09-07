@@ -20,15 +20,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { deleteYouTubeVideo } from "@/lib/video";
-import { WP_API_BASE, WP_USER_AGENT } from "@/lib/wpApi";
+import { WP_API_BASE, WP_HEADERS } from "@/lib/wpApi";
 
 const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
 const WP_USERNAME = process.env.WP_USERNAME!;
 const WP_APP_PASS = process.env.WP_APP_PASSWORD!;
 const WP_AUTH     = Buffer.from(`${WP_USERNAME}:${WP_APP_PASS}`).toString("base64");
-const WP_HEADERS  = {
+const WP_REQUEST_HEADERS  = {
   Authorization:  `Basic ${WP_AUTH}`,
-  "User-Agent":   WP_USER_AGENT,
+  ...WP_HEADERS,
   "Content-Type": "application/json",
 };
 
@@ -39,7 +39,7 @@ function authOk(req: NextRequest): boolean {
 async function wpDelete(endpoint: string): Promise<{ ok: boolean; status: number }> {
   const res = await fetch(`${WP_URL}/wp-json/wp/v2/${endpoint}?force=true`, {
     method:  "DELETE",
-    headers: WP_HEADERS,
+    headers: WP_REQUEST_HEADERS,
     signal:  AbortSignal.timeout(15_000),
   });
   return { ok: res.ok, status: res.status };
