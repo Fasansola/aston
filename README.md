@@ -1,36 +1,130 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Aston blog tool
 
-## Getting Started
+Automated content pipeline for [aston.ae](https://aston.ae): topics go in, fully written and QA-checked WordPress drafts come out, with optional images, read-aloud audio, a YouTube video, a two-host podcast episode and social cross-posts. Runs on Vercel (Next.js 16, Workflow DevKit), OpenAI, Upstash Redis and the WordPress REST API.
 
-First, run the development server:
+Production: `app.aston.ae` (Vercel project `aston`). Pushing to `main` deploys straight to production.
+
+## How a post gets written
+
+1. **Queue** — add a topic on the dashboard (`/`), optionally with an exact generation time, audience, jurisdictions, language and media outputs.
+2. **Dispatch** — the daily cron (`/api/cron`, 08:00 UTC) or a per-item timer (`scheduleGeneration` workflow) runs a **pre-flight check** (OpenAI credits, storage, token budget) and starts the durable `generatePost` workflow.
+3. **Pipeline** (each stage is a checkpointed Workflow step, resumable after a function kill): research → strategy brief → title engine + blueprint → authority links → article → link scrubbing → image prompts → QA (up to 3 passes, targeted fixes) → WordPress draft.
+4. **Media** — the `generateMedia` workflow adds article images, and any requested audio / video / podcast, after the draft exists.
+5. **Go live** — approved drafts are scheduled in the publish queue and cross-posted to social targets.
+
+Failures are recorded on the queue item in plain English with a next action, in the run log, and (once configured) sent as an alert.
+
+## Crons (vercel.json)
+
+| Path | Schedule (UTC) | Purpose |
+|---|---|---|
+| `/api/cron-watchdog` | every 30 min | Re-queues items stuck in *processing*, after confirming the workflow run is really dead |
+| `/api/links/sync-wp` | 06:00 daily | Refreshes the internal-links pool from WordPress |
+| `/api/cron` | 08:00 daily | Daily generation dispatcher |
+| `/api/cron-publish` | 09:00 daily | Publishes approved drafts |
+| `/api/cron-social-tokens` | 04:00 daily | Refreshes social OAuth tokens |
+| `/api/cron-performance` | Mondays 03:00 | Pulls GA4 / Search Console performance |
+| `/api/spotify-sync` | hourly | Embeds Spotify players into posts with podcasts |
+
+## Dashboard: System status
+
+The card at the top of the dashboard answers "can a generation succeed right now?" with five lights:
+
+- **OpenAI** — a real, tiny completion. A billing or key problem shows here immediately (listing models succeeds even with zero credits, so a completion is the only honest check).
+- **WordPress** — one authenticated REST request. *Warn* when SiteGround's anti-bot challenged it.
+- **Storage** — a Redis write.
+- **Alerts** — whether a notification channel is configured, with a **Send test alert** button.
+- **Usage & budget** — this month's tokens, calls and images, an estimated cost when `OPENAI_PRICING` is set, and the budget position when `OPENAI_MONTHLY_TOKEN_BUDGET` is set.
+
+The same checks run as the cron's pre-flight. If OpenAI, storage or the budget block generation, a daily run is skipped with one alert and the queue is left untouched; a *Run now* / instant item is marked failed with the reason so the dashboard shows it straight away.
+
+## Alerts
+
+Set **one** of these in Vercel → Settings → Environment Variables (Production), then redeploy:
+
+| Channel | Variables |
+|---|---|
+| Telegram | `TELEGRAM_BOT_TOKEN` (from @BotFather) and `TELEGRAM_CHAT_ID` (send the bot a message, then read `https://api.telegram.org/bot<token>/getUpdates`) |
+| Slack / Discord / anything | `NOTIFY_WEBHOOK_URL` — an incoming-webhook URL; the payload carries both `text` and `content` |
+
+Without a channel, `notify()` only writes to the Vercel function logs. Use **Send test alert** on the dashboard to confirm delivery.
+
+## Environment variables
+
+Core: `OPENAI_API_KEY`, `WP_URL`, `WP_USERNAME`, `WP_APP_PASSWORD`, `API_SECRET` (dashboard login), `CRON_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `GEMINI_API_KEY` (Imagen).
+
+Reliability and cost (all optional):
+
+| Variable | Effect |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`, or `NOTIFY_WEBHOOK_URL` | Failure alerts (see above) |
+| `OPENAI_PRICING` | JSON price table, USD per 1M tokens, e.g. `{"gpt-5.5":{"input":1.25,"output":10},"gpt-4o":{"input":2.5,"output":10}}`. Enables cost estimates per run and per month. Prices change, so they live here rather than in code. |
+| `OPENAI_MONTHLY_TOKEN_BUDGET` | Total tokens per calendar month. Past it, pre-flight blocks new generations until the next month or a higher budget. |
+| `MEDIA_LLM_MODEL` | Model for the media pipeline copy (video/HeyGen scripts, YouTube SEO, podcast dialogue). Default `gpt-4o` for latency; set `gpt-5.5` to use the reasoning model there too (temperature is stripped automatically). |
+| `WP_API_URL` | Base URL for WordPress REST calls when they must go through a fixed-IP relay. Public links keep using `WP_URL`. See *SiteGround anti-bot*. |
+
+Media and social: ElevenLabs, HeyGen, Remotion/AWS, YouTube, Spotify, Meta, LinkedIn, TikTok, S3 and podcast feed settings. The `/social/connect` page lists what each platform needs.
+
+Token usage is written per run (`aston:usage:run:<runId>`, 90-day TTL) and per month (`aston:usage:month:<YYYY-MM>`) as Redis hashes, and shown in the Recent Runs table and the status card.
+
+## Runbook: "a generation failed"
+
+1. Open the dashboard. The **System status** card tells you whether anything is blocked (OpenAI credits or key, storage, budget) and whether WordPress is currently challenging requests.
+2. The failed queue row shows a one-line summary and the next action; **Details** holds the raw error.
+3. Common cases:
+   - **OpenAI credits exhausted** — top up at platform.openai.com → Settings → Billing and turn on auto-recharge, then *Retry now*. This is what took every generation down from 26 August to 7 September 2026.
+   - **OpenAI API key rejected** — fix `OPENAI_API_KEY` in Vercel, redeploy, *Retry now*.
+   - **WordPress blocked the connection (SiteGround anti-bot)** — usually clears in minutes; *Retry now*. If it recurs daily, see below.
+   - **Generation was interrupted** — the watchdog recovered a dead run; *Retry now*.
+   - Anything else twice in a row — send the Details text to the developer. Vercel → Observability → Runtime errors keeps 7 days of grouped errors; raw runtime logs keep 1 day on this plan.
+
+## SiteGround anti-bot
+
+SiteGround's *Anti-Bot AI* sits in front of WordPress and intermittently answers requests from cloud IP ranges (Vercel's functions share AWS egress IPs with thousands of other apps) with an HTML captcha page instead of JSON. It cannot be switched off in Site Tools and no WordPress plugin can bypass it, because it acts before WordPress runs.
+
+What the code already does: every WordPress write detects the captcha page and retries with backoff; a persistent block trips a short circuit-breaker so a run fails fast with a clear message instead of burning its time budget; the public podcast feed serves a cached copy and is CDN-cached; the daily link sync has a bigger time budget.
+
+Permanent options, in order of effort:
+
+1. **Ask SiteGround support for an exemption.** Open a ticket from Site Tools → Help. Template:
+
+   > Our site `aston.ae` is updated by an application hosted on Vercel that calls the WordPress REST API (`/wp-json/`) with an Application Password. The Anti-Bot AI intermittently returns the sgcaptcha challenge page to these requests, which breaks publishing. Please exempt requests to `/wp-json/` that carry the user-agent `AstonBlogTool/1.0` (or whitelist the IP address we will provide) from the Anti-Bot AI. There is no self-service setting for this.
+
+2. **Fixed-IP relay + IP whitelist.** SiteGround will whitelist a *single* IP far more readily than a cloud range, and a dedicated IP that only ever sends these polite, authenticated requests is unlikely to be challenged at all. Run a tiny reverse proxy (any small VPS with a static IP, nginx) in front of the same WordPress and point the app at it with `WP_API_URL` — no other code changes. Minimal nginx config:
+
+   ```nginx
+   server {
+     listen 443 ssl;
+     server_name wp-relay.example.com;
+     # ssl_certificate / ssl_certificate_key from certbot
+     client_max_body_size 64m;              # image and audio uploads
+     location /wp-json/ {
+       proxy_pass https://aston.ae;
+       proxy_set_header Host aston.ae;
+       proxy_ssl_server_name on;
+       proxy_set_header Authorization $http_authorization;
+       proxy_set_header User-Agent $http_user_agent;
+       proxy_read_timeout 120s;
+     }
+     location / { return 404; }
+   }
+   ```
+   Then set `WP_API_URL=https://wp-relay.example.com` in Vercel and ask SiteGround to whitelist the relay's IP. The status card shows "REST API reachable via relay" when it is in use.
+
+3. **Pull model.** Turn the integration around: a small WordPress plugin polls an authenticated "outbox" on the app every minute and applies posts, media and field updates locally. Outbound requests from SiteGround are never challenged. This removes the dependency entirely but is a larger change (every WordPress write becomes a queued job) and adds up to a minute of latency per publish. Worth it only if options 1 and 2 are refused.
+
+## Local development
+
+`vercel env pull` cannot retrieve the sensitive secrets (`OPENAI_API_KEY`, `API_SECRET`, `ELEVENLABS_API_KEY`, `HEYGEN_API_KEY`), so anything that calls those services cannot run locally; `.env.local` holds placeholders. Everything else (dashboard, storage with the `data/*.json` file fallback, ffmpeg rendering, unit tests) works with `npm run dev`. Verify AI features by pushing to `main` and using the deployed app.
+
+Note that Vercel's function runtime ships ffmpeg 7.0.2 while `ffmpeg-static` locally is 6.0; 7.0.2's filtergraph parser is stricter (single filterchain, no `;` or named labels).
+
+## Tests and CI
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm test            # vitest: error classification, LLM helper, QA engine
+npx tsc --noEmit    # typecheck
+npm run build       # full Next build (what CI runs before main deploys)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+CI (`.github/workflows`) runs typecheck, unit tests and a full build on every push to `main`. The build only needs the env vars to exist, so CI stubs them.
