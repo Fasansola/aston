@@ -962,7 +962,7 @@ main_content (350-450 words — MINIMUM 350, count before submitting):
 - Allowed HTML: <h3>, <h4>, <p>, <strong>, <em>, <a>, <div>
 
 keypoint_one:
-A compelling, self-contained insight of one to two sentences (about 35 to 43 words) drawn from the key point of main_content. Make it substantive — state the insight and why it matters, not just a teaser. Plain text only — no markdown, no asterisks, no bold tags. No em dashes. No question marks.
+A compelling, self-contained insight drawn from the key point of main_content. HARD LIMIT: 180 characters INCLUDING SPACES (roughly 28 words) — count the characters before you submit. The design's callout box cannot fit more, and anything longer is trimmed automatically, so write to the limit rather than over it. One sentence, or two short ones. Make it substantive — state the insight and why it matters, not just a teaser. Plain text only — no markdown, no asterisks, no bold tags. No em dashes. No question marks.
 
 more_content_1:
 - Use EXACTLY this H3: "${blueprint.sections[0]?.h3_heading ?? ""}"
@@ -998,7 +998,7 @@ more_content_3:
 - Allowed HTML: <h3>, <h4>, <h5>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a>, <div>, <canvas>
 
 keypoint_two:
-A compelling, self-contained insight of one to two sentences (about 35 to 43 words) drawn from the key point of more_content_3. Make it substantive — state the insight and why it matters, not just a teaser. Plain text only — no markdown, no asterisks, no bold tags. No em dashes. No question marks. Different from keypoint_one.
+A compelling, self-contained insight drawn from the key point of more_content_3. HARD LIMIT: 180 characters INCLUDING SPACES (roughly 28 words) — count the characters before you submit. The design's callout box cannot fit more, and anything longer is trimmed automatically, so write to the limit rather than over it. One sentence, or two short ones. Make it substantive — state the insight and why it matters, not just a teaser. Plain text only — no markdown, no asterisks, no bold tags. No em dashes. No question marks. Different from keypoint_one.
 
 more_content_4:
 - Use EXACTLY this H3: "${blueprint.sections[3]?.h3_heading ?? "Aston VIP's role in your process"}"
@@ -1323,6 +1323,7 @@ const CHECK_TO_FIELDS: Record<string, string[]> = {
   h3_count_sufficient:              ["main_content", "more_content_1", "more_content_2", "more_content_3"],
   h4_count_sufficient:              ["more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5"],
   keypoints_exist:                  ["keypoint_one", "keypoint_two"],
+  keypoints_within_length:          ["keypoint_one", "keypoint_two"],
   quotes_exist:                     ["quote_1", "quote_2"],
   external_links_present:           ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_6"],
   no_banned_phrases:                ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
@@ -1368,6 +1369,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   h3_count_sufficient:              "fewer than 4 H3 subheadings in the article — add subheadings to break up long sections",
   h4_count_sufficient:              "fewer than 6 H4 subheadings in the article — add H4 sub-points under existing H3 sections",
   keypoints_exist:                  "one or both keypoint callout boxes are empty — write them",
+  keypoints_within_length:          "a keypoint callout exceeds 180 characters — rewrite both so each is at most 180 characters including spaces, keeping the insight intact",
   quotes_exist:                     "one or both pull-quote fields are empty — write a compelling 1–2 sentence quote for each",
   external_links_present:           "fewer than 5 verified external links in the article — add authoritative external links (regulators, governments, official institutions) spread across main_content, more_content_1, more_content_2, more_content_3, and more_content_6; target 7 to 9 total so broken links can be removed without dropping below 5",
   no_banned_phrases:                "banned phrase(s) found in the article — identify and remove or replace them",

@@ -41,6 +41,8 @@ interface QueueItem {
   retryCount: number; lastError: string | null;
   lastErrorDetail?: string | null; workflowRunId?: string | null;
   draftKey?: string | null; draftStage?: string | null; draftUpdatedAt?: string | null;
+  mediaRunId?: string | null; mediaStatus?: "running" | "done" | "partial" | "failed" | null;
+  mediaDone?: { audio?: boolean; images?: boolean; video?: boolean; podcast?: boolean } | null;
   wpPostId: number | null; wpEditUrl: string | null; wpPostUrl: string | null;
   qaScore: number | null; qaWarnings: string[];
   scheduledFor?: string | null;
@@ -109,6 +111,22 @@ interface PostHistoryEntry {
   mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
   imageConcepts?: Partial<Record<"featured" | "keypoint_one" | "post_split" | "keypoint_two", string>>;
 }
+// The article is "completed" the moment it publishes; images, audio, video and
+// the podcast render afterwards in their own workflow and can take 15-20 min.
+// This spells that out so a finished article never looks like finished media.
+function mediaSummary(item: QueueItem): { text: string; tone: string } | null {
+  if (!item.mediaStatus) return null;
+  const wanted: Array<[keyof NonNullable<QueueItem["mediaDone"]>, string]> = [
+    ["images", "images"], ["audio", "audio"], ["video", "video"], ["podcast", "podcast"],
+  ];
+  const asked = wanted.filter(([k]) => k === "images" || item.mediaOutputs?.[k as "audio" | "video" | "podcast"]);
+  const label = asked.map(([k, name]) => `${item.mediaDone?.[k] ? "✓" : "…"} ${name}`).join(" · ");
+  if (item.mediaStatus === "running") return { text: `Media still generating — ${label}`, tone: "text-amber-300/80" };
+  if (item.mediaStatus === "done") return { text: `Media complete — ${label}`, tone: "text-emerald-300/70" };
+  if (item.mediaStatus === "partial") return { text: `Media partly done — ${label}. Finish the rest from Add media.`, tone: "text-amber-300/80" };
+  return { text: "Media failed — run it from Add media.", tone: "text-red-300/80" };
+}
+
 const DRAFT_STAGE_LABEL: Record<string, string> = {
   started: "started", planned: "planned", written: "article written", qa_passed: "article written, QA passed",
   qa_exhausted: "article written, needs review", published: "published to WordPress", completed: "completed",
@@ -1519,7 +1537,8 @@ export default function AdminPage() {
                                   )}
                                 </p>
                               )}
-                              {item.status === "completed" && item.completedAt && <p className="text-xs text-white/35 mt-0.5">Done {fmt(item.completedAt)}</p>}
+                              {item.status === "completed" && item.completedAt && <p className="text-xs text-white/35 mt-0.5">Article done {fmt(item.completedAt)}</p>}
+                              {(() => { const m = mediaSummary(item); return m ? <p className={`text-[11px] mt-0.5 ${m.tone}`}>{m.text}</p> : null; })()}
                               {item.status === "processing" && item.progress && (
                                 <div className="mt-1.5 max-w-[220px]">
                                   <div className="flex items-center justify-between mb-1">

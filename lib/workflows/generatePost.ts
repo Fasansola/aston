@@ -37,7 +37,7 @@ import {
 } from "@/lib/openai";
 import { createWordPressPost, embedFlowchartHtml, SiteGroundBlockedError, type BlogContent, type ImagePrompts } from "@/lib/wordpress";
 import { selectLinks } from "@/lib/links";
-import { runQA, RETRYABLE_WARNING_CHECKS } from "@/lib/qa";
+import { runQA, RETRYABLE_WARNING_CHECKS, shortenKeypoint, KEYPOINT_MAX_CHARS } from "@/lib/qa";
 import { enforceApprovedLinks, scrubBrokenExternalLinks, stripLinksFromVisualBlocks } from "@/lib/linkScrubber";
 import { selectAuthorityLinks, mergeWithDiscovered, type AuthorityLink } from "@/lib/authorityLinks";
 import { GenerationMode, SourceBrief, emptyBrief, processSourceInput } from "@/lib/source";
@@ -224,6 +224,19 @@ async function scrubStep(
   const { content: scrubbed, removed: broken, warnings: linkWarnings } = await scrubBrokenExternalLinks(enforced);
   // Pass 3 — strip links inside visual blocks
   let out = stripLinksFromVisualBlocks(scrubbed);
+
+  // Keypoint callouts have a hard design width: guarantee the limit here rather
+  // than hoping the model counted characters. Whole sentences are kept where
+  // possible (shortenKeypoint), and any trim is logged so a prompt that keeps
+  // overshooting is visible.
+  for (const field of ["keypoint_one", "keypoint_two"] as const) {
+    const before = (out[field] ?? "").trim();
+    if (before.length > KEYPOINT_MAX_CHARS) {
+      const after = shortenKeypoint(before);
+      console.warn(`[wf] ${field} was ${before.length} chars (limit ${KEYPOINT_MAX_CHARS}) — trimmed to ${after.length}`);
+      out = { ...out, [field]: after };
+    }
+  }
 
   // House style: "licence" → "license" across all text fields (incl. focus_keyword
   // + slug, so the focus_keyword_in_title QA check can't permanently fail).
@@ -512,11 +525,22 @@ async function startMediaStep(
       podcastLength: input.podcastLength ?? 30,
       // Render the briefs this run wrote and QA'd, rather than briefing again.
       imagePrompts,
+      queueItemId: input.queueItemId,
     }]);
+    if (input.queueItemId) {
+      const { updateQueueItem } = await import("@/lib/storage");
+      await updateQueueItem(input.queueItemId, { mediaRunId: run.runId, mediaStatus: "running", mediaDone: {} });
+    }
     console.log(`[wf] media workflow started for post ${published.postId} (run ${run.runId}) — images:true audio:${outputs.audio} video:${outputs.video} podcast:${outputs.podcast}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[wf] could not start media workflow for post ${published.postId} — post has NO images until run from /media: ${msg}`);
+    if (input.queueItemId) {
+      try {
+        const { updateQueueItem } = await import("@/lib/storage");
+        await updateQueueItem(input.queueItemId, { mediaStatus: "failed" });
+      } catch { /* item bookkeeping is best-effort */ }
+    }
     const { notify } = await import("@/lib/notify");
     await notify(`⚠️ Media workflow failed to start for post ${published.postId}`, `${msg}\nGenerate images from /media.`);
   }

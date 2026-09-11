@@ -64,6 +64,14 @@ export interface QueueItem {
   // Per-item media outputs, chosen at enqueue time. Items without their own
   // selection fall back to the scheduler-settings defaults.
   mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
+  // Post-publish media (images, audio, video, podcast) runs in its own durable
+  // workflow AFTER the item is marked "completed" — the article is finished at
+  // that point and the daily quota counts it. These fields track that later
+  // work so the dashboard never implies a post is fully done while renders are
+  // still going. Null on items generated before this existed.
+  mediaRunId?: string | null;
+  mediaStatus?: "running" | "done" | "partial" | "failed" | null;
+  mediaDone?: { audio?: boolean; images?: boolean; video?: boolean; podcast?: boolean } | null;
   // Saved generation progress (lib/drafts.ts): how far the last run got and
   // when. A new run resumes from it; the dashboard links to the saved article.
   draftKey?: string | null;

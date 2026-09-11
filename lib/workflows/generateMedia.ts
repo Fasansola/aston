@@ -91,6 +91,26 @@ export interface GenerateMediaInput {
   // the pictures match the alt text the article was checked with and the
   // concepts recorded in history are the ones on the page.
   imagePrompts?: ImagePrompts;
+  // Queue item this media belongs to, when it came from a scheduled run. The
+  // workflow reports per-output progress onto it so the dashboard can show
+  // that media is still running after the article itself is complete.
+  queueItemId?: string;
+}
+
+type MediaDone = { audio: boolean; images: boolean; video: boolean; podcast: boolean };
+
+/** Best-effort progress write onto the queue item — never fails the run. */
+async function itemMediaStep(
+  queueItemId: string,
+  patch: { mediaStatus?: "running" | "done" | "partial" | "failed"; mediaDone?: MediaDone }
+): Promise<void> {
+  "use step";
+  try {
+    const { updateQueueItem } = await import("@/lib/storage");
+    await updateQueueItem(queueItemId, patch);
+  } catch (err) {
+    console.warn(`[generateMedia] could not update queue item ${queueItemId}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 // ── HTTP plumbing ─────────────────────────────────────────────
@@ -442,11 +462,21 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
 
   await emit({ type: "progress", message: "Starting media generation…" });
 
+  // Per-output progress, mirrored onto the queue item so "completed" on the
+  // dashboard never hides renders that are still running.
+  const done: MediaDone = { audio: false, images: false, video: false, podcast: false };
+  const reportMedia = async (status: "running" | "done" | "partial" | "failed") => {
+    if (input.queueItemId) await itemMediaStep(input.queueItemId, { mediaStatus: status, mediaDone: done });
+  };
+  await reportMedia("running");
+
   // 1 — Read-aloud audio (blog player only — the video voices its own script)
   if (input.outputs.audio) {
     await emit({ type: "progress", output: "audio", message: "Generating read-aloud audio…" });
     try {
       result.audioUrl = await audioStep(input);
+      done.audio = true;
+      await reportMedia("running");
       await emit({ type: "media_done", output: "audio", url: result.audioUrl });
     } catch (err) {
       await fail("audio", err);
@@ -463,6 +493,8 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
     for (let i = 0; ; i++) {
       try {
         await imagesStep(input);
+        done.images = true;
+        await reportMedia("running");
         await emit({ type: "media_done", output: "images", url: input.blogUrl ?? "" });
         break;
       } catch (err) {
@@ -498,6 +530,8 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
       if (!videoUrl) throw new Error(`render did not finish within ${pollMax} polls (${Math.round(pollMax * VIDEO_POLL_INTERVAL_SECS / 60)} min)`);
       await emit({ type: "progress", output: "video", message: "Uploading the finished video to YouTube…" });
       result.youtubeUrl = await uploadVideoStep(input, videoUrl, submission);
+      done.video = true;
+      await reportMedia("running");
       await emit({ type: "media_done", output: "video", url: result.youtubeUrl });
     } catch (err) {
       await fail("video", err);
@@ -509,6 +543,8 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
     await emit({ type: "progress", output: "podcast", message: "Writing and voicing the podcast episode…" });
     try {
       result.podcastUrl = await podcastStep(input);
+      done.podcast = true;
+      await reportMedia("running");
       await emit({ type: "media_done", output: "podcast", url: result.podcastUrl });
     } catch (err) {
       await fail("podcast", err);
@@ -522,6 +558,15 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
     `podcast:${result.podcastUrl ? "ok" : input.outputs.podcast ? "FAILED" : "off"}` +
     (result.errors.length ? ` — errors: ${result.errors.join(" | ")}` : "")
   );
+  // Final state: everything asked for delivered, some of it, or none.
+  const wanted = [
+    ["audio", input.outputs.audio], ["images", input.outputs.images === true],
+    ["video", input.outputs.video], ["podcast", input.outputs.podcast],
+  ] as const;
+  const asked = wanted.filter(([, want]) => want);
+  const delivered = asked.filter(([key]) => done[key as keyof MediaDone]);
+  await reportMedia(delivered.length === asked.length ? "done" : delivered.length > 0 ? "partial" : "failed");
+
   await emit({ type: "done", result });
   return result;
 }

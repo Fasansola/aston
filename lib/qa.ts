@@ -31,7 +31,42 @@ export const RETRYABLE_WARNING_CHECKS = [
   "no_us_spellings",
   "seo_title_focused",
   "headings_specific",
+  "keypoints_within_length",
 ] as const;
+
+/**
+ * Hard ceiling for the two keypoint callouts, in characters including spaces.
+ * The post template's callout box is designed around this; longer text
+ * overflows it. The writing prompt states the limit, a QA check reports
+ * breaches, and shortenKeypoint() guarantees it before publish.
+ */
+export const KEYPOINT_MAX_CHARS = 180;
+
+/**
+ * Trim a keypoint to KEYPOINT_MAX_CHARS without leaving a mangled sentence:
+ * keep as many whole sentences as fit, and only if even the first sentence is
+ * too long fall back to cutting on a word boundary with an ellipsis.
+ * Pure — safe to call from the workflow body or a step.
+ */
+export function shortenKeypoint(input: string | null | undefined, max = KEYPOINT_MAX_CHARS): string {
+  const text = (input ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+
+  // Whole sentences first — a keypoint is one or two, so dropping the second
+  // is usually a clean cut.
+  const sentences = text.match(/[^.!?]+[.!?]+|\S[^.!?]*$/g) ?? [text];
+  let kept = "";
+  for (const sentence of sentences) {
+    const next = (kept ? kept + " " : "") + sentence.trim();
+    if (next.length > max) break;
+    kept = next;
+  }
+  if (kept) return kept;
+
+  const cut = text.slice(0, max - 1);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > max * 0.5 ? cut.slice(0, lastSpace) : cut).replace(/[,;:\s]+$/, "") + "\u2026";
+}
 
 export interface QAReport {
   status: "pass" | "warn" | "fail";
@@ -380,6 +415,10 @@ export function runQA(
   // Keypoints and quotes populated
   checks.keypoints_exist =
     !!(content.keypoint_one?.trim()) && !!(content.keypoint_two?.trim());
+  // The callout box is designed for KEYPOINT_MAX_CHARS; longer text overflows it.
+  checks.keypoints_within_length =
+    (content.keypoint_one ?? "").trim().length <= KEYPOINT_MAX_CHARS &&
+    (content.keypoint_two ?? "").trim().length <= KEYPOINT_MAX_CHARS;
 
   checks.quotes_exist =
     !!(content.quote_1?.trim()) && !!(content.quote_2?.trim());
