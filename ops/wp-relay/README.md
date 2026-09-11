@@ -6,7 +6,7 @@ source address for its WordPress REST calls. See the main README, section
 
 ## What you need
 
-- A small always-on machine with a **static IPv4**. DigitalOcean's smallest droplet (~$4/month) in `nyc3` is plenty; the app's functions run in Vercel `iad1` (Washington DC). Ubuntu 24.04.
+- A small always-on machine with a **static IPv4**. DigitalOcean's $6/month droplet (`s-1vcpu-1gb`) in `nyc3` is plenty; the app's functions run in Vercel `iad1` (Washington DC). Ubuntu 24.04.
 - A hostname that resolves to it. Zero-DNS option: `<ip-with-dashes>.sslip.io` (e.g. `203-0-113-7.sslip.io`), a public wildcard DNS service; Let's Encrypt issues the certificate for it automatically. A subdomain you control (`wp-relay.aston.ae`, A record, **not** proxied through Cloudflare) works the same and can be switched to later.
 - A shared key: `openssl rand -hex 32`.
 
@@ -14,10 +14,10 @@ source address for its WordPress REST calls. See the main README, section
 
 ```bash
 brew install doctl && doctl auth init          # once; paste a DO API token at the prompt
-ops/wp-relay/create-droplet.sh '<the key>'     # creates "wp-relay" in nyc3, ~$4/month
+ops/wp-relay/create-droplet.sh '<the key>'     # creates "wp-relay" in nyc3, ~$6/month
 ```
 
-The droplet installs itself at first boot (`cloud-init.sh` → `install.sh`); after two or three minutes `https://<ip-with-dashes>.sslip.io/wp-json/` answers 404 (the relay is up and refusing key-less requests). Progress log on the droplet: `/var/log/wp-relay-install.log`. To use a real hostname instead, pass it as the second argument and create its A record first.
+The droplet installs itself at first boot (`cloud-init.sh` → `install.sh`); after two or three minutes `https://<ip-with-dashes>.sslip.io/wp-json/` answers 404 (the relay is up and refusing key-less requests). Progress log on the droplet: `/var/log/wp-relay-install.log`; service logs: `journalctl -u caddy`. To use a real hostname instead, pass it as the second argument and create its A record first.
 
 ## Any other machine
 
@@ -47,7 +47,7 @@ Give support the relay's IP and ask them to exempt it from the Anti-Bot AI for `
 
 ## Operating it
 
-- Logs: `/var/log/caddy/wp-relay.log` (or `./logs/` with Docker).
+- Logs: `journalctl -u caddy -f` (or `docker compose logs -f`). Caddy logs to stderr on purpose; a file log needs `/var/log/caddy` writable by the `caddy` user and is easy to break.
 - Rotate the key: change `RELAY_KEY` in `/etc/caddy/wp-relay.env`, `systemctl restart caddy`, update `WP_RELAY_KEY` in Vercel, redeploy.
 - Updates: `apt-get upgrade caddy` (or `docker compose pull && docker compose up -d`).
 - Turn it off: remove `WP_API_URL` from Vercel and redeploy; the app talks to the site directly again.

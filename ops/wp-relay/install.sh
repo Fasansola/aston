@@ -38,11 +38,10 @@ ENV
 } > /etc/caddy/Caddyfile
 mkdir -p /etc/systemd/system/caddy.service.d
 printf '[Service]\nEnvironmentFile=/etc/caddy/wp-relay.env\n' > /etc/systemd/system/caddy.service.d/wp-relay.conf
-mkdir -p /var/log/caddy && chown caddy:caddy /var/log/caddy
 
 echo "→ validating"
 set -a; . /etc/caddy/wp-relay.env; set +a
-caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+runuser -u caddy -- caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
 echo "→ firewall (SSH, 80, 443)"
 ufw allow OpenSSH >/dev/null

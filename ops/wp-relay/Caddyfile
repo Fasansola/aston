@@ -49,10 +49,9 @@
 		respond "Not found" 404
 	}
 
-	log {
-		output file /var/log/caddy/wp-relay.log {
-			roll_size 20MiB
-			roll_keep 5
-		}
-	}
+	# No file log on purpose. Caddy logs to stderr, which systemd captures in
+	# the journal (`journalctl -u caddy`), and Docker in `docker compose logs`.
+	# A file log needs /var/log/caddy to be writable by the caddy user, and
+	# `caddy validate` (run as root by install.sh) creates that file owned by
+	# root first, so the service then fails with "permission denied" at start.
 }

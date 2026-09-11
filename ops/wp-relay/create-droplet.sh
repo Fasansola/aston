@@ -4,11 +4,15 @@
 #   ops/wp-relay/create-droplet.sh <relay-key> [relay-host] [region] [size]
 #
 # Defaults: sslip.io hostname (no DNS needed), region nyc3 (nearest to Vercel
-# iad1), size s-1vcpu-512mb-10gb (~$4/month), Ubuntu 24.04, every SSH key on
-# the account attached. Requires `doctl auth init` to have been run.
+# iad1), size s-1vcpu-1gb (~$6/month), Ubuntu 24.04, every SSH key on the
+# account attached. Requires `doctl auth init` to have been run.
+#
+# Why 1GB and not the $4/512MB size: this relay carries every WordPress write
+# in the pipeline, and 512MB DigitalOcean droplets ship without swap, which
+# gets tight during unattended apt upgrades. $2/month for headroom.
 set -euo pipefail
 KEY="${1:?relay key required (openssl rand -hex 32)}"
-HOST="${2:-}"; REGION="${3:-nyc3}"; SIZE="${4:-s-1vcpu-512mb-10gb}"
+HOST="${2:-}"; REGION="${3:-nyc3}"; SIZE="${4:-s-1vcpu-1gb}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 USERDATA="$(sed -e "s|__RELAY_KEY__|${KEY}|" -e "s|__RELAY_HOST__|${HOST}|" "${HERE}/cloud-init.sh")"
 SSH_KEYS="$(doctl compute ssh-key list --format ID --no-header | paste -sd, -)"
