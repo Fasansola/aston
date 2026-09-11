@@ -51,3 +51,6 @@ sample.json
 data/aston_queue.json
 data/aston_publish_queue.json
 data/aston_scheduler_settings.json
+
+# Relay secrets (docker option) — never commit
+ops/wp-relay/.env

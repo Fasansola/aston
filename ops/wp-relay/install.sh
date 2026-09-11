@@ -2,16 +2,18 @@
 # ops/wp-relay/install.sh — set up the fixed-IP WordPress relay on a fresh
 # Ubuntu 22.04/24.04 machine (Caddy + systemd + ufw). Idempotent.
 #
-#   sudo bash install.sh <relay-host> <origin-host> <acme-email> <relay-key>
-#   e.g. sudo bash install.sh wp-relay.aston.ae aston.ae ops@aston.ae "$(openssl rand -hex 32)"
+#   sudo bash install.sh <relay-host> <origin-host> <relay-key> [acme-email]
+#   e.g. sudo bash install.sh 203-0-113-7.sslip.io aston.ae "$(openssl rand -hex 32)"
 #
-# Before running: create a DNS A record <relay-host> → this machine's IPv4
-# (DNS only, not proxied through Cloudflare). Let's Encrypt needs ports 80/443.
+# <relay-host> must resolve to this machine's IPv4. The zero-DNS option is
+# "<ip with dashes>.sslip.io" (a public wildcard DNS service that resolves
+# any such name to that IP); a real subdomain (DNS only, not proxied through
+# Cloudflare) works the same. Let's Encrypt needs ports 80/443 reachable.
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then echo "run with sudo" >&2; exit 1; fi
-if [ $# -ne 4 ]; then echo "usage: $0 <relay-host> <origin-host> <acme-email> <relay-key>" >&2; exit 1; fi
-RELAY_HOST="$1"; WP_ORIGIN_HOST="$2"; ACME_EMAIL="$3"; RELAY_KEY="$4"
+if [ $# -lt 3 ]; then echo "usage: $0 <relay-host> <origin-host> <relay-key> [acme-email]" >&2; exit 1; fi
+RELAY_HOST="$1"; WP_ORIGIN_HOST="$2"; RELAY_KEY="$3"; ACME_EMAIL="${4:-}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 echo "→ installing Caddy"
@@ -30,7 +32,10 @@ WP_ORIGIN_HOST=${WP_ORIGIN_HOST}
 ACME_EMAIL=${ACME_EMAIL}
 RELAY_KEY=${RELAY_KEY}
 ENV
-cp "${HERE}/Caddyfile" /etc/caddy/Caddyfile
+{
+  if [ -n "${ACME_EMAIL}" ]; then printf '{\n\temail %s\n}\n\n' "${ACME_EMAIL}"; fi
+  cat "${HERE}/Caddyfile"
+} > /etc/caddy/Caddyfile
 mkdir -p /etc/systemd/system/caddy.service.d
 printf '[Service]\nEnvironmentFile=/etc/caddy/wp-relay.env\n' > /etc/systemd/system/caddy.service.d/wp-relay.conf
 mkdir -p /var/log/caddy && chown caddy:caddy /var/log/caddy

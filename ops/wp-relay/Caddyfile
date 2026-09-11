@@ -13,12 +13,8 @@
 # compose from .env):
 #   RELAY_HOST      public hostname of this relay, e.g. wp-relay.aston.ae
 #   WP_ORIGIN_HOST  the WordPress host, e.g. aston.ae
-#   ACME_EMAIL      address Let's Encrypt notifies about certificate issues
 #   RELAY_KEY       shared secret; the app sends it as X-Relay-Key
-
-{
-	email {$ACME_EMAIL}
-}
+#   (an optional Let's Encrypt contact email is prepended by install.sh)
 
 {$RELAY_HOST} {
 	# Uploads: article images (~2 MB each), read-aloud and podcast audio (tens of MB).
