@@ -49,9 +49,14 @@
 		respond "Not found" 404
 	}
 
-	# No file log on purpose. Caddy logs to stderr, which systemd captures in
-	# the journal (`journalctl -u caddy`), and Docker in `docker compose logs`.
-	# A file log needs /var/log/caddy to be writable by the caddy user, and
-	# `caddy validate` (run as root by install.sh) creates that file owned by
-	# root first, so the service then fails with "permission denied" at start.
+	# Access log to stderr, which systemd captures in the journal
+	# (`journalctl -u caddy`) and Docker in `docker compose logs`. Deliberately
+	# NOT a file: a file log needs /var/log/caddy writable by the caddy user,
+	# and `caddy validate` (run as root during install) creates that file owned
+	# by root first, so the service then fails to start with "permission
+	# denied". Journald handles rotation, and these lines are the evidence for
+	# a SiteGround whitelisting ticket.
+	log {
+		output stderr
+	}
 }
