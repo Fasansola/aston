@@ -28,6 +28,19 @@
 	}
 
 	handle @authorised {
+		# Ask for the URL WordPress actually wants, so it has no reason to
+		# redirect. WordPress canonicalises /wp-json/wp/v2/posts?x=1 to
+		# .../posts/?x=1, which cost a second round trip to SiteGround on every
+		# read — 270 of them in three days — and each extra request is another
+		# chance for the anti-bot to challenge us. GET and HEAD only: POST is
+		# never canonical-redirected (it would lose the body) and that path is
+		# working, so it is left exactly as it was.
+		@readNeedsSlash {
+			method GET HEAD
+			path_regexp noslash ^(/wp-json/.*[^/])$
+		}
+		rewrite @readNeedsSlash {re.noslash.1}/
+
 		reverse_proxy https://{$WP_ORIGIN_HOST} {
 			header_up Host {$WP_ORIGIN_HOST}
 			# Never reveal the caller or the key to the origin: SiteGround must
@@ -37,6 +50,22 @@
 			header_up -X-Forwarded-Proto
 			header_up -X-Forwarded-Host
 			header_up -X-Real-IP
+			# Keep redirects on the relay.
+			#
+			# WordPress answers /wp-json/wp/v2/posts?x=1 with a canonical 301 to
+			# https://aston.ae/wp-json/wp/v2/posts/?x=1 — same path plus a
+			# trailing slash, but pointing at the ORIGIN. Left alone, the caller
+			# follows that to aston.ae, which (a) leaves the relay, so the
+			# request arrives from Vercel's rotating IPs after all, and (b) is a
+			# cross-origin hop, so fetch and axios both strip the Authorization
+			# header for safety and WordPress answers 401. That is precisely the
+			# "WordPress rejected the credentials" light seen on 2026-09-25:
+			# every authenticated GET was failing while POSTs (which WordPress
+			# never canonical-redirects, because it would lose the body) worked.
+			# Rewriting Location back to this host keeps the hop same-origin, so
+			# credentials survive and the traffic stays on the fixed IP.
+			header_down Location "https://{$WP_ORIGIN_HOST}/" "https://{$RELAY_HOST}/"
+			header_down Location "http://{$WP_ORIGIN_HOST}/" "https://{$RELAY_HOST}/"
 			transport http {
 				tls_server_name {$WP_ORIGIN_HOST}
 				dial_timeout 15s

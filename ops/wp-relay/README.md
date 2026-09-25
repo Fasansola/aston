@@ -53,3 +53,32 @@ Give support the relay's IP and ask them to exempt it from the Anti-Bot AI for `
 - Turn it off: remove `WP_API_URL` from Vercel and redeploy; the app talks to the site directly again.
 
 Security model: only `/wp-json/*` requests carrying the exact `X-Relay-Key` are forwarded; everything else is a 404. The key and all `X-Forwarded-*` headers are stripped before the request reaches WordPress, so the origin sees ordinary requests from the relay's address.
+
+## Redirects and the trailing slash (fixed 2026-09-25)
+
+WordPress answers `/wp-json/wp/v2/posts?x=1` with a canonical 301 to
+`https://aston.ae/wp-json/wp/v2/posts/?x=1` — the same path with a trailing
+slash, but pointing at the **origin**. Unfixed, that broke the relay in two
+ways at once: the caller followed the redirect to `aston.ae`, so the request
+left the fixed IP, and because that is a cross-origin hop both `fetch` and
+axios strip the `Authorization` header, so WordPress answered 401. Writes were
+unaffected, because WordPress never canonical-redirects a POST.
+
+The Caddyfile now does two things about it:
+
+- `header_down Location` rewrites the origin host back to the relay host, so
+  any redirect that does happen stays same-origin and keeps its credentials.
+- A `rewrite` on GET and HEAD only adds the trailing slash up front, so the
+  redirect never happens at all and each read costs one round trip instead of
+  two. POST is deliberately excluded — it is not redirected and it works.
+
+To confirm both after a change:
+
+```bash
+# 200, and redirects=0
+curl -so /dev/null -H "X-Relay-Key: $KEY" -w '%{http_code} redirects=%{num_redirects}\n' \
+  -L 'https://<relay>/wp-json/wp/v2/posts?per_page=1&_fields=id'
+# POST still reaches WordPress (401 with bad creds proves routing, not breakage)
+curl -so /dev/null -X POST -H "X-Relay-Key: $KEY" -u bad:creds -w '%{http_code}\n' \
+  'https://<relay>/wp-json/wp/v2/posts'
+```
