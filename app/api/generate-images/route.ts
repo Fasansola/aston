@@ -143,12 +143,16 @@ export async function POST(req: NextRequest) {
       console.log(`[generate-images] Generating images for post ${postId} with ${imageModel}`);
 
       const reused: string[] = [];
-      const [kp1Buf, kp2Buf, splitBuf, featBuf] = await Promise.all([
+      // Inside a usage context, otherwise the per-image recordUsage() calls
+      // reach the console and nothing else: the status card read "0 images
+      // this month" on 2026-09-25 while every post was getting four.
+      const { withUsageContext } = await import("@/lib/usage");
+      const [kp1Buf, kp2Buf, splitBuf, featBuf] = await withUsageContext({ step: "images" }, () => Promise.all([
         obtainImage(postId, "kp1",      imagePrompts.keypoint_one_img_prompt, imageModel, reused),
         obtainImage(postId, "kp2",      imagePrompts.keypoint_two_img_prompt, imageModel, reused),
         obtainImage(postId, "split",    imagePrompts.post_split_img_prompt,   imageModel, reused),
         obtainImage(postId, "featured", imagePrompts.featured_img_prompt,     imageModel, reused),
-      ]);
+      ]));
       if (reused.length) console.log(`[generate-images] ${reused.length} image(s) reused from staging: ${reused.join(", ")}`);
 
       // ── Step 3: Upload article images ───────────────────────
