@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   htmlToText, extractHeadings, sectionOutline, articleOutline, buildImageBriefs,
-  formatImageBriefs, assessPromptDiversity, conceptsFromPrompts, formatSceneBriefs,
+  formatImageBriefs, assessPromptDiversity, assessPromptRelevance, subjectTerms, conceptsFromPrompts, formatSceneBriefs,
 } from "@/lib/imageBrief";
 
 const article = {
@@ -169,5 +169,63 @@ describe("formatSceneBriefs", () => {
     expect(text).toContain("On-screen bullets: Check the VARA register / Classify your activity");
     expect(text).toContain("Scene 2 — \"Costs\"");
     expect(text).not.toContain("Scene 2 — \"Costs\"\n   On-screen sentence");
+  });
+});
+
+// The 2026-09-11 regression: post 71279, "What VARA vs DIFC means for your
+// crypto launch budget", got four handsomely varied pictures of nothing to do
+// with the article. These are the real briefs those images came from.
+describe("assessPromptRelevance (the VARA vs DIFC regression)", () => {
+  const subject = subjectTerms("VARA vs DIFC crypto launch budget", ["DFSA Crypto Token regime", "Dubai"], "What VARA vs DIFC means for your crypto launch budget");
+  const labels = ["Hero", "Keypoint 1", "Split", "Keypoint 2"];
+
+  it("catches the pictures that had nothing to do with the article", () => {
+    const report = assessPromptRelevance([
+      "An aerial view of the Dubai financial district at dawn, Emirates Towers and the DIFC gate below, haze over the city, wide shot 24mm, no readable text anywhere in the frame, photorealistic editorial photograph",
+      "A woman in a navy blazer writing on a sheet of paper across a round wooden table from a man resting his chin on his hand, warm domestic light, medium shot 50mm, no readable text anywhere in the frame, photorealistic editorial photograph",
+      "A clipboard holding a printed page headed Draft Lease resting on a concrete bench outside a glass entrance, bright daylight, close shot 50mm, photorealistic editorial photograph",
+      "A technician patching ethernet cables into a switch on a workbench beside an oscilloscope, cool task lighting, close shot 35mm, no readable text anywhere in the frame, photorealistic editorial photograph",
+    ], labels, subject);
+
+    expect(report.ok).toBe(false);
+    // The skyline at least names Dubai and DIFC; the other three name nothing.
+    expect(report.issues.map((i) => i.split(" ")[0])).toEqual(["Keypoint", "Split", "Keypoint"]);
+    expect(report.issues[0]).toContain("never mentions the article's subject");
+  });
+
+  it("passes a set that stays on the subject", () => {
+    const report = assessPromptRelevance([
+      "A wide view of the DIFC Gate building at dusk with the crypto district beyond, no readable text anywhere in the frame, photorealistic editorial photograph",
+      "A compliance officer reviewing a VARA licence application at a standing desk, seen over the shoulder, no readable text anywhere in the frame, photorealistic editorial photograph",
+      "A close shot of an embossed DFSA seal on a licence certificate, raking light, photorealistic editorial photograph",
+      "A custody engineer holding a hardware wallet in a Dubai data hall, cool light, medium shot, no readable text anywhere in the frame, photorealistic editorial photograph",
+    ], labels, subject);
+    expect(report.issues).toEqual([]);
+    expect(report.ok).toBe(true);
+  });
+
+  it("says nothing when no subject terms are supplied", () => {
+    expect(assessPromptRelevance(["anything at all"], ["A"], []).ok).toBe(true);
+  });
+});
+
+describe("subjectTerms", () => {
+  it("keeps the meaningful words and drops filler", () => {
+    const terms = subjectTerms("UAE corporate tax return", [], "When your UAE Corporate Tax return is actually due");
+    expect(terms).toContain("uae");
+    expect(terms).toContain("corporate");
+    expect(terms).toContain("tax");
+    expect(terms).not.toContain("your");
+    expect(terms).not.toContain("when");
+  });
+});
+
+describe("office limit after the rebalance", () => {
+  it("allows two offices in a four-image set, flags three", () => {
+    const office = (n: string) => `A ${n} inside a Dubai advisory office, daylight, medium shot, no readable text anywhere in the frame`;
+    const two = assessPromptDiversity([office("founder"), office("auditor"), "A harbour at dawn, wide shot", "A sealed envelope, close shot"], ["a", "b", "c", "d"]);
+    expect(two.issues.filter((i) => /office interiors/.test(i))).toEqual([]);
+    const three = assessPromptDiversity([office("founder"), office("auditor"), office("lawyer"), "A harbour at dawn"], ["a", "b", "c", "d"]);
+    expect(three.issues.some((i) => /office interiors/.test(i))).toBe(true);
   });
 });

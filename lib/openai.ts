@@ -25,7 +25,8 @@ import { chatWithRetry, assertCompleted, extractJson, recordUsage } from "./llm"
 import { IMAGE_QA_CHECKS } from "./qaChecks";
 import {
   IMAGE_SLOTS, buildImageBriefs, formatImageBriefs, articleOutline, formatRecentConcepts,
-  assessPromptDiversity, type ImageSlot, type ImageBriefContent, type RecentImageConcept,
+  assessPromptDiversity, assessPromptRelevance, subjectTerms,
+  type ImageSlot, type ImageBriefContent, type RecentImageConcept,
 } from "./imageBrief";
 
 // ── Model configuration ───────────────────────────────────────
@@ -1202,16 +1203,16 @@ PICTURES ALREADY USED ON THE SITE RECENTLY (do not repeat these settings or subj
 ${formatRecentConcepts(recent)}
 ` : ""}
 HOW TO BRIEF EACH PICTURE
-1. Concept first. In one sentence, name the specific idea from the text beside the slot that the picture makes visible: a step in a process, a decision, a consequence, a place, a threshold, a document that matters, a person doing the thing described. "ADGM licensing" is a topic, not a concept; "the moment a founder's business model is tested against the FSRA perimeter before anything is incorporated" is a concept.
-2. Choose a visual approach. The four pictures must use FOUR DIFFERENT approaches from this list, one each, in whichever order suits the text:
+1. Relevance is the first test and it outranks everything else below. Every picture must be recognisably ABOUT this article: "${focus}". A reader who sees the picture next to the text should understand they belong together. Work the subject into the scene through something real: the jurisdiction or city the text names, the regulator's building or district, the actual document, licence, asset or equipment the text discusses, or a person doing the specific task described. A picture that could sit on any business article is a failed picture, however handsome it is. Never illustrate a word the article does not use: a lease, a mortgage, a shop, a factory or a laboratory on an article about licensing is simply wrong.
+2. Concept second. In one sentence, name the specific idea from the text beside the slot that the picture makes visible: a step in a process, a decision, a consequence, a place, a threshold, a document that matters, a person doing the thing described. "ADGM licensing" is a topic, not a concept; "the moment a founder's business model is tested against the FSRA perimeter before anything is incorporated" is a concept.
+3. Choose the visual approach that genuinely fits each piece of text, from this list. Prefer variety where it is honest, and do not use any one approach more than twice across the four. Never stretch for a different approach at the cost of rule 1 — two well-judged offices beat one office and one irrelevant workbench.
    A. Place: a real, identifiable location the text refers to, seen from street level, the water, the air or a doorway (the Al Maryah Island promenade, the DIFC Gate walkway, a free-zone registry hall, a Cypriot harbour town, a Frankfurt bank tower at dusk, a Dubai customs yard, a London chambers doorway).
-   B. Human moment: a person or people doing what the text describes, candid and mid-task, documentary style: a founder at a service counter, a compliance officer at a screen, a courier with a sealed envelope, a signature being witnessed, a family reviewing a plan at a kitchen table, an auditor counting stock. Faces are fine; posed smiles to camera are not.
-   C. Object or detail: one telling object, close and tactile: a stamped certificate, an embossed seal, a hardware wallet, a card reader, a bank security token, a passport page, a bound ledger, a keycard, a customs tag, a fibre cable in a data hall.
-   D. Concept made physical: a clean visual metaphor for the idea, staged in a real environment: a corridor that forks for a choice, stacked glass floors for a holding structure, a row of gates for a perimeter test, a balance for a threshold, a bridge between two districts for cross-border flows.
-   E. Process made physical: the steps or numbers in the text laid out as real things: a timeline pinned along a wall, cards arranged in sequence on a table, an architectural model, a whiteboard mid-session. Drawn shapes are fine; legible words are not required.
-3. Vary the craft across the set: different settings (indoor and outdoor, city and room and object), different times of day and light, different camera distances (at least one wide, one medium, one close), different dominant materials and colour accents. The brand feel comes from craft, not from repeating one look.
-4. Hard limits for the set: at most ONE picture set in an office, boardroom or meeting room. NONE showing binders, folders or documents on a desk in front of a window with a skyline. At most ONE showing two people at a table. At most ONE with legible in-scene text (a real sign, a document title, a nameplate); the others must contain no readable text at all. Never text overlays, captions, title cards, watermarks, logos, flags, coins or currency symbols. No real people's likenesses.
-5. Write the prompt: 45 to 80 words, British English. Concrete nouns. One clear subject, its environment, the light, the camera distance and lens, the mood, ending with "photorealistic editorial photograph". State the text rule explicitly in every prompt: "no readable text anywhere in the frame", or, for the one permitted image, exactly what the in-scene text says.
+   B. Human moment: a person or people doing what the text describes, candid and mid-task, documentary style: a founder at a service counter, a compliance officer at a screen, a courier with a sealed envelope, a signature being witnessed, an auditor counting stock. Faces are fine; posed smiles to camera are not.
+   C. Object or detail: one telling object FROM THIS SUBJECT, close and tactile: the licence certificate the text discusses, an embossed regulator seal, a hardware wallet on a custody article, a card reader on a payments article, a passport page on a residency article. The object must be one the article actually mentions.
+   D. Workplace in use: the real professional setting where this work happens, framed unusually — from a doorway, over a shoulder, from high in the room, at the end of the day — so it never repeats the standard desk-and-skyline shot.
+4. Vary the craft across the set: different settings, different times of day and light, different camera distances (at least one wide, one medium, one close), different dominant materials and colour accents. The brand feel comes from craft, not from repeating one look.
+5. Limits for the set, all secondary to rule 1: at most TWO pictures set in an office, boardroom or meeting room, and they must differ in framing and light. At most ONE showing two people at a table. At most ONE with legible in-scene text, and that text must name something the article itself discusses (the regulator, the jurisdiction, the licence or the document type) — never an unrelated document. The other three must contain no readable text at all. Never text overlays, captions, title cards, watermarks, logos, flags, coins or currency symbols. No real people's likenesses.
+6. Write the prompt: 45 to 80 words, British English. Concrete nouns. Name the subject or its jurisdiction explicitly in the prompt. One clear subject, its environment, the light, the camera distance and lens, the mood, ending with "photorealistic editorial photograph". State the text rule explicitly in every prompt: "no readable text anywhere in the frame", or, for the one permitted image, exactly what the in-scene text says.
 
 Return ONE valid JSON object and nothing else (no markdown, no code fences):
 {
@@ -1239,7 +1240,16 @@ ALT TEXT RULES (SEO, all mandatory):
   const firstRaw = assertCompleted(first, "imagePrompts");
   let draft  = parseImagePromptDraft(firstRaw, "imagePrompts");
   const labels = IMAGE_SLOTS.map((s) => SLOT_LABEL[s]);
-  let report = assessPromptDiversity(IMAGE_SLOTS.map((s) => draft[s].prompt), labels);
+  // Relevance and diversity together: a set may be four different pictures and
+  // still be four pictures about nothing in particular, which is exactly what
+  // happened on 2026-09-11. Both reports feed the one revision round.
+  const subject = subjectTerms(focus, content.secondary_keywords ?? [], title);
+  const review = (prompts: string[]) => {
+    const d = assessPromptDiversity(prompts, labels);
+    const r = assessPromptRelevance(prompts, labels, subject);
+    return { ok: d.ok && r.ok, issues: [...r.issues, ...d.issues] };
+  };
+  let report = review(IMAGE_SLOTS.map((s) => draft[s].prompt));
 
   if (!report.ok) {
     console.warn(`[imagePrompts] draft flagged, asking for a revision: ${report.issues.join(" | ")}`);
@@ -1247,12 +1257,12 @@ ALT TEXT RULES (SEO, all mandatory):
       messages: [
         ...messages,
         { role: "assistant", content: firstRaw },
-        { role: "user", content: `Revise the set. An automated check found these problems:\n- ${report.issues.join("\n- ")}\n\nKeep every picture anchored to the text beside its slot, change only what is needed to fix the problems above (different subject, setting or approach for the flagged images), and return the complete JSON object again with all four images.` },
+        { role: "user", content: `Revise the set. An automated check found these problems:\n- ${report.issues.join("\n- ")}\n\nKeep every picture anchored to the text beside its slot, change only what is needed to fix the problems above, and return the complete JSON object again with all four images. Relevance problems come first: a flagged picture must be rebriefed around something this article actually describes, even if that means two pictures sharing an approach.` },
       ],
     }, { label: "imagePrompts:revise", timeoutMs: 120_000 });
     try {
       const revised = parseImagePromptDraft(assertCompleted(revision, "imagePrompts:revise"), "imagePrompts:revise");
-      const again = assessPromptDiversity(IMAGE_SLOTS.map((s) => revised[s].prompt), labels);
+      const again = review(IMAGE_SLOTS.map((s) => revised[s].prompt));
       if (again.issues.length <= report.issues.length) {
         draft = revised;
         report = again;

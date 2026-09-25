@@ -16,7 +16,7 @@
 import OpenAI from "openai";
 import { articleToAudioScript } from "./replicate";
 import { extractJson, chatWithRetry, assertCompleted, MEDIA_MODEL } from "./llm";
-import { assessPromptDiversity, formatSceneBriefs, formatRecentConcepts, type RecentImageConcept } from "./imageBrief";
+import { assessPromptDiversity, assessPromptRelevance, subjectTerms, formatSceneBriefs, formatRecentConcepts, type RecentImageConcept } from "./imageBrief";
 
 export interface RawVideoSegment {
   sectionTitle: string;
@@ -99,7 +99,7 @@ SCENE RULES:
 - displayText: the single most important sentence from the narration (max 30 words) — shown on screen
 - bullets: exactly 3 short checklist items (6–10 words each) — distil the key actions, steps, or facts from this scene. Written as punchy imperatives or facts (e.g. "Choose a free zone matching your activity", "Minimum share capital from AED 1,000")
 - sectionTitle: 2–4 words naming this scene's topic (e.g. "Introduction", "Key Requirements", "Banking Setup")
-- imagePrompt: a first-draft photography brief (40–60 words) for a real photograph that illustrates THIS scene's narration. A dedicated art-direction pass rewrites these, so keep it honest and specific: one clear subject from the narration (a real place, a person doing the thing described, or a single telling object), the setting, the light, and a camera note such as "35mm lens, medium shot". Subject centred, because the picture is shown in a tall panel and cropped at the sides. No readable text, signs, logos or screens with interfaces (the video renders its own text). Do NOT default to an adviser and client at a desk, a laptop, or a skyline window; vary the seven scenes across places, people at work, objects and physical metaphors. Never use these words: cinematic, dramatic, glowing, ethereal, stunning, vibrant, majestic, epic, surreal, fantasy, artistic, render, 3D`;
+- imagePrompt: a first-draft photography brief (40–60 words) for a real photograph that illustrates THIS scene's narration. A dedicated art-direction pass rewrites these, so keep it honest and specific: one clear subject from the narration (a real place, a person doing the thing described, or a single telling object), the setting, the light, and a camera note such as "35mm lens, medium shot". Subject centred, because the picture is shown in a tall panel and cropped at the sides. No readable text, signs, logos or screens with interfaces (the video renders its own text). Do NOT default to an adviser and client at a desk, a laptop, or a skyline window; vary the seven scenes across places, people at work, objects and real workplaces, and keep every one recognisably about this article's subject. Never use these words: cinematic, dramatic, glowing, ethereal, stunning, vibrant, majestic, epic, surreal, fantasy, artistic, render, 3D`;
 
   const userPrompt = hasContent
     ? `Article title: "${title}"
@@ -207,11 +207,12 @@ function parseSceneDrafts(raw: string, count: number, label: string): SceneImage
 }
 
 /**
- * Rewrite each scene's imagePrompt from its narration. Seven different
- * pictures with different visual approaches, subject centred for the tall
- * crop, no readable text (the video renders its own), at most two office
- * interiors and one screen-led image. One revision round when the set is
- * flagged; recent videos' scenes are passed in as "already used".
+ * Rewrite each scene's imagePrompt from its narration. Every picture must be
+ * recognisably about the video's subject first and varied second — the reverse
+ * priority produced scenes that were all different and all off-topic. Subject
+ * centred for the tall crop, no readable text (the video renders its own).
+ * One revision round when the set is flagged; recent videos' scenes are passed
+ * in as "already used".
  */
 export async function briefSceneImages<T extends RawVideoSegment>(title: string, scenes: T[]): Promise<T[]> {
   if (scenes.length === 0) return scenes;
@@ -238,16 +239,16 @@ PICTURES ALREADY USED IN RECENT VIDEOS (do not repeat these settings or subjects
 ${formatRecentConcepts(recent, 21)}
 ` : ""}
 HOW TO BRIEF EACH SCENE
-1. Concept first: one sentence naming the specific idea in that scene's narration that the picture makes visible — a step, a decision, a consequence, a place, a threshold, an object that matters, a person doing the thing described. Not the topic in general.
-2. Visual approach — spread the set across these, no approach used for two consecutive scenes and none more than twice in the video:
+1. Relevance is the first test and it outranks every rule below. Every scene's picture must be recognisably about this video's subject: "${title}". Work the subject into the scene through something real — the jurisdiction or city the narration names, the regulator's building or district, the actual document, licence or asset discussed, or a person doing the specific task described. A picture that could sit in any business video is a failed picture. Never illustrate something the narration does not mention.
+2. Concept second: one sentence naming the specific idea in that scene's narration that the picture makes visible — a step, a decision, a consequence, a place, a threshold, an object that matters, a person doing the thing described. Not the topic in general.
+3. Visual approach — choose what genuinely fits each scene, spread across these where it is honest, none used more than twice and not twice in a row. Never stretch for a different approach at the cost of rule 1:
    A. Place: a real, identifiable location the narration refers to (a free-zone registry hall, the DIFC Gate walkway, Al Maryah Island from the water, a London chambers doorway, a Cypriot harbour town, a Frankfurt bank tower at dusk, a customs yard, a port).
    B. Human moment: someone doing what the narration describes, candid and mid-task, documentary style — a founder at a service counter, a courier with a sealed envelope, a witness signing, an auditor counting stock, a family at a kitchen table. Faces are fine; posed smiles to camera are not.
    C. Object or detail: one telling object, close and tactile — a stamped certificate, an embossed seal, a hardware wallet, a passport page, a bound ledger, a keycard, a bank security token, a fibre cable in a data hall.
-   D. Concept made physical: a clean visual metaphor staged in a real environment — a corridor that forks for a choice, stacked glass floors for a holding structure, a row of gates for a perimeter test, a balance for a threshold, a bridge between two districts for cross-border flows.
-   E. Process made physical: the steps or numbers laid out as real things — a timeline pinned along a wall, cards in sequence on a table, an architectural model, a whiteboard mid-session (shapes only, no legible words).
-3. Vary the craft across the set: indoor and outdoor, city and room and object, different times of day and light, different dominant materials and colour accents, at least two wide shots and two close shots.
-4. Hard limits for the whole video: at most TWO scenes set in an office, boardroom or meeting room. At most TWO scenes with two people at a table. At most ONE scene whose subject is a laptop, monitor or screen, and it must show no interface. NO scene with binders or documents on a desk in front of a skyline window. NO readable text anywhere in any scene. No real people's likenesses, no logos, flags, coins or currency symbols.
-5. Write the prompt: 40 to 70 words, British English. Start with "A photograph of". One clear subject, its environment, the light, the camera distance and lens, the mood, then "photorealistic editorial photograph, subject centred, no readable text anywhere in the frame". Never use: cinematic, dramatic, glowing, ethereal, stunning, vibrant, majestic, epic, surreal, fantasy, artistic, render, 3D.
+   D. Workplace in use: the real professional setting where this work happens, framed unusually — from a doorway, over a shoulder, from high in the room, at the end of the day — so it never repeats the standard desk-and-skyline shot.
+4. Vary the craft across the set: indoor and outdoor, city and room and object, different times of day and light, different dominant materials and colour accents, at least two wide shots and two close shots.
+5. Limits for the whole video, all secondary to rule 1: at most THREE scenes set in an office, boardroom or meeting room, each differing in framing and light. At most TWO scenes with two people at a table. At most ONE scene whose subject is a laptop, monitor or screen, and it must show no interface. NO readable text anywhere in any scene. No real people's likenesses, no logos, flags, coins or currency symbols.
+6. Write the prompt: 40 to 70 words, British English. Start with "A photograph of". Name the subject or its jurisdiction explicitly. One clear subject, its environment, the light, the camera distance and lens, the mood, then "photorealistic editorial photograph, subject centred, no readable text anywhere in the frame". Never use: cinematic, dramatic, glowing, ethereal, stunning, vibrant, majestic, epic, surreal, fantasy, artistic, render, 3D.
 
 Return ONE valid JSON object and nothing else (no markdown, no code fences):
 { "scenes": [ { "index": 1, "concept": "one sentence", "approach": "A", "setting": "3 to 6 word label of the location and subject", "prompt": "the brief" }, … one entry per scene, in order ] }`;
@@ -257,6 +258,13 @@ Return ONE valid JSON object and nothing else (no markdown, no code fences):
     { role: "user", content: userPrompt },
   ];
   const labels = scenes.map((_, i) => `Scene ${i + 1}`);
+  // Relevance first, then variety — see assessPromptRelevance for why.
+  const subject = subjectTerms(title, [], title);
+  const review = (prompts: string[]) => {
+    const d = assessPromptDiversity(prompts, labels, VIDEO_DIVERSITY_LIMITS);
+    const r = assessPromptRelevance(prompts, labels, subject);
+    return { ok: d.ok && r.ok, issues: [...r.issues, ...d.issues] };
+  };
 
   // Primary model (gpt-6-astra): the article briefs showed the reasoning model
   // produces far more specific concepts than gpt-4o, and the video pipeline is
@@ -264,7 +272,7 @@ Return ONE valid JSON object and nothing else (no markdown, no code fences):
   const first = await chatWithRetry(openai, { messages }, { label: "sceneImages", timeoutMs: 150_000 });
   const firstRaw = assertCompleted(first, "sceneImages");
   let drafts = parseSceneDrafts(firstRaw, scenes.length, "sceneImages");
-  let report = assessPromptDiversity(drafts.map((d) => d.prompt), labels, VIDEO_DIVERSITY_LIMITS);
+  let report = review(drafts.map((d) => d.prompt));
 
   if (!report.ok) {
     console.warn(`[sceneImages] draft flagged, asking for a revision: ${report.issues.join(" | ")}`);
@@ -273,11 +281,11 @@ Return ONE valid JSON object and nothing else (no markdown, no code fences):
         messages: [
           ...messages,
           { role: "assistant", content: firstRaw },
-          { role: "user", content: `Revise the set. An automated check found these problems:\n- ${report.issues.join("\n- ")}\n\nKeep every picture anchored to its scene's narration, change only what is needed to fix the problems above (a different subject, setting or approach for the flagged scenes), and return the complete JSON object again with every scene.` },
+          { role: "user", content: `Revise the set. An automated check found these problems:\n- ${report.issues.join("\n- ")}\n\nKeep every picture anchored to its scene's narration, change only what is needed to fix the problems above and return the complete JSON object again with every scene. Relevance problems come first: a flagged scene must be rebriefed around something the narration actually describes, even if that means two scenes sharing an approach.` },
         ],
       }, { label: "sceneImages:revise", timeoutMs: 150_000 });
       const revised = parseSceneDrafts(assertCompleted(revision, "sceneImages:revise"), scenes.length, "sceneImages:revise");
-      const again = assessPromptDiversity(revised.map((d) => d.prompt), labels, VIDEO_DIVERSITY_LIMITS);
+      const again = review(revised.map((d) => d.prompt));
       if (again.issues.length <= report.issues.length) { drafts = revised; report = again; }
     } catch (err) {
       console.warn(`[sceneImages] revision unusable, keeping the first draft: ${err instanceof Error ? err.message : String(err)}`);

@@ -268,7 +268,7 @@ export interface DiversityReport {
 
 /** How many images in a set may share a pattern. Defaults suit the four article images. */
 export interface DiversityLimits {
-  /** Office / boardroom / meeting-room interiors (default 1). */
+  /** Office / boardroom / meeting-room interiors (default 2). */
   maxOffices?: number;
   /** "Two people at a table" scenes (default 1). */
   maxDuos?: number;
@@ -296,7 +296,7 @@ export function assessPromptDiversity(
   labels: string[] = prompts.map((_, i) => `Image ${i + 1}`),
   limits: DiversityLimits = {}
 ): DiversityReport {
-  const maxOffices = limits.maxOffices ?? 1;
+  const maxOffices = limits.maxOffices ?? 2;
   const maxDuos    = limits.maxDuos ?? 1;
   const maxSignage = limits.maxSignage ?? 1;
   const maxScreens = limits.maxScreens ?? Infinity;
@@ -337,6 +337,55 @@ export function assessPromptDiversity(
 }
 
 // ── Video scenes ──────────────────────────────────────────────
+
+/**
+ * Words that identify what the article is actually about, for the relevance
+ * check below. Focus keyword and secondary keywords first, then the title.
+ */
+const SUBJECT_STOPWORDS = new Set([
+  "the","and","for","with","your","from","that","this","what","when","which","into","their","about",
+  "guide","means","need","needs","does","will","best","most","more","than","after","before","over",
+  "you","are","how","why","who","its","it's","new","use","get","can",
+]);
+
+export function subjectTerms(focusKeyword: string, secondaryKeywords: string[] = [], title = ""): string[] {
+  const words = [focusKeyword, ...secondaryKeywords, title]
+    .join(" ")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !SUBJECT_STOPWORDS.has(w));
+  return [...new Set(words)];
+}
+
+/**
+ * Does each picture visibly belong to THIS article?
+ *
+ * The diversity rules above pushed hard for variety, and on 2026-09-11 that
+ * backfired: an article comparing VARA and DIFC crypto licensing budgets got a
+ * generic couple at a kitchen table, a clipboard headed "Draft Lease" and an
+ * electronics workbench. Each was admirably different from the others and none
+ * had anything to do with the subject. Variety is worthless if the picture does
+ * not illustrate the text, so relevance is now checked too, and it is the
+ * constraint that wins: a prompt that shares no term with the article's subject
+ * is reported for a rewrite.
+ */
+export function assessPromptRelevance(
+  prompts: string[],
+  labels: string[] = prompts.map((_, i) => `Image ${i + 1}`),
+  subject: string[] = []
+): DiversityReport {
+  const issues: string[] = [];
+  if (subject.length === 0) return { ok: true, issues };
+  const terms = subject.map((t) => t.toLowerCase());
+  prompts.forEach((prompt, i) => {
+    const text = withoutNegations(prompt).toLowerCase();
+    if (!terms.some((t) => text.includes(t))) {
+      issues.push(`${labels[i]} never mentions the article's subject (${subject.slice(0, 6).join(", ")}) — a reader could not tell which article it belongs to. Rebrief it around something the text actually describes.`);
+    }
+  });
+  return { ok: issues.length === 0, issues };
+}
 
 export interface SceneBriefInput {
   sectionTitle: string;
