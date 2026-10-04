@@ -40,6 +40,7 @@ import { selectLinks } from "@/lib/links";
 import { runQA, RETRYABLE_WARNING_CHECKS, shortenKeypoint, KEYPOINT_MAX_CHARS } from "@/lib/qa";
 import { enforceApprovedLinks, scrubBrokenExternalLinks, stripLinksFromVisualBlocks } from "@/lib/linkScrubber";
 import { selectAuthorityLinks, mergeWithDiscovered, type AuthorityLink } from "@/lib/authorityLinks";
+import { normaliseArticleHtml } from "@/lib/htmlSemantics";
 import { GenerationMode, SourceBrief, emptyBrief, processSourceInput } from "@/lib/source";
 import { generateStrategy, type StrategyBrief } from "@/lib/strategy";
 import { researchTopic, deriveTitle, findExternalAuthorityLinks, type ResearchBrief } from "@/lib/research";
@@ -238,6 +239,16 @@ async function scrubStep(
     }
   }
 
+  // Heading structure: the page owns the only H1, sections are H3 and
+  // subsections H4. The model has put the focus keyword in an <h1> inside Key
+  // takeaways and written definition terms as headings; repair that here so
+  // QA sees (and WordPress receives) a clean outline.
+  const normalised = normaliseArticleHtml(out);
+  if (normalised.changes.length > 0) {
+    console.warn(`[wf] heading structure repaired in: ${normalised.changes.join(", ")}`);
+    out = normalised.content;
+  }
+
   // House style: "licence" → "license" across all text fields (incl. focus_keyword
   // + slug, so the focus_keyword_in_title QA check can't permanently fail).
   const keys = [
@@ -285,7 +296,10 @@ type PublishResult = {
 };
 
 /** Embed the flowchart and strip the IMGSLOT markers — what WordPress receives. */
-function assembleForPublish(content: BlogContent) {
+function assembleForPublish(input: BlogContent) {
+  // Idempotent; also covers an article resumed from a draft saved before the
+  // scrub step repaired headings.
+  const content = normaliseArticleHtml(input).content;
   // Embed the flowchart HTML now, so it is part of the post regardless of how
   // image generation goes. IMGSLOT_* markers are placeholders the image step
   // replaces later.

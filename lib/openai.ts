@@ -23,6 +23,7 @@ import { AuthorityLink, formatAuthorityLinksForPrompt } from "./authorityLinks";
 import { selectOptimalTitle } from "./titleEngine";
 import { chatWithRetry, assertCompleted, extractJson, recordUsage } from "./llm";
 import { IMAGE_QA_CHECKS } from "./qaChecks";
+import { FAQ_HEADING } from "./htmlSemantics";
 import {
   IMAGE_SLOTS, buildImageBriefs, formatImageBriefs, articleOutline, formatRecentConcepts,
   assessPromptDiversity, assessPromptRelevance, subjectTerms,
@@ -61,6 +62,7 @@ TONE AND STYLE RULES:
 - UK English only: organisation, optimisation, authorised, centre, travelling, adviser
 - Always write "license" (never "licence") — this is the site's mandatory house style, no exceptions
 - Sentence case for all headings — do NOT use American title case
+- HEADING LEVELS: the page template already shows the article title as the only H1. NEVER output <h1> or <h2> in any field. Sections start with their H3, subsections are H4 (H5 only under an H4). Key takeaways, final points, keypoints and quotes contain NO headings at all. Never repeat the title or focus keyword as a standalone heading
 - All headings (H3, H4, H5) must be no longer than 8 words or 60 characters. If a heading exceeds this, rephrase it
 - Maximum 3-4 lines per paragraph. Each paragraph must start with a clear idea, then explain it properly
 - Never use em dashes or en dashes. Use commas or restructure the sentence instead
@@ -422,7 +424,7 @@ Choose the most data-rich section of the article and render an infographic there
 
 <div class="aston-visual-block aston-infographic">
   <p class="aston-visual-block__label">Key insight</p>
-  <h4 class="aston-visual-block__title">[Specific title relevant to this article section]</h4>
+  <p class="aston-visual-block__title">[Specific title relevant to this article section]</p>
   <ul>
     <li>[Specific fact 1 — include named entities, figures, or requirements]</li>
     <li>[Specific fact 2]</li>
@@ -444,7 +446,7 @@ CHART BLOCK (mandatory — include at least one per article):
 Find a section with comparable data — rankings, fee ranges, timelines, approval rates, market share, risk scores, or any measurable comparison — and render a chart there.
 
 <div class="aston-chart-block">
-  <h4 class="aston-chart-block__title">[Specific chart title relevant to this article]</h4>
+  <p class="aston-chart-block__title">[Specific chart title relevant to this article]</p>
   <p class="aston-chart-block__subtitle">[One sentence describing what this chart shows]</p>
   <canvas
     class="aston-chartjs"
@@ -1023,9 +1025,9 @@ Allowed HTML: <ul>, <li> only. Do NOT use <strong> or any other tags inside list
 more_content_5:
 Write answers for each of these FAQ questions using the format below.
 Questions: ${blueprint.faq_questions.map((q, i) => `Q${i + 1}: ${q}`).join(" | ")}
-Format each as: <h3>Question text</h3><p>Answer (2-4 sentences, factual, specific)</p>
-Do NOT wrap in any container — just the h3/p pairs.
-Allowed HTML: <h3>, <p>, <strong>
+Format each as: <h4>Question text</h4><p>Answer (2-4 sentences, factual, specific)</p>
+Do NOT wrap in any container and do NOT add an FAQ heading — just the h4/p pairs. The "${FAQ_HEADING}" H3 above them is added automatically.
+Allowed HTML: <h4>, <p>, <strong>
 
 more_content_6:
 - Use EXACTLY this H3: "${blueprint.sections[4]?.h3_heading ?? ""}"
@@ -1334,6 +1336,7 @@ const CHECK_TO_FIELDS: Record<string, string[]> = {
   h4_count_sufficient:              ["more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5"],
   keypoints_exist:                  ["keypoint_one", "keypoint_two"],
   keypoints_within_length:          ["keypoint_one", "keypoint_two"],
+  heading_structure_ok:             ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6", "key_takeaways", "final_points"],
   quotes_exist:                     ["quote_1", "quote_2"],
   external_links_present:           ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_6"],
   no_banned_phrases:                ["main_content", "more_content_1", "more_content_2", "more_content_3", "more_content_4", "more_content_5", "more_content_6"],
@@ -1380,6 +1383,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   h4_count_sufficient:              "fewer than 6 H4 subheadings in the article — add H4 sub-points under existing H3 sections",
   keypoints_exist:                  "one or both keypoint callout boxes are empty — write them",
   keypoints_within_length:          "a keypoint callout exceeds 180 characters — rewrite both so each is at most 180 characters including spaces, keeping the insight intact",
+  heading_structure_ok:             "the heading outline is broken — the page title is the only H1, so never use <h1> or <h2>; every section starts with its H3 and its subsections are H4; key_takeaways and final_points are plain <ul><li> lists with no heading; chart and infographic titles use <p class=\"...__title\">, never a heading; the definition term is <strong class=\"aston-definition__term\">; FAQ questions are <h4> (the FAQ H3 is added automatically)",
   quotes_exist:                     "one or both pull-quote fields are empty — write a compelling 1–2 sentence quote for each",
   external_links_present:           "fewer than 5 verified external links in the article — add authoritative external links (regulators, governments, official institutions) spread across main_content, more_content_1, more_content_2, more_content_3, and more_content_6; target 7 to 9 total so broken links can be removed without dropping below 5",
   no_banned_phrases:                "banned phrase(s) found in the article — identify and remove or replace them",
@@ -1476,6 +1480,7 @@ RULES:
 - Sentence length across ALL fields you are fixing: hard maximum 20 words per sentence. Split any sentence at 18+ words. Target 12–16 words
 - Across all sections combined: target 7 to 9 external links (minimum 5) — use ONLY the APPROVED EXTERNAL AUTHORITY SOURCES listed above${brokenUrls && brokenUrls.length > 0 ? `\n- The following external URLs were found to be BROKEN — do NOT reuse any of them:\n${brokenUrls.map((u) => `  • ${u}`).join("\n")}` : ""}
 - Preserve all existing HTML structure within the fields you are fixing
+- Heading levels: never use <h1> or <h2> (the page title is the only H1); sections are H3, subsections H4; no headings in key_takeaways or final_points
 - Do NOT change fields that are not listed above
 - Return ONLY raw JSON — no markdown, no code fences, no explanation
 

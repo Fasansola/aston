@@ -13,6 +13,7 @@
  */
 
 import { BlogContent, ImagePrompts } from "./wordpress";
+import { findHeadingIssues } from "./htmlSemantics";
 
 /**
  * Checks that are NOT hard-blocking (a failure won't discard the article)
@@ -32,6 +33,7 @@ export const RETRYABLE_WARNING_CHECKS = [
   "seo_title_focused",
   "headings_specific",
   "keypoints_within_length",
+  "heading_structure_ok",
 ] as const;
 
 /**
@@ -356,6 +358,15 @@ export function runQA(
   checks.headings_specific = genericHeadings.length === 0;
   if (!checks.headings_specific)
     warnings.push(`Generic heading(s) found: "${[...new Set(genericHeadings)].join('", "')}" — rewrite as specific, keyword-bearing headings`);
+
+  // Heading outline: one H1 (the page title), H3 sections, H4 subsections, no
+  // headings in takeaways/callouts, chart titles not headings, FAQ questions
+  // as H4s under one H3. The scrub step repairs the known patterns, so a
+  // failure here is a new one worth a fix pass.
+  const headingIssues = findHeadingIssues(content);
+  checks.heading_structure_ok = headingIssues.length === 0;
+  if (!checks.heading_structure_ok)
+    warnings.push(`Heading structure: ${headingIssues.join("; ")}`);
 
   // ── AI SEARCH OPTIMISATION CHECKS ────────────────────────
   // Validate the two mandatory structured blocks for Google AI Overviews,

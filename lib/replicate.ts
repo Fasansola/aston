@@ -10,6 +10,8 @@
  * Docs:  https://replicate.com/jaaari/kokoro-82m
  */
 
+import { stripFaqHeading } from "./htmlSemantics";
+
 type Mp3EncoderType = {
   Mp3Encoder: new (channels: number, sampleRate: number, kbps: number) => {
     encodeBuffer(left: Int16Array, right?: Int16Array): Int8Array;
@@ -400,7 +402,7 @@ export function articleToAudioScript(
 
   // FAQ section
   if (fields.more_content_5) {
-    parts.push("Frequently asked questions. " + stripHtml(fields.more_content_5));
+    parts.push("Frequently asked questions. " + stripHtml(stripFaqHeading(fields.more_content_5)));
   }
 
   // Final next steps

@@ -48,7 +48,7 @@ function buildChartHtml(spec: ChartSpec): string {
   const colors = labels.map((_, i) => PALETTE[i % PALETTE.length]);
   const type: ChartType = CHART_TYPES.includes(spec.type) ? spec.type : "bar";
   return `<div class="aston-chart-block">
-  <h4 class="aston-chart-block__title">${escText(spec.title)}</h4>
+  <p class="aston-chart-block__title">${escText(spec.title)}</p>
   <p class="aston-chart-block__subtitle">${escText(spec.subtitle)}</p>
   <canvas
     class="aston-chartjs"

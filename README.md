@@ -8,7 +8,7 @@ Production: `app.aston.ae` (Vercel project `aston`). Pushing to `main` deploys s
 
 1. **Queue** — add a topic on the dashboard (`/`), optionally with an exact generation time, audience, jurisdictions, language and media outputs.
 2. **Dispatch** — the daily cron (`/api/cron`, 08:00 UTC) or a per-item timer (`scheduleGeneration` workflow) runs a **pre-flight check** (OpenAI credits, storage, token budget) and starts the durable `generatePost` workflow.
-3. **Pipeline** (each stage is a checkpointed Workflow step, resumable after a function kill): research → strategy brief → title engine + blueprint → authority links → article → link scrubbing → image briefs (one per image slot, anchored to the text beside it) → QA (up to 3 passes, targeted fixes) → WordPress draft.
+3. **Pipeline** (each stage is a checkpointed Workflow step, resumable after a function kill): research → strategy brief → title engine + blueprint → authority links → article → link scrubbing + heading repair (`lib/htmlSemantics.ts`: the page title is the only H1, sections H3, subsections H4, no headings in takeaways or callouts, chart titles as captions, FAQ questions as H4s under one FAQ H3) → image briefs (one per image slot, anchored to the text beside it) → QA (up to 3 passes, targeted fixes) → WordPress draft.
 4. **Media** — the `generateMedia` workflow adds article images, and any requested audio / video / podcast, after the draft exists.
 5. **Go live** — approved drafts are scheduled in the publish queue and cross-posted to social targets.
 

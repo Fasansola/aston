@@ -167,7 +167,9 @@ export function articleOutline(content: ImageBriefContent): string[] {
 
 export function buildImageBriefs(title: string, content: ImageBriefContent): ImageSlotBrief[] {
   const takeaways = htmlToText(content.key_takeaways, 700);
-  const faqQuestions = extractHeadings(content.more_content_5).slice(0, 3);
+  const faqQuestions = extractHeadings(content.more_content_5)
+    .filter((h) => !/^(faqs?|frequently asked questions)\b/i.test(h))
+    .slice(0, 3);
   const source3 = sectionOutline(content.more_content_3, 300);
   const finalPoints = htmlToText(content.final_points, 320);
   const lastHeading = extractHeadings(content.more_content_6)[0];
