@@ -10,6 +10,12 @@
  *   → generates one aston-chart-block from the finished article, inserts it
  *     into a body section, PATCHes WordPress, and returns { ok, field, chartHtml }.
  *
+ * POST /api/post-chart   { postId, repairOnly: true }
+ *   → no LLM call: re-sanitises the post's existing working charts so each
+ *     canvas carries text fallback content (see lib/chartSanitizer.ts — an
+ *     empty canvas is deleted by the WP admin editor on the next save).
+ *     Returns { ok, mode: "repaired" | "unchanged", fields }.
+ *
  * Unlike audio/video/podcast (heavy, async, durable-workflow jobs), a chart is
  * just body HTML: one LLM call + one field PATCH. So this runs synchronously —
  * no workflow, no SSE. Charts are inserted straight into the live post, matching
@@ -19,6 +25,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import axios from "axios";
 import { generateChartBlock, type ChartSourceContent } from "@/lib/chart";
+import { sanitizeChartBlocks } from "@/lib/chartSanitizer";
 import { WP_API_BASE, WP_HEADERS } from "@/lib/wpApi";
 
 const WP_URL = WP_API_BASE; // REST base: the site, or the fixed-IP relay when WP_API_URL is set
@@ -201,14 +208,25 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!authOk(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  let body: { postId?: number };
+  let body: { postId?: number; repairOnly?: boolean };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid body" }, { status: 400 }); }
 
-  const { postId } = body;
+  const { postId, repairOnly } = body;
   if (!postId || typeof postId !== "number") return NextResponse.json({ error: "postId is required" }, { status: 400 });
 
   try {
     const p = await loadPost({ id: postId });
+
+    if (repairOnly) {
+      // With a working chart in place, leftover empty boxes are just blank cards — drop them.
+      const dropEmptyBoxes = (v: string) => (p.hasChart ? v.replace(chartBoxRegex(), (b) => (/<canvas\b/i.test(b) ? b : "")) : v);
+      const changes = p.fields
+        .map((f) => ({ ...f, value: sanitizeChartBlocks(dropEmptyBoxes(f.value)) }))
+        .filter((f, i) => f.value !== p.fields[i].value);
+      if (changes.length) await writeFields(p.id, changes);
+      return NextResponse.json({ ok: true, mode: changes.length ? "repaired" : "unchanged", fields: changes.map((c) => c.name), blogUrl: p.blogUrl });
+    }
+
     const block = await generateChartBlock(p.content, { title: p.title, focusKeyword: p.focusKeyword });
 
     const { changes, mode } = planChartWrite(p.fields, block);
