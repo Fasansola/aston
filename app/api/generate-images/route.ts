@@ -31,6 +31,7 @@ import {
   updateWordPressPostImages,
 } from "@/lib/wordpress";
 import { s3Available, s3ObjectExists, getS3ObjectBuffer, putS3Object } from "@/lib/sceneImageS3";
+import { stagedImageKey } from "@/lib/stagedImages";
 
 // gpt-image-2 reasoning can take minutes per image; allow headroom for the
 // four parallel generations plus a retry without hitting the wall.
@@ -57,13 +58,14 @@ async function generateImageWithRetry(
 
 /**
  * Get one article image: from the durable S3 staging copy if an earlier
- * attempt already generated it, otherwise generate it and stage it. Staging
- * is best-effort — without S3 the route behaves exactly as before.
+ * attempt already generated it from the same brief, otherwise generate it and
+ * stage it. Staging is best-effort — without S3 the route behaves exactly as
+ * before.
  */
 async function obtainImage(
   postId: number, slot: string, prompt: string, model: ImageModel, reused: string[]
 ): Promise<Buffer> {
-  const key = `article-images/${postId}/${slot}.png`;
+  const key = stagedImageKey(postId, slot, prompt, model);
   const staged = s3Available();
   if (staged) {
     try {
