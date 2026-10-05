@@ -24,6 +24,7 @@ import { selectOptimalTitle, lockProvidedTitle } from "./titleEngine";
 import { chatWithRetry, assertCompleted, extractJson, recordUsage } from "./llm";
 import { IMAGE_QA_CHECKS } from "./qaChecks";
 import { FAQ_HEADING } from "./htmlSemantics";
+import { featuredStyleBlock, assessFeaturedPrompt } from "./featuredImageStyle";
 import {
   ARTICLE_MIN_WORDS, ARTICLE_MAX_WORDS, ARTICLE_TARGET_WORDS, INTRO_WORDS, SECTION_WORD_TARGETS,
   MAX_H4_PER_SECTION, FAQ_QUESTION_COUNT, FAQ_ANSWER_MAX_WORDS, wordCountPlan,
@@ -1119,7 +1120,9 @@ const IMAGE_SYSTEM_PROMPT = `You are the art director for Aston VIP (aston.ae), 
 
 You brief a photographer (an image model) for the pictures that sit inside long-form advisory articles. The house look is premium, credible, real-world editorial photography of the kind found in the Financial Times Weekend, Monocle or Bloomberg Businessweek: real places, real materials, natural or motivated light, restrained colour, unhurried composition. Never stock-photo clichés, never 3D renders or fantasy, never infographics, never text layered over the picture.
 
-Your job for each article is to choose FOUR clearly different pictures, each anchored in the exact text it sits beside on the page, and to write a precise photographic brief for each. A reader should be able to tell from the picture alone which part of the article they are in.`;
+Your job for each article is to choose FOUR clearly different pictures, each anchored in the exact text it sits beside on the page, and to write a precise photographic brief for each. A reader should be able to tell from the picture alone which part of the article they are in.
+
+One exception, chosen by the client: the FEATURED (hero) image always follows the Aston VIP signature style set out in the brief — a premium office with the jurisdiction's skyline behind the glass, a gold-titled dossier naming the subject, topic props and the authority named in the scene. The other three pictures never use that formula.`;
 
 interface ImagePromptDraft {
   slot: ImageSlot;
@@ -1216,6 +1219,11 @@ export async function generateImagePrompts(
     }
   }
 
+  // The featured image repeats one formula on purpose, so its history is only
+  // a "vary the props" hint; the in-article pictures must avoid what was used.
+  const recentFeatured  = recent.filter((c) => c.slot === "featured");
+  const recentInArticle = recent.filter((c) => c.slot !== "featured");
+
   const userPrompt = `ARTICLE: "${title}"
 Focus keyword: "${focus}"${related ? `\nRelated terms: ${related}` : ""}
 Section headings in page order: ${outline.length ? outline.join(" / ") : "(none found)"}
@@ -1224,11 +1232,16 @@ THE FOUR IMAGE SLOTS AND THE TEXT AROUND EACH ONE
 The page template fixes where each image appears. Read the text beside each slot and brief a picture for THAT text, not for the topic in general.
 
 ${formatImageBriefs(briefs)}
-${recent.length ? `
-PICTURES ALREADY USED ON THE SITE RECENTLY (do not repeat these settings or subjects, and do not fall back to a generic version of them):
-${formatRecentConcepts(recent)}
+${recentInArticle.length ? `
+IN-ARTICLE PICTURES ALREADY USED ON THE SITE RECENTLY (for keypoint 1, split and keypoint 2: do not repeat these settings or subjects, and do not fall back to a generic version of them):
+${formatRecentConcepts(recentInArticle)}
+` : ""}${recentFeatured.length ? `
+RECENT FEATURED IMAGES (keep the signature formula, but choose a different hero object, props, material and light from these):
+${formatRecentConcepts(recentFeatured, 8)}
 ` : ""}
-HOW TO BRIEF EACH PICTURE
+${featuredStyleBlock()}
+
+HOW TO BRIEF THE THREE IN-ARTICLE PICTURES (keypoint 1, split, keypoint 2). Rule 1 also applies to the featured image; rules 2 to 6 do not — it follows the signature style above.
 1. Relevance is the first test and it outranks everything else below. Every picture must be recognisably ABOUT this article: "${focus}". A reader who sees the picture next to the text should understand they belong together. Work the subject into the scene through something real: the jurisdiction or city the text names, the regulator's building or district, the actual document, licence, asset or equipment the text discusses, or a person doing the specific task described. A picture that could sit on any business article is a failed picture, however handsome it is. Never illustrate a word the article does not use: a lease, a mortgage, a shop, a factory or a laboratory on an article about licensing is simply wrong.
 2. Concept second. In one sentence, name the specific idea from the text beside the slot that the picture makes visible: a step in a process, a decision, a consequence, a place, a threshold, a document that matters, a person doing the thing described. "ADGM licensing" is a topic, not a concept; "the moment a founder's business model is tested against the FSRA perimeter before anything is incorporated" is a concept.
 3. Choose the visual approach that genuinely fits each piece of text, from this list. Prefer variety where it is honest, and do not use any one approach more than twice across the four. Never stretch for a different approach at the cost of rule 1 — two well-judged offices beat one office and one irrelevant workbench.
@@ -1237,13 +1250,13 @@ HOW TO BRIEF EACH PICTURE
    C. Object or detail: one telling object FROM THIS SUBJECT, close and tactile: the licence certificate the text discusses, an embossed regulator seal, a hardware wallet on a custody article, a card reader on a payments article, a passport page on a residency article. The object must be one the article actually mentions.
    D. Workplace in use: the real professional setting where this work happens, framed unusually — from a doorway, over a shoulder, from high in the room, at the end of the day — so it never repeats the standard desk-and-skyline shot.
 4. Vary the craft across the set: different settings, different times of day and light, different camera distances (at least one wide, one medium, one close), different dominant materials and colour accents. The brand feel comes from craft, not from repeating one look.
-5. Limits for the set, all secondary to rule 1: at most TWO pictures set in an office, boardroom or meeting room, and they must differ in framing and light. At most ONE showing two people at a table. At most ONE with legible in-scene text, and that text must name something the article itself discusses (the regulator, the jurisdiction, the licence or the document type) — never an unrelated document. The other three must contain no readable text at all. Never text overlays, captions, title cards, watermarks, logos, flags, coins or currency symbols. No real people's likenesses.
+5. Limits for the three in-article pictures, all secondary to rule 1: none of them may use the featured formula (a dossier or documents on a desk in front of a skyline window). At most ONE set in an office, boardroom or meeting room. At most ONE showing two people at a table. At most ONE with legible in-scene text, and that text must name something the article itself discusses (the regulator, the jurisdiction, the licence or the document type) — never an unrelated document. The other in-article pictures must contain no readable text at all. Never text overlays, captions, title cards, watermarks, logos, flags, coins or currency symbols. No real people's likenesses.
 6. Write the prompt: 45 to 80 words, British English. Concrete nouns. Name the subject or its jurisdiction explicitly in the prompt. One clear subject, its environment, the light, the camera distance and lens, the mood, ending with "photorealistic editorial photograph". State the text rule explicitly in every prompt: "no readable text anywhere in the frame", or, for the one permitted image, exactly what the in-scene text says.
 
 Return ONE valid JSON object and nothing else (no markdown, no code fences):
 {
   "images": [
-    { "slot": "featured", "concept": "one sentence", "approach": "A", "setting": "3 to 6 word label of the location and subject", "prompt": "the brief", "alt": "SEO alt text" },
+    { "slot": "featured", "concept": "one sentence", "approach": "signature", "setting": "3 to 6 word label of the location and subject", "prompt": "the 90 to 150 word signature brief", "alt": "SEO alt text" },
     { "slot": "keypoint_one", "concept": "...", "approach": "...", "setting": "...", "prompt": "...", "alt": "..." },
     { "slot": "post_split", "concept": "...", "approach": "...", "setting": "...", "prompt": "...", "alt": "..." },
     { "slot": "keypoint_two", "concept": "...", "approach": "...", "setting": "...", "prompt": "...", "alt": "..." }
@@ -1270,10 +1283,15 @@ ALT TEXT RULES (SEO, all mandatory):
   // still be four pictures about nothing in particular, which is exactly what
   // happened on 2026-09-11. Both reports feed the one revision round.
   const subject = subjectTerms(focus, content.secondary_keywords ?? [], title);
+  // Diversity applies to the three in-article pictures only (the featured
+  // image repeats the signature formula by design); the featured brief is
+  // checked against that formula instead.
   const review = (prompts: string[]) => {
-    const d = assessPromptDiversity(prompts, labels);
     const r = assessPromptRelevance(prompts, labels, subject);
-    return { ok: d.ok && r.ok, issues: [...r.issues, ...d.issues] };
+    const d = assessPromptDiversity(prompts.slice(1), labels.slice(1), { maxOffices: 1 });
+    const f = assessFeaturedPrompt(prompts[0], labels[0]);
+    const issues = [...r.issues, ...f, ...d.issues];
+    return { ok: issues.length === 0, issues };
   };
   let report = review(IMAGE_SLOTS.map((s) => draft[s].prompt));
 
