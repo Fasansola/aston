@@ -20,7 +20,7 @@ import { SelectedLinks, formatLinksForPrompt } from "./links";
 import { SourceBrief, formatBriefForPrompt } from "./source";
 import { StrategyBrief } from "./strategy";
 import { AuthorityLink, formatAuthorityLinksForPrompt } from "./authorityLinks";
-import { selectOptimalTitle } from "./titleEngine";
+import { selectOptimalTitle, lockProvidedTitle } from "./titleEngine";
 import { chatWithRetry, assertCompleted, extractJson, recordUsage } from "./llm";
 import { IMAGE_QA_CHECKS } from "./qaChecks";
 import { FAQ_HEADING } from "./htmlSemantics";
@@ -648,13 +648,18 @@ export async function generateBlueprint(
   sourceBrief?: SourceBrief,
   strategy?: StrategyBrief | null,
   customPrompt?: string,
-  language?: string
+  language?: string,
+  /** The title the operator typed, when there is one — used exactly as written. */
+  providedTitle?: string
 ): Promise<Blueprint> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-  // ── Title engine: generate 20 candidates, score them, lock the winner ──
-  // The selected title becomes the H1, the SEO title and the article theme.
-  const titleSelection = await selectOptimalTitle({ topic: title, strategy, customPrompt, language });
+  // ── Title: a typed title is kept as it is; only a prompt-only request goes
+  // through the title engine (20 candidates, scored, winner locked). Either
+  // way the locked title becomes the H1, the SEO title and the article theme.
+  const titleSelection = providedTitle?.trim()
+    ? await lockProvidedTitle({ title: providedTitle, strategy, language })
+    : await selectOptimalTitle({ topic: title, strategy, customPrompt, language });
   const lockedTitle = titleSelection.title;
   const lockedKeyword = titleSelection.focusKeyword;
 
@@ -789,7 +794,7 @@ BLUEPRINT RULES:
 - focus_keyword: use exactly "${lockedKeyword}" — this is locked, derived from the selected title. Do not change it.
 - secondary_keywords: provide 8 to 10 distinct secondary keywords. ${strategy ? "Select the strongest from the strategy brief's secondary keyword list above, prioritising service variants, jurisdiction variants, and commercial-intent phrases. Do not invent weak variants." : "Cover service variants, jurisdiction variants, and commercial-intent phrasing a real reader would search."} They will be distributed across the six body sections, so favour variety over repetition of the focus keyword.
 
-- seo_title: use this EXACT title, character for character — it has already been selected by the title engine as the highest-scoring option and is locked: "${lockedTitle}". Do NOT rewrite, shorten, rephrase or "improve" it. Copy it verbatim. This same title is the article's H1 and overall theme, so every section must stay on-theme with it.
+- seo_title: use this EXACT title, character for character — ${providedTitle?.trim() ? "the client wrote it themselves" : "it has already been selected by the title engine as the highest-scoring option"} and it is locked: "${lockedTitle}". Do NOT rewrite, shorten, rephrase or "improve" it. Copy it verbatim. This same title is the article's H1 and overall theme, so every section must stay on-theme with it.
 
 - meta_description: This appears verbatim on Google — it must be complete, punchy, and entice the reader to click. STRICT RULES — all must be met simultaneously:
   1. HARD MAXIMUM: 141 characters including spaces. This is an absolute ceiling — never exceed it under any circumstance. Count the characters in your final string before returning it. If your draft is 142 or more characters, rewrite the sentence with shorter words or remove a clause — do NOT truncate mid-word or mid-thought.
@@ -833,7 +838,7 @@ BLUEPRINT RULES:
   const raw = assertCompleted(response, "blueprint");
   const parsed = extractJson<Blueprint>(raw, "blueprint");
   // Force the locked title + focus keyword — never trust the model to echo them
-  // unchanged. The title engine already chose the winner; this is the source of truth.
+  // unchanged. The typed title (or the title engine's winner) is the source of truth.
   parsed.seo_title = lockedTitle;
   parsed.focus_keyword = lockedKeyword;
   if (parsed.meta_description && parsed.meta_description.length > 141) {
@@ -1091,8 +1096,8 @@ ${linksBlock}`;
 
   const raw = assertCompleted(response, "content");
   const parsed = extractJson<BlogContent>(raw, "content");
-  // Lock the title + focus keyword to the blueprint's (the title-engine winner)
-  // so the content step can never drift from the selected H1/SEO title/theme.
+  // Lock the title + focus keyword to the blueprint's (the typed title, or the
+  // title-engine winner) so the content step can never drift from the H1/SEO title/theme.
   parsed.seo_title = blueprint.seo_title;
   parsed.focus_keyword = blueprint.focus_keyword;
   // Repair/remove any malformed Chart.js blocks so charts never render blank.

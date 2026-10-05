@@ -41,7 +41,7 @@ import { runQA, RETRYABLE_WARNING_CHECKS, shortenKeypoint, KEYPOINT_MAX_CHARS } 
 import { enforceApprovedLinks, scrubBrokenExternalLinks, stripLinksFromVisualBlocks } from "@/lib/linkScrubber";
 import { selectAuthorityLinks, mergeWithDiscovered, type AuthorityLink } from "@/lib/authorityLinks";
 import { normaliseArticleHtml } from "@/lib/htmlSemantics";
-import { IMAGE_QA_CHECKS } from "@/lib/qaChecks";
+import { IMAGE_QA_CHECKS, withoutTitleChecks } from "@/lib/qaChecks";
 import { GenerationMode, SourceBrief, emptyBrief, processSourceInput } from "@/lib/source";
 import { generateStrategy, type StrategyBrief } from "@/lib/strategy";
 import { researchTopic, deriveTitle, findExternalAuthorityLinks, type ResearchBrief } from "@/lib/research";
@@ -160,11 +160,12 @@ async function strategyStep(input: GeneratePostInput, strategyTopic: string, res
 
 async function blueprintStep(
   title: string, selectedLinks: SelectedLinks, sourceBrief: SourceBrief,
-  strategy: StrategyBrief, customInstruction: string | undefined, language: string, ctx: StepCtx
+  strategy: StrategyBrief, customInstruction: string | undefined, language: string,
+  providedTitle: string | undefined, ctx: StepCtx
 ): Promise<Blueprint> {
   "use step";
   return guarded("blueprint", ctx, () =>
-    generateBlueprint(title, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined));
+    generateBlueprint(title, selectedLinks, sourceBrief, strategy, customInstruction, language || undefined, providedTitle));
 }
 
 async function authorityLinksStep(
@@ -700,6 +701,14 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
     }
   }
 
+  // A title typed into the title field is the post's title, exactly as written:
+  // the title engine is skipped and no QA fix pass may rewrite it. Only a
+  // prompt-only request gets a system-written title. (A draft planned before
+  // this rule keeps the title it was planned around, so its keyword still fits.)
+  const providedTitle = input.hasTopic && title.trim() && !(draft?.blueprint && draft.blueprint.seo_title !== title)
+    ? title
+    : undefined;
+
   const fileSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50);
   if (!draft) await save({ title, strategyTopic, fileSlug, stage: "started" });
 
@@ -733,7 +742,7 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
   let blueprint = draft?.blueprint;
   if (!blueprint) {
     console.log("[wf] step: blueprint");
-    blueprint = await blueprintStep(title, selectedLinks, sourceBrief, strategy, input.customInstruction, input.language, ctx);
+    blueprint = await blueprintStep(title, selectedLinks, sourceBrief, strategy, input.customInstruction, input.language, providedTitle, ctx);
   }
   let authorityLinks = draft?.authorityLinks;
   if (!authorityLinks) {
@@ -774,6 +783,8 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
       const scrubbed = await scrubStep(content, authorityLinks, prevBrokenUrls);
       content = scrubbed.content;
       prevBrokenUrls = scrubbed.brokenUrls;
+      // Neither a fix pass nor the house-style pass above changes a typed title.
+      if (providedTitle && content.seo_title !== providedTitle) content = { ...content, seo_title: providedTitle };
       if (scrubbed.linkWarnings.length > 0) {
         console.warn("[wf] links returned 403 (kept with warning):", scrubbed.linkWarnings.join(", "));
         await emit({ type: "progress", message: `${scrubbed.linkWarnings.length} link(s) returned 403 and were kept with a warning` });
@@ -795,7 +806,9 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
 
       prevContent = content;
       prevImagePrompts = imagePrompts;
-      prevChecks = qa.checks;
+      // What a fix pass may act on — never the title when the operator typed it.
+      const fixable = providedTitle ? withoutTitleChecks(qa.checks) : qa.checks;
+      prevChecks = fixable;
 
       const summary: DraftQa = {
         status: qa.status, score: qa.score, warnings: qa.warnings, blocking_issues: qa.blocking_issues,
@@ -819,7 +832,7 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
       // the client's hard rule, so an article still outside 2,000–2,400 words
       // gets a further length-only pass while attempts remain (a later pass
       // must not re-open the other warnings — each rewrite costs quality).
-      const retryable = attempt === 1 ? RETRYABLE_WARNING_CHECKS.filter((k) => qa.checks[k] === false) : [];
+      const retryable = attempt === 1 ? RETRYABLE_WARNING_CHECKS.filter((k) => fixable[k] === false) : [];
       const lengthOff = qa.checks.word_count_in_range === false;
       if (attempt < MAX_QA && (retryable.length > 0 || lengthOff)) {
         if (retryable.length === 0) prevChecks = { word_count_in_range: false };

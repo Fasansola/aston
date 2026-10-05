@@ -11,6 +11,9 @@
  *        Search Intent 40% · Commercial 30% · CTR 20% · AI discoverability 10%
  *   5. Selects the single highest-scoring title
  *
+ * Only for requests made with a prompt and no title. A title the operator
+ * typed is never scored or rewritten — see lockProvidedTitle().
+ *
  * The winner becomes the locked title used as the H1, the SEO title and the
  * article theme. All 20 candidates + scores are logged for transparency.
  *
@@ -63,20 +66,76 @@ function sanitizeTitle(t: string): string {
     .trim();
 }
 
+const KEYWORD_STOP_WORDS = new Set(["the", "a", "an", "of", "for", "with", "to", "in", "on", "and", "or", "your", "what", "why", "how", "is", "are"]);
+
+/**
+ * Last-resort focus keyword: up to four CONSECUTIVE words of the title, starting
+ * at its first meaningful word. Sliced out of the title itself, so it is always
+ * a substring of it (dropping stop words from the middle would not be).
+ */
+function leadingKeyphrase(title: string): string {
+  const words = [...title.matchAll(/\S+/g)];
+  const isStop = (w: string) => KEYWORD_STOP_WORDS.has(w.toLowerCase().replace(/[^a-z0-9]/g, ""));
+  const start = words.findIndex((m) => !isStop(m[0]));
+  if (start < 0) return title.trim();
+  let end = Math.min(start + 3, words.length - 1);
+  while (end > start && isStop(words[end][0])) end--;
+  const phrase = title.slice(words[start].index!, words[end].index! + words[end][0].length);
+  return phrase.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "") || title.trim();
+}
+
 /**
  * Guarantee the focus keyword is a substring of the chosen title so the
  * downstream blocking QA check (focus_keyword_in_title) cannot fail.
- * Priority: model's keyword → strategy primary keyword → first significant words.
+ * Priority: model's keyword → strategy primary keyword → leading words of the title.
  */
-function resolveFocusKeyword(title: string, modelKw: string, strategyKw?: string): string {
+export function resolveFocusKeyword(title: string, modelKw: string, strategyKw?: string): string {
   const t = title.toLowerCase();
-  if (modelKw && t.includes(modelKw.toLowerCase().trim())) return modelKw.trim();
-  if (strategyKw && t.includes(strategyKw.toLowerCase().trim())) return strategyKw.trim();
-  // Fallback: first 2–4 meaningful words of the title.
-  const stop = new Set(["the", "a", "an", "of", "for", "with", "to", "in", "on", "and", "or", "your", "what", "why", "how", "is", "are"]);
-  const words = title.split(/\s+/).filter((w) => w.replace(/[^a-z0-9]/gi, "").length > 0);
-  const sig = words.filter((w) => !stop.has(w.toLowerCase()));
-  return (sig.slice(0, 4).join(" ") || title).trim();
+  if (modelKw?.trim() && t.includes(modelKw.toLowerCase().trim())) return modelKw.trim();
+  if (strategyKw?.trim() && t.includes(strategyKw.toLowerCase().trim())) return strategyKw.trim();
+  return leadingKeyphrase(title);
+}
+
+/**
+ * A title the operator typed is the title: no candidates, no scoring, no
+ * house-style rewrite. Only the focus keyword is still chosen here, and it has
+ * to be a phrase taken from that title (focus_keyword_in_title is blocking).
+ */
+export async function lockProvidedTitle(params: {
+  title: string;
+  strategy?: StrategyBrief | null;
+  language?: string;
+}): Promise<TitleSelection> {
+  const title = params.title.trim();
+  const strategyKw = params.strategy?.keyword_model?.primary_keyword?.trim();
+  if (strategyKw && title.toLowerCase().includes(strategyKw.toLowerCase())) {
+    console.log(`[titleEngine] title provided — kept as written: "${title}", focus "${strategyKw}"`);
+    return { title, focusKeyword: strategyKw, candidates: [] };
+  }
+
+  let modelKw = "";
+  try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const res = await chatWithRetry(openai, {
+      messages: [
+        { role: "system", content: "You are an SEO strategist for Aston VIP, a high-end international corporate advisory firm." },
+        { role: "user", content: `ARTICLE TITLE (written by the client, fixed, do not change it): "${title}"
+${strategyKw ? `PRIMARY KEYWORD FROM THE STRATEGY (for context): ${strategyKw}\n` : ""}
+Choose the focus keyword for this article: the 2 to 4 word phrase a searcher would type into Google to find it.
+It MUST be copied from the title exactly: the same consecutive words, in the same order, with the same spelling${isNonEnglish(params.language) ? `, in the title's own language` : ""}.
+
+Return ONE valid JSON object, no markdown, no code fences:
+{ "focus_keyword": "..." }` },
+      ],
+    }, { label: "focusKeyword", timeoutMs: 120_000 });
+    modelKw = extractJson<{ focus_keyword?: string }>(assertCompleted(res, "focusKeyword"), "focusKeyword").focus_keyword ?? "";
+  } catch (err) {
+    console.warn(`[titleEngine] focus keyword pick failed (${err instanceof Error ? err.message : String(err)}) — taking it from the title`);
+  }
+
+  const focusKeyword = resolveFocusKeyword(title, modelKw, strategyKw);
+  console.log(`[titleEngine] title provided — kept as written: "${title}", focus "${focusKeyword}"`);
+  return { title, focusKeyword, candidates: [] };
 }
 
 export async function selectOptimalTitle(params: {

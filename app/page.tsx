@@ -1313,7 +1313,7 @@ export default function AdminPage() {
                   action={items.length > 0 ? <Btn variant="ghost" size="sm" onClick={() => setShowAddForm(false)}>Close</Btn> : undefined} />
                 <div className="p-6 space-y-4">
                   <div>
-                    <Label>Custom prompt <span className="text-white/35 font-normal">(optional if topic set — AI will derive title)</span></Label>
+                    <Label>Custom prompt <span className="text-white/35 font-normal">(optional if a title is set — with no title, AI writes one from this prompt)</span></Label>
                     <textarea
                       value={newCustomPrompt}
                       onChange={(e) => setNewCustomPrompt(e.target.value)}
@@ -1324,7 +1324,7 @@ export default function AdminPage() {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <Label>Topic title <span className="text-white/35 font-normal">(optional if custom prompt set)</span></Label>
+                      <Label>Post title <span className="text-white/35 font-normal">(used exactly as typed — leave empty to let AI write it from the prompt)</span></Label>
                       <Input value={newTopic} onChange={(e) => setNewTopic(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addQueueItem()} placeholder="e.g. How to open a company in DIFC" />
                     </div>
                     <div>
