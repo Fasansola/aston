@@ -12,6 +12,8 @@
  *          Editorial compliance 15
  */
 
+import { isWordCountInRange, ARTICLE_MIN_WORDS, ARTICLE_MAX_WORDS } from "./wordBudget";
+
 // ── Input / Output types ───────────────────────────────────────
 
 export interface ReadinessInput {
@@ -242,14 +244,17 @@ function scoreSearchBasics(input: ReadinessInput): ReadinessSubscore {
     issues.push({ id: "sb_4", severity: "failed", category: "search_basics", message: "Article has fewer than 2 H2/H3 headings", blocking: true, suggestedFix: "Add proper section headings throughout the article", actions: ["manual_fix"] });
   }
 
-  // Word count
-  if (input.wordCount >= 1800 && input.wordCount <= 5500) {
+  // Word count — the client's 2,000–2,400 word rule (lib/wordBudget.ts)
+  if (isWordCountInRange(input.wordCount)) {
     earned += 4;
+  } else if (input.wordCount > ARTICLE_MAX_WORDS) {
+    earned += 2;
+    issues.push({ id: "sb_5", severity: "warning", category: "search_basics", message: `Word count is ${input.wordCount} (client range ${ARTICLE_MIN_WORDS.toLocaleString("en-GB")}–${ARTICLE_MAX_WORDS.toLocaleString("en-GB")})`, blocking: false, suggestedFix: "Trim repetition and the least important sentences to bring the article into range", actions: ["manual_fix"] });
   } else if (input.wordCount >= 1200) {
     earned += 2;
-    issues.push({ id: "sb_5", severity: "warning", category: "search_basics", message: `Word count is ${input.wordCount} (target 1,800–5,500)`, blocking: false, suggestedFix: "Expand the article with more detailed sections", actions: ["manual_fix"] });
+    issues.push({ id: "sb_5", severity: "warning", category: "search_basics", message: `Word count is ${input.wordCount} (client range ${ARTICLE_MIN_WORDS.toLocaleString("en-GB")}–${ARTICLE_MAX_WORDS.toLocaleString("en-GB")})`, blocking: false, suggestedFix: "Expand the existing sections with specific facts and examples", actions: ["manual_fix"] });
   } else {
-    issues.push({ id: "sb_5", severity: "failed", category: "search_basics", message: `Article is too short — ${input.wordCount} words (minimum 1,800)`, blocking: true, suggestedFix: "Expand the article significantly before publishing", actions: ["manual_fix"] });
+    issues.push({ id: "sb_5", severity: "failed", category: "search_basics", message: `Article is too short — ${input.wordCount} words (minimum ${ARTICLE_MIN_WORDS.toLocaleString("en-GB")})`, blocking: true, suggestedFix: "Expand the article significantly before publishing", actions: ["manual_fix"] });
   }
 
   // Internal links

@@ -14,6 +14,7 @@
 
 import { BlogContent, ImagePrompts } from "./wordpress";
 import { findHeadingIssues } from "./htmlSemantics";
+import { articleWordCount, isWordCountInRange, ARTICLE_MIN_WORDS, ARTICLE_MAX_WORDS } from "./wordBudget";
 
 /**
  * Checks that are NOT hard-blocking (a failure won't discard the article)
@@ -34,6 +35,7 @@ export const RETRYABLE_WARNING_CHECKS = [
   "headings_specific",
   "keypoints_within_length",
   "heading_structure_ok",
+  "word_count_in_range",
 ] as const;
 
 /**
@@ -85,10 +87,6 @@ function stripHtml(html: string): string {
   return (html ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function countWords(html: string): number {
-  const text = stripHtml(html);
-  return text.length === 0 ? 0 : text.split(" ").filter((w) => w.length > 0).length;
-}
 
 function countTag(html: string, tag: string): number {
   return ((html ?? "").match(new RegExp(`<${tag}[\\s>]`, "gi")) ?? []).length;
@@ -305,13 +303,15 @@ export function runQA(
   // ── WARNING CHECKS ────────────────────────────────────────
   // Failures here produce warnings but do not block publishing.
 
-  // Total word count — warning only, does not block publishing
-  const wordCount = countWords(allFields);
-  checks.word_count_in_range = wordCount >= 2100 && wordCount <= 5500;
-  if (wordCount < 2100)
-    warnings.push(`Word count low: ${wordCount} words (minimum 2,100)`);
-  else if (wordCount > 5500)
-    warnings.push(`Word count high: ${wordCount} words (maximum 5,500)`);
+  // Article length — the client's 2,000–2,400 word rule (lib/wordBudget.ts),
+  // counted over what a reader sees. Retryable: an out-of-range article gets
+  // a targeted length pass that rewrites the sections to computed targets.
+  const wordCount = articleWordCount(content);
+  checks.word_count_in_range = isWordCountInRange(wordCount);
+  if (wordCount < ARTICLE_MIN_WORDS)
+    warnings.push(`Word count low: ${wordCount} words (client range ${ARTICLE_MIN_WORDS}–${ARTICLE_MAX_WORDS})`);
+  else if (wordCount > ARTICLE_MAX_WORDS)
+    warnings.push(`Word count high: ${wordCount} words (client range ${ARTICLE_MIN_WORDS}–${ARTICLE_MAX_WORDS})`);
 
   // H3 section count (minimum 4 across body fields)
   const h3Count = countTag(bodyFields, "h3");

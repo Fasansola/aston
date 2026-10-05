@@ -25,6 +25,10 @@ import { chatWithRetry, assertCompleted, extractJson, recordUsage } from "./llm"
 import { IMAGE_QA_CHECKS } from "./qaChecks";
 import { FAQ_HEADING } from "./htmlSemantics";
 import {
+  ARTICLE_MIN_WORDS, ARTICLE_MAX_WORDS, ARTICLE_TARGET_WORDS, INTRO_WORDS, SECTION_WORD_TARGETS,
+  MAX_H4_PER_SECTION, FAQ_QUESTION_COUNT, FAQ_ANSWER_MAX_WORDS, wordCountPlan,
+} from "./wordBudget";
+import {
   IMAGE_SLOTS, buildImageBriefs, formatImageBriefs, articleOutline, formatRecentConcepts,
   assessPromptDiversity, assessPromptRelevance, subjectTerms,
   type ImageSlot, type ImageBriefContent, type RecentImageConcept,
@@ -492,7 +496,7 @@ Rules:
 const FAQ_ANSWER_RULES = `
 FAQ ANSWER RULES (applies to more_content_5):
 Every FAQ answer must follow this format: the FIRST sentence is the complete, self-contained answer. Supporting detail follows in sentence 2–3. This structure lets AI systems extract the first sentence as a direct answer.
-- Max 60 words per answer
+- Max ${FAQ_ANSWER_MAX_WORDS} words per answer
 - First sentence must stand alone as the answer — do not start with "It depends", "There are several", or "This varies"
 - Include at least one named entity (regulator, jurisdiction, fee, or timeline) in every answer
 `;
@@ -546,7 +550,7 @@ Rules:
 
 FAQ ANSWER RULES (applies to more_content_5):
 Every FAQ answer must follow this format: the FIRST sentence is the complete, self-contained answer. Supporting detail follows in sentence 2–3. This structure lets AI systems extract the first sentence as a direct answer.
-- Max 60 words per answer
+- Max ${FAQ_ANSWER_MAX_WORDS} words per answer
 - First sentence must stand alone as the answer — do not start with "It depends", "There are several", or "This varies"
 - Include at least one named entity (regulator, jurisdiction, fee, or timeline) in every answer
 `;
@@ -587,6 +591,18 @@ const EXPECTED_SECTIONS: Array<{ field: string; defaultHeading: string }> = [
  *  - guarantee exactly 5 sections in the expected field order, so no content
  *    field is ever told to use an empty H3
  */
+/** Cap a section at MAX_H4_PER_SECTION subsections, folding the extra angles into the last one. */
+function foldSubsections<T extends { h4_heading?: string; angle?: string }>(subs: T[]): T[] {
+  if (subs.length <= MAX_H4_PER_SECTION) return subs;
+  const kept = subs.slice(0, MAX_H4_PER_SECTION);
+  const extra = subs.slice(MAX_H4_PER_SECTION)
+    .map((s) => [s?.h4_heading, s?.angle].filter(Boolean).join(": "))
+    .filter(Boolean);
+  const last = kept[kept.length - 1];
+  kept[kept.length - 1] = { ...last, angle: [last?.angle, `Also cover briefly: ${extra.join("; ")}`].filter(Boolean).join(". ") };
+  return kept;
+}
+
 function sanitizeBlueprint(bp: Blueprint): Blueprint {
   const cleanHeading = (h: string, fallback: string): string => {
     let s = (h ?? "").trim();
@@ -607,17 +623,23 @@ function sanitizeBlueprint(bp: Blueprint): Blueprint {
       field: expected.field,
       h3_heading: cleanHeading(match?.h3_heading ?? "", expected.defaultHeading),
       angle: (match?.angle ?? "").trim(),
-      target_words: typeof match?.target_words === "number" && match.target_words > 0
-        ? match.target_words
-        : 600,
-      subsections: subs.map((sub) => ({
+      // Fixed by the client's 2,000–2,400 word rule, never by the model or a brief.
+      target_words: SECTION_WORD_TARGETS[expected.field] ?? 300,
+      // A detailed brief used to turn every sub-point into its own H4 (5–15 per
+      // section at ~50 words each). Keep the first few; their angles carry the rest.
+      subsections: foldSubsections(subs).map((sub) => ({
         h4_heading: cleanHeading(sub?.h4_heading ?? "", "Key detail"),
         angle: (sub?.angle ?? "").trim(),
       })),
     };
   });
 
-  return { ...bp, sections };
+  return {
+    ...bp,
+    sections,
+    estimated_word_count: ARTICLE_TARGET_WORDS,
+    faq_questions: (bp.faq_questions ?? []).slice(0, FAQ_QUESTION_COUNT),
+  };
 }
 
 export async function generateBlueprint(
@@ -659,20 +681,15 @@ STRATEGY BRIEF (use as source of truth for this blueprint):
   const isDetailedBrief = customPrompt && customPrompt.length > 600 &&
     (/section|heading|explain|discuss|include|cover/i.test(customPrompt));
 
-  // Extract word count target from custom prompt if specified
-  // Default raised to 3,000 — produces richer, more detailed articles without a brief
-  const wordCountMatch = customPrompt?.match(/(\d[\d,]+)\s*[-–]\s*(\d[\d,]+)\s*words?/i);
-  const targetWordCount = wordCountMatch
-    ? Math.round((parseInt(wordCountMatch[1].replace(/,/g, ""), 10) + parseInt(wordCountMatch[2].replace(/,/g, ""), 10)) / 2)
-    : 3500;
-  // Section word target scales with the total: 600w for standard, 700w for long-form (3500+)
-  const sectionWordTarget = targetWordCount >= 3500 ? 700 : targetWordCount >= 2800 ? 650 : 600;
+  // Length is fixed by the client: 2,000–2,400 words for every post. A word
+  // count inside a custom brief no longer overrides it (it used to replace the
+  // default and was repeated to the writer as "highest priority").
 
   const customPromptBlock = customPrompt?.trim()
     ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the blueprint):\n${customPrompt.trim()}\n${isDetailedBrief ? `
 SECTION MAPPING INSTRUCTIONS (mandatory when custom instructions provide a detailed article structure):
 The custom instructions above specify multiple sections, headings, or angles. You MUST:
-1. Extract the total word count target from the custom instructions — use it as estimated_word_count (if 3000–4000 words are requested, set estimated_word_count to 3500 and each section's target_words to ${sectionWordTarget})
+1. LENGTH IS FIXED: the article is ${ARTICLE_MIN_WORDS}–${ARTICLE_MAX_WORDS} words in total whatever the custom instructions say. Ignore any word count in them; keep estimated_word_count and every target_words exactly as in the JSON template below
 2. Map the requested sections to the 5 available content fields (more_content_1 through more_content_6, excluding more_content_5 which is always FAQ):
    - more_content_1 → first 1–2 major requested sections (combine with clear H4 subsections for each)
    - more_content_2 → next 1–2 major requested sections
@@ -680,7 +697,7 @@ The custom instructions above specify multiple sections, headings, or angles. Yo
    - more_content_4 → ALWAYS the Aston VIP advisory/role section (adapt the heading to the topic)
    - more_content_6 → remaining section(s) — banking options comparison, common mistakes, checklist, or jurisdiction comparison
 3. Use the requested section headings (adapted to sentence case, max 8 words, no colons) as the H3 headings
-4. Distribute the requested sub-points as H4 subsections within the appropriate field
+4. Give each section AT MOST ${MAX_H4_PER_SECTION} H4 subsections. Group related requested sub-points under one H4 and name the rest in that subsection's angle; never give each sub-point its own H4
 5. Carry all the requested keywords, industry names, regulatory bodies, and topic angles into the section angles
 6. The FAQ questions must come from the article topic — use questions a real high-risk business operator would ask
 ` : ""}\n`
@@ -706,14 +723,14 @@ Plan the structure of this blog post and return it as a single valid JSON object
   "seo_title": "string",
   "meta_description": "string",
   "slug": "string",
-  "estimated_word_count": ${targetWordCount},
+  "estimated_word_count": ${ARTICLE_TARGET_WORDS},
   "intro_angle": "string",
   "sections": [
     {
       "field": "more_content_1",
       "h3_heading": "string",
       "angle": "string",
-      "target_words": ${sectionWordTarget},
+      "target_words": ${SECTION_WORD_TARGETS.more_content_1},
       "subsections": [
         { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" },
@@ -724,7 +741,7 @@ Plan the structure of this blog post and return it as a single valid JSON object
       "field": "more_content_2",
       "h3_heading": "string",
       "angle": "string",
-      "target_words": ${sectionWordTarget},
+      "target_words": ${SECTION_WORD_TARGETS.more_content_2},
       "subsections": [
         { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" },
@@ -735,7 +752,7 @@ Plan the structure of this blog post and return it as a single valid JSON object
       "field": "more_content_3",
       "h3_heading": "string",
       "angle": "string",
-      "target_words": ${sectionWordTarget},
+      "target_words": ${SECTION_WORD_TARGETS.more_content_3},
       "subsections": [
         { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" },
@@ -746,7 +763,7 @@ Plan the structure of this blog post and return it as a single valid JSON object
       "field": "more_content_4",
       "h3_heading": "Aston VIP's role in your [adapt to topic]",
       "angle": "string",
-      "target_words": ${sectionWordTarget},
+      "target_words": ${SECTION_WORD_TARGETS.more_content_4},
       "subsections": [
         { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" },
@@ -757,7 +774,7 @@ Plan the structure of this blog post and return it as a single valid JSON object
       "field": "more_content_6",
       "h3_heading": "string",
       "angle": "string",
-      "target_words": ${Math.round(sectionWordTarget * 0.85)},
+      "target_words": ${SECTION_WORD_TARGETS.more_content_6},
       "subsections": [
         { "h4_heading": "string", "angle": "string" },
         { "h4_heading": "string", "angle": "string" },
@@ -765,7 +782,7 @@ Plan the structure of this blog post and return it as a single valid JSON object
       ]
     }
   ],
-  "faq_questions": ["string", "string", "string", "string", "string", "string"]
+  "faq_questions": ["string", "string", "string", "string", "string"]
 }
 
 BLUEPRINT RULES:
@@ -802,7 +819,7 @@ BLUEPRINT RULES:
 - sections[].subsections[].angle: one sentence describing the subsection focus
 - more_content_4 must always open with an Aston VIP CTA heading adapted to the topic
 - more_content_6 must be a distinct fifth body section covering a practical angle not addressed in sections 1–4 (e.g. common mistakes, jurisdiction comparison, a specific use case, or a compliance checklist). Do not duplicate more_content_4 themes.
-- faq_questions: 5 to 6 specific questions a real reader would ask about this topic. Favour questions that match how people phrase queries to Google and AI answer engines, since the FAQ section is a primary source for featured snippets and AI citations. Questions only, no answers yet`;
+- faq_questions: exactly ${FAQ_QUESTION_COUNT} specific questions a real reader would ask about this topic. Favour questions that match how people phrase queries to Google and AI answer engines, since the FAQ section is a primary source for featured snippets and AI citations. Questions only, no answers yet`;
 
   // 240s primary (matches strategy): the blueprint is a heavy structured-
   // reasoning task on gpt-5.5 — the old 90s budget timed out routinely.
@@ -892,7 +909,7 @@ ${subs}`;
   const aiSearchInstructions = buildAISearchInstructions();
 
   const customPromptContentBlock = customPrompt?.trim()
-    ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the entire article):\n${customPrompt.trim()}\n`
+    ? `\nCUSTOM INSTRUCTIONS (highest priority — follow throughout the entire article, EXCEPT length: the ${ARTICLE_MIN_WORDS}–${ARTICLE_MAX_WORDS} word rule below always wins over any word count here):\n${customPrompt.trim()}\n`
     : "";
 
   const languageContentBlock = isNonEnglish(language)
@@ -905,6 +922,8 @@ ${subs}`;
 ${languageContentBlock}${domainContext}${strategyContentBlock}${customPromptContentBlock}${visualBlockInstructions}${aiSearchInstructions}${sourceBriefBlock ? `\n${sourceBriefBlock}\n` : ""}${authorityLinksBlock}
 You have already planned the structure. Now write the full article following the blueprint exactly.
 The headings, section angles, and word targets below are fixed — do not change them.
+
+ARTICLE LENGTH (client rule, non-negotiable): the whole article a reader sees — key takeaways, introduction, all body sections, keypoints, quotes, FAQ and final points — must total ${ARTICLE_MIN_WORDS} to ${ARTICLE_MAX_WORDS} words. Aim for about ${ARTICLE_TARGET_WORDS}. It is counted automatically; an article outside the range is sent back for rewriting. Hit each section's word target below rather than writing as much as you can, and make every paragraph earn its place: depth comes from specific facts, figures and examples, not from extra subsections.
 
 BLUEPRINT:
 Focus keyword: ${blueprint.focus_keyword}
@@ -950,7 +969,7 @@ FIELD INSTRUCTIONS:
 excerpt:
 2-3 sentence plain-text excerpt for WordPress archive pages. No HTML. 40-60 words.
 
-main_content (350-450 words — MINIMUM 350, count before submitting):
+main_content (${INTRO_WORDS.min}-${INTRO_WORDS.max} words, count before submitting):
 - Open with the business problem or opportunity described in the intro angle: "${blueprint.intro_angle}"
 - The focus keyword must appear in the first sentence of the first paragraph — not the second, not the third
 - Use the focus keyword 2–3 times naturally across the full intro (spread across different paragraphs)
@@ -970,8 +989,8 @@ A compelling, self-contained insight drawn from the key point of main_content. H
 more_content_1:
 - Use EXACTLY this H3: "${blueprint.sections[0]?.h3_heading ?? ""}"
 - Follow the angle: ${blueprint.sections[0]?.angle ?? ""}
-- Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
-- Target ~${blueprint.sections[0]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
+- Write EACH H4 subsection as specified in the blueprint — one or two developed paragraphs under each, never a one-line stub. Do NOT add H4s beyond the blueprint's
+- Target ~${blueprint.sections[0]?.target_words ?? 300} words (within 10%) — do not write much more or much less
 - Must include at least one: specific cost/fee in AED or USD, named regulatory body, realistic timeline, or jurisdiction comparison
 - VISUAL BLOCKS: if this section contains data, fee tables, jurisdiction comparisons, statistics, or ranked information worth visualising, place ONE infographic or chart block at the most natural point. If the section is primarily narrative or advisory, skip the visual block and focus on prose quality.
 - Use 1-2 secondary keywords naturally
@@ -980,8 +999,8 @@ more_content_1:
 more_content_2:
 - Use EXACTLY this H3: "${blueprint.sections[1]?.h3_heading ?? ""}"
 - Follow the angle: ${blueprint.sections[1]?.angle ?? ""}
-- Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
-- Target ~${blueprint.sections[1]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
+- Write EACH H4 subsection as specified in the blueprint — one or two developed paragraphs under each, never a one-line stub. Do NOT add H4s beyond the blueprint's
+- Target ~${blueprint.sections[1]?.target_words ?? 300} words (within 10%) — do not write much more or much less
 - Must include a bulleted or numbered list of at least 5 concrete items with facts, figures, or named details
 - VISUAL BLOCKS: if this section contains data, fee tables, jurisdiction comparisons, statistics, or ranked information worth visualising, place ONE infographic or chart block at the most natural point. If the section is primarily narrative or advisory, skip the visual block and focus on prose quality.
 - Use 1-2 secondary keywords naturally
@@ -993,8 +1012,8 @@ Short, punchy, practical advice from more_content_1 or more_content_2. Max 2 sen
 more_content_3:
 - Use EXACTLY this H3: "${blueprint.sections[2]?.h3_heading ?? ""}"
 - Follow the angle: ${blueprint.sections[2]?.angle ?? ""}
-- Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
-- Target ~${blueprint.sections[2]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
+- Write EACH H4 subsection as specified in the blueprint — one or two developed paragraphs under each, never a one-line stub. Do NOT add H4s beyond the blueprint's
+- Target ~${blueprint.sections[2]?.target_words ?? 300} words (within 10%) — do not write much more or much less
 - Include at least one real-world scenario as a short narrative (e.g. "A gold trading company registered in DMCC approached three banks over six months...")
 - VISUAL BLOCKS: if this section contains data, fee tables, jurisdiction comparisons, statistics, or ranked information worth visualising, place ONE infographic or chart block at the most natural point. If the section is primarily narrative or advisory, skip the visual block and focus on prose quality.
 - Use 1-2 secondary keywords naturally
@@ -1006,8 +1025,8 @@ A compelling, self-contained insight drawn from the key point of more_content_3.
 more_content_4:
 - Use EXACTLY this H3: "${blueprint.sections[3]?.h3_heading ?? "Aston VIP's role in your process"}"
 - Follow the angle: ${blueprint.sections[3]?.angle ?? ""}
-- Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
-- Target ~${blueprint.sections[3]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
+- Write EACH H4 subsection as specified in the blueprint — one or two developed paragraphs under each, never a one-line stub. Do NOT add H4s beyond the blueprint's
+- Target ~${blueprint.sections[3]?.target_words ?? 300} words (within 10%) — do not write much more or much less
 - Describe Aston's end-to-end involvement specific to this topic — name the actual steps: pre-banking review, KYC file preparation, UBO documentation, compliance policy drafting, bank matching, introduction to relationship managers
 - DO NOT describe Aston generically. Every H4 must describe a specific, distinct phase of Aston's involvement
 - Include a mandatory advisory disclaimer that fits this article's topic. State plainly that Aston VIP does not guarantee specific outcomes and that its role is to prepare clients properly and introduce them to the right institutions. Adapt the outcome to the topic: for banking use "We do not guarantee bank account approvals", for licensing use "We do not guarantee regulatory approvals or license grants", for tax use "We do not provide a guarantee of any particular tax outcome". Always include the exact phrase "do not guarantee" so the disclaimer is unambiguous.
@@ -1025,15 +1044,15 @@ Allowed HTML: <ul>, <li> only. Do NOT use <strong> or any other tags inside list
 more_content_5:
 Write answers for each of these FAQ questions using the format below.
 Questions: ${blueprint.faq_questions.map((q, i) => `Q${i + 1}: ${q}`).join(" | ")}
-Format each as: <h4>Question text</h4><p>Answer (2-4 sentences, factual, specific)</p>
+Format each as: <h4>Question text</h4><p>Answer (2-3 sentences, factual, specific, at most ${FAQ_ANSWER_MAX_WORDS} words)</p>
 Do NOT wrap in any container and do NOT add an FAQ heading — just the h4/p pairs. The "${FAQ_HEADING}" H3 above them is added automatically.
 Allowed HTML: <h4>, <p>, <strong>
 
 more_content_6:
 - Use EXACTLY this H3: "${blueprint.sections[4]?.h3_heading ?? ""}"
 - Follow the angle: ${blueprint.sections[4]?.angle ?? ""}
-- Write EACH H4 subsection fully as specified in the blueprint — each H4 must be followed by at least 2 substantial paragraphs
-- Target ~${blueprint.sections[4]?.target_words ?? 500} words — HIT THIS TARGET, do not write less
+- Write EACH H4 subsection as specified in the blueprint — one or two developed paragraphs under each, never a one-line stub. Do NOT add H4s beyond the blueprint's
+- Target ~${blueprint.sections[4]?.target_words ?? 300} words (within 10%) — do not write much more or much less
 - This is a distinct fifth body section — do not repeat themes from more_content_4
 - VISUAL BLOCKS: if this section contains data, fee tables, jurisdiction comparisons, statistics, or ranked information worth visualising, place ONE infographic or chart block at the most natural point. If the section is primarily narrative or advisory, skip the visual block and focus on prose quality.
 - Use 1-2 secondary keywords naturally
@@ -1359,7 +1378,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   slug_exists:                      "slug is empty or invalid — write a lowercase hyphenated URL slug (only a-z, 0-9, hyphens; no spaces)",
   excerpt_exists:                   "excerpt is empty — write a 1–2 sentence plain-text summary of the article (no HTML)",
   // Content body
-  main_content_exists:              "main_content is under 270 words — rewrite it to 350–450 words",
+  main_content_exists:              `main_content is under 270 words — rewrite it to ${INTRO_WORDS.min}–${INTRO_WORDS.max} words`,
   main_content_has_internal_link:   "main_content has no internal link — embed exactly 1 internal link from the provided list",
   main_content_has_external_link:   "main_content has no external link — embed at least 1 external link from an official source (regulator, government, institution)",
   key_takeaways_exists:             "key_takeaways is empty — write 4–6 bullet points",
@@ -1378,7 +1397,7 @@ const CHECK_DESCRIPTIONS: Record<string, string> = {
   meta_description_length_ok:       "meta_description is outside 110–141 characters — rewrite to land in this range",
   no_dashes_in_title:               "seo_title contains a dash — rewrite the title without using dashes",
   // Structure
-  word_count_in_range:              "total article word count is outside 2100–4500 words — expand thin sections or trim bloated ones",
+  word_count_in_range:              `the article is outside the client's ${ARTICLE_MIN_WORDS}–${ARTICLE_MAX_WORDS} word range — rewrite the sections listed under ARTICLE LENGTH to their target word counts`,
   h3_count_sufficient:              "fewer than 4 H3 subheadings in the article — add subheadings to break up long sections",
   h4_count_sufficient:              "fewer than 6 H4 subheadings in the article — add H4 sub-points under existing H3 sections",
   keypoints_exist:                  "one or both keypoint callout boxes are empty — write them",
@@ -1419,7 +1438,16 @@ export async function fixBlogContent(
     .map(([key]) => key)
     .filter((key) => !IMAGE_QA_CHECKS.includes(key));
 
-  const fieldsToFix = [...new Set(failedKeys.flatMap((k) => CHECK_TO_FIELDS[k] ?? []))];
+  // Length: rewrite only the sections the plan picks, each to a computed target,
+  // instead of a fixed field list with "expand or trim".
+  const lengthPlan = failedKeys.includes("word_count_in_range") ? wordCountPlan(previousContent) : null;
+  const fieldsToFix = [...new Set(failedKeys.flatMap((k) =>
+    k === "word_count_in_range" ? (lengthPlan?.fields.map((f) => f.field) ?? []) : (CHECK_TO_FIELDS[k] ?? [])))];
+  const targetFor = new Map((lengthPlan?.fields ?? []).map((f) => [f.field, f.target]));
+  const wordCountOf = (f: string) => {
+    const html = (previousContent as unknown as Record<string, unknown>)[f];
+    return typeof html === "string" ? html.replace(/<[^>]+>/g, " ").split(/\s+/).filter(Boolean).length : 0;
+  };
 
   // If no mapping found (unknown check key), there's nothing targeted to fix — skip silently
   // rather than returning unchanged content, log and proceed with whatever fields we do have.
@@ -1447,9 +1475,19 @@ export async function fixBlogContent(
   const currentFieldsBlock = fieldsToFix
     .map((f) => {
       const val = (previousContent as unknown as Record<string, unknown>)[f] as string ?? "";
-      return `--- ${f} (current — needs fixing) ---\n${val || "(empty)"}`;
+      const target = targetFor.get(f);
+      const size = `${wordCountOf(f)} words now${target ? `, rewrite to about ${target}` : ""}`;
+      return `--- ${f} (current — needs fixing; ${size}) ---\n${val || "(empty)"}`;
     })
     .join("\n\n");
+
+  const lengthBlock = lengthPlan
+    ? `\nARTICLE LENGTH (client rule): the article is ${lengthPlan.total} words; it must be ${ARTICLE_MIN_WORDS}–${ARTICLE_MAX_WORDS} (aim for ${ARTICLE_TARGET_WORDS}). ${lengthPlan.direction === "trim"
+        ? "Trim these sections to their targets by cutting repetition, filler and the least important sentences. Keep every heading, link, visual block and placeholder."
+        : "Expand these sections to their targets with specific facts, figures, examples and practical detail on the existing subsections. Do not add new H4 subsections."}
+${lengthPlan.fields.map((f) => `- ${f.field}: ${f.current} → about ${f.target} words`).join("\n")}
+`
+    : "";
 
   const alreadyUsed = (previousContent.internal_links_used ?? [])
     .map((l) => `- ${l.url} (anchor: "${l.anchor}")`)
@@ -1464,7 +1502,7 @@ Secondary keywords: ${blueprint.secondary_keywords.join(", ")}
 
 ISSUES TO FIX:
 ${issueList}
-${visualBlocksSection}${aiSearchSection}
+${lengthBlock}${visualBlocksSection}${aiSearchSection}
 CURRENT CONTENT OF FIELDS THAT NEED FIXING:
 ${currentFieldsBlock}
 
@@ -1476,10 +1514,11 @@ ${authorityLinksBlock}
 RULES:
 - Fix every issue listed above — do not skip any
 - British English throughout (except: always write "license" never "licence"), no colons in headings, sentence case, no em dashes
-- For main_content: 350–450 words, at least 2 H3 subheadings, exactly 1 internal link + at least 1 external link
+- For main_content: ${INTRO_WORDS.min}–${INTRO_WORDS.max} words, at least 2 H3 subheadings, exactly 1 internal link + at least 1 external link
 - Sentence length across ALL fields you are fixing: hard maximum 20 words per sentence. Split any sentence at 18+ words. Target 12–16 words
 - Across all sections combined: target 7 to 9 external links (minimum 5) — use ONLY the APPROVED EXTERNAL AUTHORITY SOURCES listed above${brokenUrls && brokenUrls.length > 0 ? `\n- The following external URLs were found to be BROKEN — do NOT reuse any of them:\n${brokenUrls.map((u) => `  • ${u}`).join("\n")}` : ""}
 - Preserve all existing HTML structure within the fields you are fixing
+- Keep each field you rewrite within 10% of its current word count unless ARTICLE LENGTH gives it a new target — a fix must never shrink or pad the article
 - Heading levels: never use <h1> or <h2> (the page title is the only H1); sections are H3, subsections H4; no headings in key_takeaways or final_points
 - Do NOT change fields that are not listed above
 - Return ONLY raw JSON — no markdown, no code fences, no explanation

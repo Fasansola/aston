@@ -41,6 +41,7 @@ import { runQA, RETRYABLE_WARNING_CHECKS, shortenKeypoint, KEYPOINT_MAX_CHARS } 
 import { enforceApprovedLinks, scrubBrokenExternalLinks, stripLinksFromVisualBlocks } from "@/lib/linkScrubber";
 import { selectAuthorityLinks, mergeWithDiscovered, type AuthorityLink } from "@/lib/authorityLinks";
 import { normaliseArticleHtml } from "@/lib/htmlSemantics";
+import { IMAGE_QA_CHECKS } from "@/lib/qaChecks";
 import { GenerationMode, SourceBrief, emptyBrief, processSourceInput } from "@/lib/source";
 import { generateStrategy, type StrategyBrief } from "@/lib/strategy";
 import { researchTopic, deriveTitle, findExternalAuthorityLinks, type ResearchBrief } from "@/lib/research";
@@ -789,7 +790,8 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
       if (input.queueItemId) await itemProgressStep(input.queueItemId, 4, attempt === 1 ? "Running quality checks…" : `Quality checks (attempt ${attempt} of ${MAX_QA})…`);
       const { qa, readMins } = await qaStep(content, imagePrompts, title);
       content = { ...content, read_mins: readMins };
-      console.log("[wf] qa result — status:", qa.status, "score:", qa.score);
+      const failing = Object.entries(qa.checks).filter(([k, ok]) => !ok && !IMAGE_QA_CHECKS.includes(k)).map(([k]) => k);
+      console.log(`[wf] qa result — status: ${qa.status} score: ${qa.score} words: ${qa.wordCount} failing: ${failing.join(", ") || "none"}`);
 
       prevContent = content;
       prevImagePrompts = imagePrompts;
@@ -813,14 +815,18 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
         break;
       }
 
-      // First pass with retryable warnings → one targeted fix pass
-      if (attempt === 1) {
-        const retryable = RETRYABLE_WARNING_CHECKS.filter((k) => qa.checks[k] === false);
-        if (retryable.length > 0) {
-          await save({ content, imagePrompts, prevBrokenUrls, qa: summary, stage: "written" });
-          await emit({ type: "qa_retry", attempt: attempt + 1, max: MAX_QA });
-          continue;
-        }
+      // First pass with retryable warnings → one targeted fix pass. Length is
+      // the client's hard rule, so an article still outside 2,000–2,400 words
+      // gets a further length-only pass while attempts remain (a later pass
+      // must not re-open the other warnings — each rewrite costs quality).
+      const retryable = attempt === 1 ? RETRYABLE_WARNING_CHECKS.filter((k) => qa.checks[k] === false) : [];
+      const lengthOff = qa.checks.word_count_in_range === false;
+      if (attempt < MAX_QA && (retryable.length > 0 || lengthOff)) {
+        if (retryable.length === 0) prevChecks = { word_count_in_range: false };
+        console.log(`[wf] qa retry — ${retryable.length > 0 ? retryable.join(", ") : "length only"} (${qa.wordCount} words)`);
+        await save({ content, imagePrompts, prevBrokenUrls, qa: summary, stage: "written" });
+        await emit({ type: "qa_retry", attempt: attempt + 1, max: MAX_QA });
+        continue;
       }
 
       summary.decision = "publish";
