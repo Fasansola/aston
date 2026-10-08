@@ -328,6 +328,11 @@ export function formatVariationCard(v: FeaturedVariation): string {
 - ${viewLine}`;
 }
 
+/** One line for the dashboard: what this post's featured picture was assigned. */
+export function describeVariation(v: FeaturedVariation): string {
+  return [`#${v.seq}`, v.scene.name, v.light.split(",")[0], v.palette, v.surface, v.camera.replace(/ \(.*\)/, ""), v.view ?? "no named view"].join(" · ");
+}
+
 /** Everything the art director needs for the featured slot. */
 export function featuredBriefBlock(v: FeaturedVariation): string {
   const example = v.scene.example;

@@ -354,7 +354,7 @@ async function imagesStep(input: GenerateMediaInput): Promise<void> {
   "use step";
   console.log(`[generateMedia] Generating article images for post ${input.postId}…`);
   const { getSettings, updatePostHistory } = await import("@/lib/storage");
-  const { conceptsFromPrompts } = await import("@/lib/imageBrief");
+  const { conceptsFromPrompts, briefsFromPrompts } = await import("@/lib/imageBrief");
 
   let imagePrompts: ImagePrompts;
   if (input.imagePrompts?.featured_img_prompt) {
@@ -393,7 +393,13 @@ async function imagesStep(input: GenerateMediaInput): Promise<void> {
   // Best-effort: the post may not be in history (older posts, manual URLs).
   try {
     const imageConcepts = conceptsFromPrompts(imagePrompts);
-    if (imageConcepts) await updatePostHistory(input.postId, { imageConcepts });
+    const imageBriefs = briefsFromPrompts(imagePrompts as unknown as Record<string, unknown>);
+    if (imageConcepts || imageBriefs) {
+      await updatePostHistory(input.postId, {
+        ...(imageConcepts ? { imageConcepts } : {}),
+        ...(imageBriefs ? { imageBriefs, imageCard: imagePrompts.featured_img_card, imagesBriefedAt: new Date().toISOString() } : {}),
+      });
+    }
   } catch (err) {
     console.warn(`[generateMedia] could not record image concepts for post ${input.postId}: ${err instanceof Error ? err.message : String(err)}`);
   }

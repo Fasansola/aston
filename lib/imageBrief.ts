@@ -416,6 +416,23 @@ export function formatSceneBriefs(scenes: SceneBriefInput[]): string {
 }
 
 /** Pull the optional per-slot concept fields off an ImagePrompts object. */
+/** One image's full brief as shown on the Recent posts tab. */
+export interface StoredImageBrief { prompt: string; alt: string; concept?: string }
+
+/** The four full prompts (plus alt text and concept) from an ImagePrompts object, for the dashboard. */
+export function briefsFromPrompts(p: Record<string, unknown> | null | undefined): Partial<Record<ImageSlot, StoredImageBrief>> | undefined {
+  if (!p) return undefined;
+  const out: Partial<Record<ImageSlot, StoredImageBrief>> = {};
+  for (const slot of IMAGE_SLOTS) {
+    const prompt = typeof p[`${slot}_img_prompt`] === "string" ? (p[`${slot}_img_prompt`] as string).trim() : "";
+    if (!prompt) continue;
+    const alt = typeof p[`${slot}_img_alt`] === "string" ? (p[`${slot}_img_alt`] as string) : "";
+    const concept = typeof p[`${slot}_img_concept`] === "string" ? (p[`${slot}_img_concept`] as string) : undefined;
+    out[slot] = { prompt, alt, ...(concept ? { concept } : {}) };
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 export function conceptsFromPrompts(p: {
   featured_img_concept?: string; keypoint_one_img_concept?: string;
   post_split_img_concept?: string; keypoint_two_img_concept?: string;

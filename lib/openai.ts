@@ -24,7 +24,7 @@ import { selectOptimalTitle, lockProvidedTitle } from "./titleEngine";
 import { chatWithRetry, assertCompleted, extractJson, recordUsage } from "./llm";
 import { IMAGE_QA_CHECKS } from "./qaChecks";
 import { FAQ_HEADING } from "./htmlSemantics";
-import { assignFeaturedVariation, featuredBriefBlock, formatVariationCard, assessFeaturedPrompt } from "./featuredImageStyle";
+import { assignFeaturedVariation, featuredBriefBlock, formatVariationCard, assessFeaturedPrompt, describeVariation } from "./featuredImageStyle";
 import {
   ARTICLE_MIN_WORDS, ARTICLE_MAX_WORDS, ARTICLE_TARGET_WORDS, INTRO_WORDS, SECTION_WORD_TARGETS,
   MAX_H4_PER_SECTION, FAQ_QUESTION_COUNT, FAQ_ANSWER_MAX_WORDS, wordCountPlan,
@@ -1356,7 +1356,7 @@ ALT TEXT RULES (SEO, all mandatory):
     }
   }
 
-  return toImagePrompts(draft);
+  return { ...toImagePrompts(draft), featured_img_card: describeVariation(variation) };
 }
 
 // ── Step 2b: Fix only the fields that failed QA ───────────────

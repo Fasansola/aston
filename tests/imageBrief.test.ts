@@ -229,3 +229,19 @@ describe("office limit after the rebalance", () => {
     expect(three.issues.some((i) => /office interiors/.test(i))).toBe(true);
   });
 });
+
+describe("briefsFromPrompts", () => {
+  it("keeps the full prompt, alt and concept for each slot that has one", async () => {
+    const { briefsFromPrompts } = await import("@/lib/imageBrief");
+    const out = briefsFromPrompts({
+      featured_img_prompt: "A long featured brief", featured_img_alt: "alt one", featured_img_concept: "c1",
+      keypoint_one_img_prompt: "Second brief", keypoint_one_img_alt: "alt two",
+      post_split_img_prompt: "", keypoint_two_img_alt: "orphan alt",
+    });
+    expect(out).toEqual({
+      featured: { prompt: "A long featured brief", alt: "alt one", concept: "c1" },
+      keypoint_one: { prompt: "Second brief", alt: "alt two" },
+    });
+    expect(briefsFromPrompts(null)).toBeUndefined();
+  });
+});

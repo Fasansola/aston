@@ -110,6 +110,9 @@ interface PostHistoryEntry {
   source: "scheduler" | "manual"; needsReview?: boolean; createdAt: string;
   mediaOutputs?: { audio: boolean; video: boolean; podcast: boolean };
   imageConcepts?: Partial<Record<"featured" | "keypoint_one" | "post_split" | "keypoint_two", string>>;
+  imageBriefs?: Partial<Record<"featured" | "keypoint_one" | "post_split" | "keypoint_two", { prompt: string; alt: string; concept?: string }>>;
+  imageCard?: string;
+  imagesBriefedAt?: string;
 }
 // The article is "completed" the moment it publishes; images, audio, video and
 // the podcast render afterwards in their own workflow and can take 15-20 min.
@@ -165,6 +168,40 @@ const PERF_STATUS: Record<PerformanceClass, { badge: string; label: string }> = 
 };
 
 // ── Shared components ──────────────────────────────────────────
+
+function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  const flash = (s: "copied" | "failed") => { setState(s); setTimeout(() => setState("idle"), 1800); };
+  // Older browsers and embedded views can refuse the async clipboard API;
+  // fall back to a hidden textarea + execCommand before giving up.
+  const legacyCopy = () => {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  };
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        const done = () => flash("copied");
+        const fallback = () => flash(legacyCopy() ? "copied" : "failed");
+        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done).catch(fallback);
+        else fallback();
+      }}
+      className="text-[10px] text-gold/80 hover:text-gold underline-offset-2 hover:underline"
+    >
+      {state === "copied" ? "Copied" : state === "failed" ? "Select the text to copy" : label}
+    </button>
+  );
+}
 
 function Badge({ className, children }: { className: string; children: React.ReactNode }) {
   return (
@@ -1659,7 +1696,7 @@ export default function AdminPage() {
                 <Card>
                   <div className="divide-y divide-white/[0.05]">
                     {history.map((h) => (
-                      <div key={h.id} className="flex items-center gap-4 px-6 py-4">
+                      <div key={h.id} className="flex items-start gap-4 px-6 py-4">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-semibold text-white/90 text-sm truncate" title={h.title}>{h.title}</p>
@@ -1682,6 +1719,34 @@ export default function AdminPage() {
                                   <li key={slot}><span className="text-white/30">{label}:</span> {h.imageConcepts[slot]}</li>
                                 ) : null)}
                               </ul>
+                            </details>
+                          )}
+                          {h.imageBriefs && (
+                            <details className="mt-1">
+                              <summary className="text-[11px] text-white/35 cursor-pointer hover:text-white/55 select-none">
+                                🧾 Image prompts{h.imagesBriefedAt ? ` · written ${fmt(h.imagesBriefedAt)}` : ""}
+                              </summary>
+                              <div className="mt-2 space-y-3 max-w-3xl">
+                                {h.imageCard && (
+                                  <p className="text-[11px] text-white/45 leading-relaxed">
+                                    <span className="text-white/30">Hero picture set-up assigned for variety:</span> {h.imageCard}
+                                  </p>
+                                )}
+                                {IMAGE_SLOT_ORDER.map(([slot, label]) => {
+                                  const b = h.imageBriefs?.[slot];
+                                  if (!b) return null;
+                                  return (
+                                    <div key={slot} className="rounded-lg bg-white/[0.03] ring-1 ring-inset ring-white/[0.06] p-3">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <span className="text-[11px] font-semibold text-white/60">{label}</span>
+                                        <CopyButton text={b.prompt} label="Copy prompt" />
+                                      </div>
+                                      <p className="mt-1 text-[11px] text-white/70 leading-relaxed whitespace-pre-wrap select-text">{b.prompt}</p>
+                                      {b.alt && <p className="mt-1 text-[10px] text-white/35"><span className="text-white/25">Alt text:</span> {b.alt}</p>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </details>
                           )}
                         </div>

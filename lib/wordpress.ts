@@ -959,6 +959,8 @@ export interface ImagePrompts {
   keypoint_two_img_concept?: string;
   post_split_img_concept?: string;
   featured_img_concept?: string;
+  /** The featured image's assigned variation card (scene, light, palette, view), for the dashboard. */
+  featured_img_card?: string;
 }
 
 export interface Blueprint {

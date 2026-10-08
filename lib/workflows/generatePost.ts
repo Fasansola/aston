@@ -397,10 +397,12 @@ async function recordHistoryStep(
   if (!postId) return;
   try {
     const { addPostHistory } = await import("@/lib/storage");
-    const { conceptsFromPrompts } = await import("@/lib/imageBrief");
+    const { conceptsFromPrompts, briefsFromPrompts } = await import("@/lib/imageBrief");
     const imageConcepts = conceptsFromPrompts(imagePrompts);
+    const imageBriefs = briefsFromPrompts(imagePrompts as unknown as Record<string, unknown>);
     await addPostHistory({
       ...(imageConcepts ? { imageConcepts } : {}),
+      ...(imageBriefs ? { imageBriefs, imageCard: imagePrompts?.featured_img_card, imagesBriefedAt: new Date().toISOString() } : {}),
       wpPostId: postId,
       title: content.seo_title || content.focus_keyword || `Post ${postId}`,
       slug: content.slug,

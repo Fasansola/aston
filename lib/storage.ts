@@ -12,7 +12,7 @@
  */
 
 import { GenerationMode } from "./source";
-import type { ImageSlot, RecentImageConcept } from "./imageBrief";
+import type { ImageSlot, RecentImageConcept, StoredImageBrief } from "./imageBrief";
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -592,6 +592,12 @@ export interface PostHistoryEntry {
   // What each of the four article images was briefed to show, so the
   // dashboard can explain a picture without opening WordPress.
   imageConcepts?: Partial<Record<ImageSlot, string>>;
+  // The exact prompts the four images were generated from (plus alt text),
+  // the featured image's assigned variation card, and when they were last
+  // (re)generated — so anyone can see what produced the pictures.
+  imageBriefs?: Partial<Record<ImageSlot, StoredImageBrief>>;
+  imageCard?: string;
+  imagesBriefedAt?: string;
 }
 
 const POST_HISTORY_LIMIT = 20;
@@ -619,7 +625,7 @@ export async function addPostHistory(
 /** Patch one history row by WordPress post id. Returns false when the post is not in history. */
 export async function updatePostHistory(
   wpPostId: number,
-  patch: Partial<Pick<PostHistoryEntry, "imageConcepts" | "needsReview" | "wpPostUrl">>
+  patch: Partial<Pick<PostHistoryEntry, "imageConcepts" | "imageBriefs" | "imageCard" | "imagesBriefedAt" | "needsReview" | "wpPostUrl">>
 ): Promise<boolean> {
   const all = await kget<PostHistoryEntry[]>(KEYS.postHistory, []);
   const idx = all.findIndex((e) => e.wpPostId === wpPostId);
