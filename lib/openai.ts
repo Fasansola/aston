@@ -24,7 +24,7 @@ import { selectOptimalTitle, lockProvidedTitle } from "./titleEngine";
 import { chatWithRetry, assertCompleted, extractJson, recordUsage } from "./llm";
 import { IMAGE_QA_CHECKS } from "./qaChecks";
 import { FAQ_HEADING } from "./htmlSemantics";
-import { featuredStyleBlock, assessFeaturedPrompt } from "./featuredImageStyle";
+import { assignFeaturedVariation, featuredBriefBlock, formatVariationCard, assessFeaturedPrompt } from "./featuredImageStyle";
 import {
   ARTICLE_MIN_WORDS, ARTICLE_MAX_WORDS, ARTICLE_TARGET_WORDS, INTRO_WORDS, SECTION_WORD_TARGETS,
   MAX_H4_PER_SECTION, FAQ_QUESTION_COUNT, FAQ_ANSWER_MAX_WORDS, wordCountPlan,
@@ -1122,7 +1122,7 @@ You brief a photographer (an image model) for the pictures that sit inside long-
 
 Your job for each article is to choose FOUR clearly different pictures, each anchored in the exact text it sits beside on the page, and to write a precise photographic brief for each. A reader should be able to tell from the picture alone which part of the article they are in.
 
-One exception, chosen by the client: the FEATURED (hero) image always follows the Aston VIP signature style set out in the brief — a premium office with the jurisdiction's skyline behind the glass, a gold-titled dossier naming the subject, topic props and the authority named in the scene. The other three pictures never use that formula.`;
+The FEATURED (hero) image is briefed differently: it must meet the client's detail standard (several named, topic-specific props, exact text from the article on real objects, layered depth, premium craft) and follow the variation card assigned to this post, so that posts are easy to tell apart in the blog library. The other three pictures never copy the featured picture's set-up.`;
 
 interface ImagePromptDraft {
   slot: ImageSlot;
@@ -1182,6 +1182,8 @@ export interface ImagePromptOptions {
   recentConcepts?: RecentImageConcept[];
   /** Store this article's four concepts so later posts avoid them (default true). */
   remember?: boolean;
+  /** Featured-image sequence number; drawn from storage when omitted (tests pass one). */
+  featuredSeq?: number;
 }
 
 /**
@@ -1219,10 +1221,28 @@ export async function generateImagePrompts(
     }
   }
 
-  // The featured image repeats one formula on purpose, so its history is only
-  // a "vary the props" hint; the in-article pictures must avoid what was used.
+  // Featured: the code assigns a variation card from an atomic sequence, so
+  // consecutive posts (and a batch generated together) differ in scene, light,
+  // colours, camera and view. In-article pictures avoid what was used recently.
   const recentFeatured  = recent.filter((c) => c.slot === "featured");
   const recentInArticle = recent.filter((c) => c.slot !== "featured");
+  let featuredSeq = opts.featuredSeq;
+  if (featuredSeq === undefined) {
+    try {
+      const { nextFeaturedImageSeq } = await import("./storage");
+      featuredSeq = await nextFeaturedImageSeq();
+    } catch (err) {
+      featuredSeq = Math.floor(Date.now() / 1000);
+      console.warn(`[imagePrompts] featured sequence unavailable (using a time-based number): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  const variation = assignFeaturedVariation({
+    seq: featuredSeq,
+    topicText: [title, focus, related].join(" "),
+    recentScenes: recentFeatured.map((c) => c.scene).filter((x): x is string => !!x),
+  });
+  const recentFeaturedPrompts = recentFeatured.map((c) => c.prompt).filter((x): x is string => !!x).slice(0, 6);
+  console.log(`[imagePrompts] featured card #${variation.seq}: ${variation.scene.id} | ${variation.light} | ${variation.palette} | ${variation.view ?? "no named view"}`);
 
   const userPrompt = `ARTICLE: "${title}"
 Focus keyword: "${focus}"${related ? `\nRelated terms: ${related}` : ""}
@@ -1236,12 +1256,12 @@ ${recentInArticle.length ? `
 IN-ARTICLE PICTURES ALREADY USED ON THE SITE RECENTLY (for keypoint 1, split and keypoint 2: do not repeat these settings or subjects, and do not fall back to a generic version of them):
 ${formatRecentConcepts(recentInArticle)}
 ` : ""}${recentFeatured.length ? `
-RECENT FEATURED IMAGES (keep the signature formula, but choose a different hero object, props, material and light from these):
+RECENT FEATURED IMAGES ON THE BLOG (this one must look clearly different from all of them in a list of thumbnails):
 ${formatRecentConcepts(recentFeatured, 8)}
 ` : ""}
-${featuredStyleBlock()}
+${featuredBriefBlock(variation)}
 
-HOW TO BRIEF THE THREE IN-ARTICLE PICTURES (keypoint 1, split, keypoint 2). Rule 1 also applies to the featured image; rules 2 to 6 do not — it follows the signature style above.
+HOW TO BRIEF THE THREE IN-ARTICLE PICTURES (keypoint 1, split, keypoint 2). Rule 1 also applies to the featured image; rules 2 to 6 do not — it follows its variation card and the detail standard above.
 1. Relevance is the first test and it outranks everything else below. Every picture must be recognisably ABOUT this article: "${focus}". A reader who sees the picture next to the text should understand they belong together. Work the subject into the scene through something real: the jurisdiction or city the text names, the regulator's building or district, the actual document, licence, asset or equipment the text discusses, or a person doing the specific task described. A picture that could sit on any business article is a failed picture, however handsome it is. Never illustrate a word the article does not use: a lease, a mortgage, a shop, a factory or a laboratory on an article about licensing is simply wrong.
 2. Concept second. In one sentence, name the specific idea from the text beside the slot that the picture makes visible: a step in a process, a decision, a consequence, a place, a threshold, a document that matters, a person doing the thing described. "ADGM licensing" is a topic, not a concept; "the moment a founder's business model is tested against the FSRA perimeter before anything is incorporated" is a concept.
 3. Choose the visual approach that genuinely fits each piece of text, from this list. Prefer variety where it is honest, and do not use any one approach more than twice across the four. Never stretch for a different approach at the cost of rule 1 — two well-judged offices beat one office and one irrelevant workbench.
@@ -1250,13 +1270,13 @@ HOW TO BRIEF THE THREE IN-ARTICLE PICTURES (keypoint 1, split, keypoint 2). Rule
    C. Object or detail: one telling object FROM THIS SUBJECT, close and tactile: the licence certificate the text discusses, an embossed regulator seal, a hardware wallet on a custody article, a card reader on a payments article, a passport page on a residency article. The object must be one the article actually mentions.
    D. Workplace in use: the real professional setting where this work happens, framed unusually — from a doorway, over a shoulder, from high in the room, at the end of the day — so it never repeats the standard desk-and-skyline shot.
 4. Vary the craft across the set: different settings, different times of day and light, different camera distances (at least one wide, one medium, one close), different dominant materials and colour accents. The brand feel comes from craft, not from repeating one look.
-5. Limits for the three in-article pictures, all secondary to rule 1: none of them may use the featured formula (a dossier or documents on a desk in front of a skyline window). At most ONE set in an office, boardroom or meeting room. At most ONE showing two people at a table. At most ONE with legible in-scene text, and that text must name something the article itself discusses (the regulator, the jurisdiction, the licence or the document type) — never an unrelated document. The other in-article pictures must contain no readable text at all. Never text overlays, captions, title cards, watermarks, logos, flags, coins or currency symbols. No real people's likenesses.
+5. Limits for the three in-article pictures, all secondary to rule 1: none of them may repeat the featured picture's scene or a dossier-on-a-desk-in-front-of-a-skyline-window set-up. At most ONE set in an office, boardroom or meeting room. At most ONE showing two people at a table. At most ONE with legible in-scene text, and that text must name something the article itself discusses (the regulator, the jurisdiction, the licence or the document type) — never an unrelated document. The other in-article pictures must contain no readable text at all. Never text overlays, captions, title cards, watermarks, logos, flags, coins or currency symbols. No real people's likenesses.
 6. Write the prompt: 45 to 80 words, British English. Concrete nouns. Name the subject or its jurisdiction explicitly in the prompt. One clear subject, its environment, the light, the camera distance and lens, the mood, ending with "photorealistic editorial photograph". State the text rule explicitly in every prompt: "no readable text anywhere in the frame", or, for the one permitted image, exactly what the in-scene text says.
 
 Return ONE valid JSON object and nothing else (no markdown, no code fences):
 {
   "images": [
-    { "slot": "featured", "concept": "one sentence", "approach": "signature", "setting": "3 to 6 word label of the location and subject", "prompt": "the 90 to 150 word signature brief", "alt": "SEO alt text" },
+    { "slot": "featured", "concept": "one sentence", "approach": "${variation.scene.id}", "setting": "3 to 6 word label of the location and subject", "prompt": "the 90 to 150 word brief following the variation card", "alt": "SEO alt text" },
     { "slot": "keypoint_one", "concept": "...", "approach": "...", "setting": "...", "prompt": "...", "alt": "..." },
     { "slot": "post_split", "concept": "...", "approach": "...", "setting": "...", "prompt": "...", "alt": "..." },
     { "slot": "keypoint_two", "concept": "...", "approach": "...", "setting": "...", "prompt": "...", "alt": "..." }
@@ -1289,7 +1309,7 @@ ALT TEXT RULES (SEO, all mandatory):
   const review = (prompts: string[]) => {
     const r = assessPromptRelevance(prompts, labels, subject);
     const d = assessPromptDiversity(prompts.slice(1), labels.slice(1), { maxOffices: 1 });
-    const f = assessFeaturedPrompt(prompts[0], labels[0]);
+    const f = assessFeaturedPrompt(prompts[0], { variation, recentPrompts: recentFeaturedPrompts, label: labels[0] });
     const issues = [...r.issues, ...f, ...d.issues];
     return { ok: issues.length === 0, issues };
   };
@@ -1301,7 +1321,7 @@ ALT TEXT RULES (SEO, all mandatory):
       messages: [
         ...messages,
         { role: "assistant", content: firstRaw },
-        { role: "user", content: `Revise the set. An automated check found these problems:\n- ${report.issues.join("\n- ")}\n\nKeep every picture anchored to the text beside its slot, change only what is needed to fix the problems above, and return the complete JSON object again with all four images. Relevance problems come first: a flagged picture must be rebriefed around something this article actually describes, even if that means two pictures sharing an approach.` },
+        { role: "user", content: `Revise the set. An automated check found these problems:\n- ${report.issues.join("\n- ")}\n\nThe featured image must still follow this card:\n${formatVariationCard(variation)}\n\nKeep every picture anchored to the text beside its slot, change only what is needed to fix the problems above, and return the complete JSON object again with all four images. Relevance problems come first: a flagged picture must be rebriefed around something this article actually describes, even if that means two pictures sharing an approach.` },
       ],
     }, { label: "imagePrompts:revise", timeoutMs: 120_000 });
     try {
@@ -1329,6 +1349,7 @@ ALT TEXT RULES (SEO, all mandatory):
         post: title, slot, at,
         concept: draft[slot].concept || draft[slot].prompt.slice(0, 120),
         setting: draft[slot].setting || draft[slot].approach || "unlabelled",
+        ...(slot === "featured" ? { scene: variation.scene.id, prompt: draft[slot].prompt.slice(0, 900) } : {}),
       })));
     } catch (err) {
       console.warn(`[imagePrompts] could not store image concepts (non-fatal): ${err instanceof Error ? err.message : String(err)}`);

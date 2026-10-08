@@ -234,6 +234,7 @@ const KEYS = {
   postHistory:  "aston:post_history",
   imageConcepts: "aston:image_concepts",
   videoSceneConcepts: "aston:video_scene_concepts",
+  featuredSeq:  "aston:featured_image_seq",
 } as const;
 
 const DEFAULT_SETTINGS: SchedulerSettings = {
@@ -642,6 +643,27 @@ const conceptKey = (scope: ImageConceptScope) => (scope === "video" ? KEYS.video
 export async function getRecentImageConcepts(scope: ImageConceptScope = "article"): Promise<RecentImageConcept[]> {
   const list = await kget<RecentImageConcept[]>(conceptKey(scope), []);
   return Array.isArray(list) ? list : [];
+}
+
+/**
+ * Next number in the featured-image sequence (atomic INCR on Redis). Each
+ * post's featured picture setup — scene, light, colours, camera, view — is
+ * derived from it (lib/featuredImageStyle.ts), so posts generated at the same
+ * moment still get different pictures. Falls back to a time-based number.
+ */
+export async function nextFeaturedImageSeq(): Promise<number> {
+  const redis = await getAdapter();
+  if (redis) {
+    try {
+      return await redis.incr(KEYS.featuredSeq);
+    } catch (err) {
+      console.warn(`[storage:nextFeaturedImageSeq] Redis error (using a time-based number): ${err instanceof Error ? err.message : String(err)}`);
+      return Math.floor(Date.now() / 1000);
+    }
+  }
+  const n = (await fileGet<number>(KEYS.featuredSeq, 0)) + 1;
+  await fileSet(KEYS.featuredSeq, n);
+  return n;
 }
 
 export async function rememberImageConcepts(entries: RecentImageConcept[], scope: ImageConceptScope = "article"): Promise<void> {

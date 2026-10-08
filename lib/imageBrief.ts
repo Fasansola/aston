@@ -83,6 +83,10 @@ export interface RecentImageConcept {
   concept: string;
   setting: string;
   at: string; // ISO timestamp
+  /** Featured only: the assigned scene type (lib/featuredImageStyle.ts). */
+  scene?: string;
+  /** Featured only: the brief itself, for the across-posts similarity check. */
+  prompt?: string;
 }
 
 // ── HTML → text ───────────────────────────────────────────────
@@ -246,6 +250,11 @@ const STOP = new Set((
 function contentWords(prompt: string): Set<string> {
   const words = prompt.toLowerCase().replace(/[^a-z0-9\-\s]/g, " ").split(/\s+/).filter(Boolean);
   return new Set(words.filter((w) => w.length >= 4 && !STOP.has(w) && !/^\d+(mm|k)?$/.test(w)));
+}
+
+/** Share of subject words two prompts have in common (0–1). */
+export function promptSimilarity(a: string, b: string): number {
+  return jaccard(contentWords(a), contentWords(b));
 }
 
 function jaccard(a: Set<string>, b: Set<string>): number {
