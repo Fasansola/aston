@@ -10,7 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getSettings, getQueue, recoverStuckProcessingItems } from "@/lib/storage";
+import { getSettings, getQueue, recoverStuckProcessingItems, compactQueueIfIdle } from "@/lib/storage";
 import { notify } from "@/lib/notify";
 
 export const maxDuration = 30;
@@ -26,12 +26,19 @@ export async function GET(req: NextRequest) {
 
   try {
     const { maxRetries } = await getSettings();
-    const recovered = await recoverStuckProcessingItems(maxRetries ?? 2);
+    const queue = await getQueue();
+    const recovered = await recoverStuckProcessingItems(maxRetries ?? 2, queue);
+
+    // One-time shrink of completed items' briefs written before saveQueue
+    // started compacting (a no-op once done, and skipped while a run is
+    // processing so it can never race the run's own status write).
+    const compacted = recovered === 0 && await compactQueueIfIdle(queue);
+    if (compacted) console.log("[watchdog] Dropped stored briefs from completed queue items");
 
     if (recovered > 0) {
-      // Report what the recovery decided: re-queued items retry on the next
-      // cron; exhausted ones are failed and need a manual "Retry now".
-      const queue = await getQueue();
+      // Report what the recovery decided (`queue` was updated in place):
+      // re-queued items retry on the next cron; exhausted ones are failed and
+      // need a manual "Retry now".
       const failed = queue.filter((i) => i.status === "failed").length;
       const queued = queue.filter((i) => i.status === "queued").length;
       console.warn(`[watchdog] Recovered ${recovered} stuck item(s) — queue now: ${queued} queued, ${failed} failed`);
@@ -41,7 +48,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ recovered });
+    return NextResponse.json({ recovered, compacted });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[watchdog] Failed: ${msg}`);

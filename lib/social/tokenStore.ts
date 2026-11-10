@@ -41,7 +41,12 @@ export const STORED_PLATFORMS: SocialTarget[] = [
 const key = (platform: SocialTarget) => `aston:social:token:${platform}`;
 
 export async function getToken(platform: SocialTarget): Promise<OAuthTokenRecord | null> {
-  return kget<OAuthTokenRecord | null>(key(platform), null);
+  // Lenient on a storage error: callers fall back to the env token, and a
+  // missing record is never written back over a stored one.
+  return kget<OAuthTokenRecord | null>(key(platform), null).catch((err) => {
+    console.warn(`[tokenStore] could not read ${platform} token: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  });
 }
 
 export async function saveToken(platform: SocialTarget, record: OAuthTokenRecord): Promise<void> {

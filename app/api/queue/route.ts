@@ -13,7 +13,7 @@ import {
   addQueueItem,
   updateQueueItem,
   deleteQueueItem,
-  completedTodayCount,
+  countCompletedToday,
   getSettings,
   recoverStuckProcessingItems,
 } from "@/lib/storage";
@@ -38,20 +38,22 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // ONE full-queue read per request: the dashboard polls this endpoint while
+    // a post generates, and the queue is a single (large) Redis value, so each
+    // extra read multiplied Upstash bandwidth (it used to be read three times).
+    const queue = await getQueue();
+
     // Watchdog: recover items pinned in "processing" by a killed run, so the
-    // admin (which polls this endpoint) auto-heals them without waiting for the
-    // once-daily cron. Non-fatal.
+    // admin auto-heals them without waiting for the 30-minute cron. Updates
+    // `queue` in place. Non-fatal.
     try {
       const { maxRetries } = await getSettings();
-      await recoverStuckProcessingItems(maxRetries ?? 2);
+      await recoverStuckProcessingItems(maxRetries ?? 2, queue);
     } catch (err) {
       console.warn(`[queue:GET] Watchdog check failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    const [queue, completedToday] = await Promise.all([
-      getQueue(),
-      completedTodayCount(),
-    ]);
+    const completedToday = countCompletedToday(queue);
 
     const stats = {
       total: queue.length,

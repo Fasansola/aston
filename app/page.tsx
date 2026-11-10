@@ -590,11 +590,14 @@ export default function AdminPage() {
 
   // Live-refresh the queue while a post is being generated so its step-by-step
   // progress advances on screen — the scheduler equivalent of the manual
-  // page's progress stream. Polls only while something is actually processing.
+  // page's progress stream. Polls only while something is actually processing,
+  // every 10 s: steps are minutes apart, and each poll reads the whole queue
+  // from Upstash (the 4 s poll was a big part of exhausting the plan's
+  // monthly bandwidth in Oct/Nov 2026).
   const anyProcessing = items.some((i) => i.status === "processing");
   useEffect(() => {
     if (!isAuthed || !anyProcessing || (tab !== "dashboard" && tab !== "queue")) return;
-    const t = setInterval(() => { fetchDashboard(); }, 4000);
+    const t = setInterval(() => { fetchDashboard(); }, 10_000);
     return () => clearInterval(t);
   }, [isAuthed, anyProcessing, tab, fetchDashboard]);
 

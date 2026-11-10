@@ -202,7 +202,10 @@ export async function getPodcastEpisodes(config: PodcastConfig): Promise<Episode
       console.warn(`[podcast] live feed returned no episodes but ${cached.episodes.length} were cached — serving the cached copy`);
       return { episodes: cached.episodes, source: "cache", cachedAt: cached.at, error: "live feed returned no episodes" };
     }
-    if (live.length > 0) {
+    // Rewrite the cache only when the episode list changed — the feed is
+    // fetched by podcast apps all day and each write is ~30 KB of bandwidth.
+    const unchanged = !!cached && JSON.stringify(cached.episodes) === JSON.stringify(live);
+    if (live.length > 0 && !unchanged) {
       await kset(RSS_CACHE_KEY, { episodes: live, at: new Date().toISOString() } satisfies RssCache)
         .catch((err) => console.warn(`[podcast] could not cache episodes (non-fatal): ${err instanceof Error ? err.message : String(err)}`));
     }

@@ -291,16 +291,29 @@ async function fileSet<T>(key: string, value: T): Promise<void> {
 
 // ── Generic get / set ─────────────────────────────────────────
 
+/**
+ * Read a key. `fallback` is returned only when the key does not exist.
+ *
+ * A Redis ERROR throws instead of returning the fallback. Almost every writer
+ * here is read-modify-write (get the queue, change one item, save the queue),
+ * so treating "Redis refused the read" as "the list is empty" would make the
+ * next save overwrite the real data with a near-empty copy. That nearly
+ * happened in Nov 2026: with the Upstash plan limit hit, reads came back as []
+ * and an enqueue tried to save a one-item queue over the whole queue — only
+ * the write also being refused prevented the loss. getLinks() would likewise
+ * have re-seeded the synced link list from the static JSON.
+ */
 export async function kget<T>(key: string, fallback: T): Promise<T> {
   const redis = await getAdapter();
   if (redis) {
+    let val: T | null;
     try {
-      const val = await redis.get<T>(key);
-      return val ?? fallback;
+      val = await redis.get<T>(key);
     } catch (err) {
       console.error(`[storage:kget] Redis error for key "${key}":`, err);
-      return fallback;
+      throw new Error(`Storage read failed for "${key}": ${err instanceof Error ? err.message : String(err)}`);
     }
+    return val ?? fallback;
   }
   return fileGet(key, fallback);
 }
@@ -374,8 +387,43 @@ export async function getQueue(): Promise<QueueItem[]> {
   return kget<QueueItem[]>(KEYS.queue, []);
 }
 
+// The whole queue is one Redis value that is read and rewritten on every
+// enqueue, progress tick and dashboard refresh, so its size multiplies into
+// Upstash bandwidth. Since 2026-09-23 each item carries the client's full
+// brief (~20–25 KB of customPrompt), and completed items are kept forever for
+// stats and performance sync — by November the queue was megabytes and the
+// Fixed plan's monthly bandwidth ran out in six days. A completed item never
+// needs its brief or source text again (the generation run received them at
+// start, and only queued/failed items can be run), so they are dropped on save.
+const BULKY_QUEUE_FIELDS = ["customPrompt", "sourceText"] as const;
+
+/** True when a completed item still carries text only a future run would need. */
+export function queueItemNeedsCompaction(item: QueueItem): boolean {
+  return item.status === "completed" && BULKY_QUEUE_FIELDS.some((f) => !!item[f]);
+}
+
+/** Copy of the item without the bulky inputs, when it is completed; otherwise the item itself. */
+export function compactQueueItem(item: QueueItem): QueueItem {
+  if (!queueItemNeedsCompaction(item)) return item;
+  const compact: QueueItem = { ...item, sourceText: "" };
+  delete compact.customPrompt;
+  return compact;
+}
+
 export async function saveQueue(items: QueueItem[]): Promise<void> {
-  return kset(KEYS.queue, items);
+  return kset(KEYS.queue, items.map(compactQueueItem));
+}
+
+/**
+ * Save the queue once to drop completed items' briefs, but only when nothing
+ * is processing: a full-queue write racing a running generation could revert
+ * its "completed" status. Returns true when it wrote.
+ */
+export async function compactQueueIfIdle(queue: QueueItem[]): Promise<boolean> {
+  if (!queue.some(queueItemNeedsCompaction)) return false;
+  if (queue.some((i) => i.status === "processing")) return false;
+  await saveQueue(queue);
+  return true;
 }
 
 // A scheduled generation runs inside one function invocation with a hard time
@@ -405,8 +453,12 @@ async function isWorkflowRunAlive(runId: string): Promise<boolean | null> {
   }
 }
 
-export async function recoverStuckProcessingItems(maxRetries = 2): Promise<number> {
-  const queue = await getQueue();
+/**
+ * Pass `preloaded` (the queue you already read) to avoid a second full-queue
+ * read; recovered items are updated in that array in place.
+ */
+export async function recoverStuckProcessingItems(maxRetries = 2, preloaded?: QueueItem[]): Promise<number> {
+  const queue = preloaded ?? await getQueue();
   const now = Date.now();
   let changed = 0;
 
@@ -692,12 +744,16 @@ export async function updateRunLog(
 
 // ── Quota helpers ─────────────────────────────────────────────
 
-export async function completedTodayCount(): Promise<number> {
-  const today = new Date().toISOString().slice(0, 10);
-  const queue = await getQueue();
+/** Completed-today count from a queue you already hold (no extra read). */
+export function countCompletedToday(queue: QueueItem[], now = new Date()): number {
+  const today = now.toISOString().slice(0, 10);
   return queue.filter(
     (i) => i.status === "completed" && i.completedAt?.startsWith(today)
   ).length;
+}
+
+export async function completedTodayCount(): Promise<number> {
+  return countCompletedToday(await getQueue());
 }
 
 // ── Performance Tracking ──────────────────────────────────────

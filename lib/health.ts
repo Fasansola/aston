@@ -154,8 +154,29 @@ export async function checkStorage(): Promise<HealthCheck> {
     }
     return { status: "ok", message: "Upstash Redis reachable", ms: Date.now() - t0 };
   } catch (err) {
-    return { status: "fail", message: `Storage error: ${errorMessage(err).slice(0, 160)}`, blocking: true, ms: Date.now() - t0 };
+    const msg = errorMessage(err);
+    return {
+      status: "fail",
+      message: `Storage error: ${msg.slice(0, 160)}`,
+      hint: storageHint(msg),
+      blocking: true,
+      ms: Date.now() - t0,
+    };
   }
+}
+
+/** What to do about a storage failure, when the message says which limit it is. */
+export function storageHint(message: string): string | undefined {
+  if (/fixed plan limits|max(imum)? bandwidth|bandwidth limit/i.test(message)) {
+    return "The Upstash database hit its plan's monthly limit, so every read and write is refused until the plan is raised or the month resets. Upstash Console → this database → Usage shows which limit; raise the plan or turn on Auto Upgrade there, then press Re-check.";
+  }
+  if (/capacity quota|max(imum)? data size/i.test(message)) {
+    return "The Upstash database is full (max data size). Raise the plan or turn on Auto Upgrade in the Upstash Console, then press Re-check.";
+  }
+  if (/daily request limit|max requests/i.test(message)) {
+    return "The Upstash database hit its request limit. Raise the plan in the Upstash Console, then press Re-check.";
+  }
+  return undefined;
 }
 
 export function checkAlerts(): HealthCheck {
