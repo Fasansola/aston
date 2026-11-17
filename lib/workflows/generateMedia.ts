@@ -26,7 +26,7 @@
  */
 
 import { sleep, getWritable, FatalError } from "workflow";
-import { isNonRetryableMessage, humaniseError } from "@/lib/errors";
+import { isNonRetryableMessage, humaniseError, errorMessageOf } from "@/lib/errors";
 import type { ImagePrompts } from "@/lib/wordpress";
 // Type-only imports (erased at compile time) — the concrete modules pull in
 // Node built-ins (ffmpeg-static, child_process, fs…) which the workflow bundle
@@ -453,7 +453,7 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
 
   const result: GenerateMediaResult = { audioUrl: null, youtubeUrl: null, podcastUrl: null, errors: [] };
   const fail = async (label: string, err: unknown) => {
-    const raw = err instanceof Error ? err.message : String(err);
+    const raw = errorMessageOf(err);
     const msg = `${label}: ${raw}`;
     console.error(`[generateMedia] ${msg}`);
     result.errors.push(msg);
@@ -504,7 +504,7 @@ export async function generateMediaWorkflow(input: GenerateMediaInput): Promise<
         await emit({ type: "media_done", output: "images", url: input.blogUrl ?? "" });
         break;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errorMessageOf(err);
         if (humaniseError(msg).kind === "wordpress_blocked" && i < waits.length) {
           console.warn(`[generateMedia] images blocked by SiteGround — waiting ${waits[i]} before retry ${i + 1}/${waits.length}`);
           await emit({ type: "progress", output: "images", message: `WordPress is blocking Vercel (SiteGround anti-bot); trying the images again in ${waits[i].replace("m", " min")} (${i + 1} of ${waits.length})` });

@@ -27,7 +27,7 @@
  */
 
 import { getWritable, FatalError, sleep } from "workflow";
-import { humaniseError } from "@/lib/errors";
+import { humaniseError, errorMessageOf, errorNameOf } from "@/lib/errors";
 import { draftKeyFor, inputSignature, DRAFT_STAGE_LABELS } from "@/lib/draftCore";
 import type { GenerationDraft, DraftQa } from "@/lib/drafts";
 
@@ -583,8 +583,7 @@ function imageBriefInputsChanged(prev: BlogContent, next: BlogContent): boolean 
 }
 
 function isWordPressBlocked(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err ?? "");
-  return humaniseError(msg).kind === "wordpress_blocked";
+  return humaniseError(err).kind === "wordpress_blocked";
 }
 
 async function publishWithPatience(
@@ -892,12 +891,9 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
     // client, close the stream so it never hangs, then re-throw so the run is
     // marked failed in observability. Whatever was generated is in the draft
     // store — the next run resumes from it.
-    const errName = err instanceof Error ? err.constructor.name : typeof err;
-    const errMsg  = err instanceof Error
-      ? err.message
-      : typeof err === "string"
-      ? err
-      : (() => { try { return JSON.stringify(err); } catch { return String(err); } })();
+    // Realm-safe: errors re-thrown from steps fail `instanceof Error` here.
+    const errName = errorNameOf(err);
+    const errMsg  = errorMessageOf(err);
     console.error(`[generatePost] Workflow failed — ${errName}: ${errMsg}`, err);
     const message = errMsg || "Generation failed unexpectedly. Please try again.";
     await save({ lastError: message });

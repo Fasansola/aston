@@ -56,8 +56,34 @@ export function stripStepPrefix(raw: string): { message: string; step?: string }
   return { message: raw.slice(m[0].length), step };
 }
 
+/**
+ * The message of any thrown value. Inside a WDK workflow body, errors coming
+ * back from steps are built in a different JS realm, so `err instanceof Error`
+ * is FALSE for them — and JSON.stringify drops their non-enumerable `message`,
+ * which is how operators ended up seeing `{"fatal":true,"name":"FatalError"}`
+ * instead of "OpenAI account has no credits remaining". Duck-type instead.
+ */
+export function errorMessageOf(err: unknown): string {
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object" && typeof (err as { message?: unknown }).message === "string") {
+    return (err as { message: string }).message;
+  }
+  if (err == null) return "";
+  try { return JSON.stringify(err); } catch { return String(err); }
+}
+
+/** Constructor name of any thrown value, realm-safe (see errorMessageOf). */
+export function errorNameOf(err: unknown): string {
+  if (err && typeof err === "object") {
+    const name = (err as { name?: unknown }).name;
+    if (typeof name === "string" && name) return name;
+    return (err as object).constructor?.name ?? "object";
+  }
+  return typeof err;
+}
+
 export function humaniseError(input: unknown): HumanError {
-  const raw = (input instanceof Error ? input.message : typeof input === "string" ? input : String(input ?? "")).trim();
+  const raw = errorMessageOf(input).trim();
   const { message, step } = stripStepPrefix(raw);
   const where = step ? ` (in the ${step} step)` : "";
   const build = (kind: ErrorKind, title: string, action: string, retryable: boolean): HumanError =>

@@ -57,3 +57,18 @@ describe("stripStepPrefix", () => {
     expect(stripStepPrefix("plain")).toEqual({ message: "plain" });
   });
 });
+
+describe("errorMessageOf (cross-realm errors in workflow bodies)", () => {
+  it("reads message from an Error-like object that fails instanceof Error", async () => {
+    const { errorMessageOf, errorNameOf, humaniseError } = await import("../lib/errors");
+    const vm = await import("node:vm");
+    const foreign = vm.runInNewContext(
+      'const e = new Error("OpenAI account has no credits remaining. Add credits."); e.name = "FatalError"; e.fatal = true; e'
+    );
+    expect(foreign instanceof Error).toBe(false);
+    expect(JSON.stringify(foreign)).toBe('{"name":"FatalError","fatal":true}');
+    expect(errorMessageOf(foreign)).toBe("OpenAI account has no credits remaining. Add credits.");
+    expect(errorNameOf(foreign)).toBe("FatalError");
+    expect(humaniseError(foreign).kind).toBe("quota");
+  });
+});
