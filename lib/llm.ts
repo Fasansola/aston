@@ -124,7 +124,7 @@ export function classifyLlmError(err: unknown): NonRetryableLlmError | null {
   if (code === "insufficient_quota" || type === "insufficient_quota" || QUOTA_RE.test(message)) {
     return new NonRetryableLlmError(
       "quota",
-      "OpenAI account has no credits remaining. Add credits (and turn on auto-recharge) at platform.openai.com → Settings → Billing, then retry.",
+      "Out of OpenAI credits: the OpenAI account has no credits remaining. Add credit at platform.openai.com → Settings → Billing (turn on auto-recharge so it doesn't happen again), then press Retry now.",
       err
     );
   }

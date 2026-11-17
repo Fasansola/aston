@@ -27,7 +27,7 @@
  */
 
 import { getWritable, FatalError, sleep } from "workflow";
-import { humaniseError, errorMessageOf, errorNameOf } from "@/lib/errors";
+import { humaniseError, formatQueueError, errorMessageOf, errorNameOf } from "@/lib/errors";
 import { draftKeyFor, inputSignature, DRAFT_STAGE_LABELS } from "@/lib/draftCore";
 import type { GenerationDraft, DraftQa } from "@/lib/drafts";
 
@@ -900,7 +900,8 @@ export async function generatePostWorkflow(input: GeneratePostInput): Promise<{ 
     if (input.queueItemId) {
       await failItemStep(input.queueItemId, input.runLogId, input.title || input.customInstruction?.slice(0, 60) || "untitled", message);
     }
-    await emit({ type: "error", message });
+    // Same plain-English wording the dashboard rows show (lib/errors.ts).
+    await emit({ type: "error", message: formatQueueError(humaniseError(message)) });
     await closeStream();
     throw err;
   }

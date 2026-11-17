@@ -89,9 +89,10 @@ export function humaniseError(input: unknown): HumanError {
   const build = (kind: ErrorKind, title: string, action: string, retryable: boolean): HumanError =>
     ({ kind, title: `${title}${where}`, action, step, raw, retryable });
 
-  if (/no credits remaining|insufficient_quota|exceeded your current quota|has no credits/i.test(message)) {
-    return build("quota", "OpenAI credits exhausted",
-      "Top up at platform.openai.com → Settings → Billing (and turn on auto-recharge), then press Retry now.", false);
+  if (/no credits remaining|insufficient_quota|exceeded your current quota|has no credits|billing hard limit|add credits to continue/i.test(message)) {
+    return build("quota", "Out of OpenAI credits",
+      "The OpenAI account ran out of credit, so this post could not be written. Nothing is lost: the work done so far is saved. " +
+      "Add credit at platform.openai.com → Settings → Billing (turn on auto-recharge so it doesn't happen again), then press Retry now.", false);
   }
   if (/monthly (openai )?token budget/i.test(message)) {
     return build("budget", "Monthly OpenAI token budget reached",

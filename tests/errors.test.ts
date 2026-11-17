@@ -11,7 +11,7 @@ describe("humaniseError", () => {
     expect(h.kind).toBe("quota");
     expect(h.retryable).toBe(false);
     expect(h.step).toBe("strategy");
-    expect(h.title).toContain("OpenAI credits exhausted");
+    expect(h.title).toContain("Out of OpenAI credits");
     expect(h.title).toContain("strategy step");
     expect(formatQueueError(h)).toMatch(/Retry now/);
     expect(h.raw).toBe(NO_CREDITS);
